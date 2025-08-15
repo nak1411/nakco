@@ -86,13 +86,19 @@ func setup_managers():
 func setup_ui():
 	# Configure toolbar buttons
 	refresh_button.text = "Refresh"
-	refresh_button.icon = preload("res://assets/icons/ui/refresh.svg")
+	var refresh_icon_path = "res://assets/icons/ui/refresh.svg"
+	if FileAccess.file_exists(refresh_icon_path):
+		refresh_button.icon = load(refresh_icon_path)
 
 	alerts_button.text = "Alerts"
-	alerts_button.icon = preload("res://assets/icons/ui/alert.svg")
+	var alert_icon_path = "res://assets/icons/ui/alert.svg"
+	if FileAccess.file_exists(alert_icon_path):
+		alerts_button.icon = load(alert_icon_path)
 
 	settings_button.text = "Settings"
-	settings_button.icon = preload("res://assets/icons/ui/settings.svg")
+	var settings_icon_path = "res://assets/icons/ui/settings.svg"
+	if FileAccess.file_exists(settings_icon_path):
+		settings_button.icon = load(settings_icon_path)
 
 	# Setup region selector
 	populate_region_selector()

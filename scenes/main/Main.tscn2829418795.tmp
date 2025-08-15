@@ -1,0 +1,502 @@
+[gd_scene load_steps=3 format=3 uid="uid://b68b5f8ogrfw"]
+
+[ext_resource type="Script" uid="uid://blgondnscj8dt" path="res://scenes/main/Main.gd" id="1_0x5yr"]
+
+[sub_resource type="LabelSettings" id="LabelSettings_1"]
+font_size = 12
+font_color = Color(0.8, 0.85, 0.9, 1)
+
+[node name="Main" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_0x5yr")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.1, 0.12, 0.15, 1)
+
+[node name="UIManager" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MenuBar" type="MenuBar" parent="UIManager"]
+layout_mode = 2
+anchor_right = 1.0
+anchor_bottom = 0.03
+
+[node name="File" type="PopupMenu" parent="UIManager/MenuBar"]
+item_count = 4
+item_0/text = "New Portfolio"
+item_0/id = 0
+item_1/text = "Open Portfolio"
+item_1/id = 1
+item_2/text = "Save Portfolio"
+item_2/id = 2
+item_3/text = "Exit"
+item_3/id = 3
+
+[node name="Edit" type="PopupMenu" parent="UIManager/MenuBar"]
+item_count = 3
+item_0/text = "Preferences"
+item_0/id = 0
+item_1/text = "Clear Cache"
+item_1/id = 1
+item_2/text = "Reset Layout"
+item_2/id = 2
+
+[node name="View" type="PopupMenu" parent="UIManager/MenuBar"]
+item_count = 4
+item_0/text = "Market Overview"
+item_0/id = 0
+item_1/text = "Charts"
+item_1/id = 1
+item_2/text = "Portfolio"
+item_2/id = 2
+item_3/text = "Analytics"
+item_3/id = 3
+
+[node name="Tools" type="PopupMenu" parent="UIManager/MenuBar"]
+item_count = 3
+item_0/text = "Price Alerts"
+item_0/id = 0
+item_1/text = "Profit Calculator"
+item_1/id = 1
+item_2/text = "Market Scanner"
+item_2/id = 2
+
+[node name="Help" type="PopupMenu" parent="UIManager/MenuBar"]
+item_count = 3
+item_0/text = "User Guide"
+item_0/id = 0
+item_1/text = "API Documentation"
+item_1/id = 1
+item_2/text = "About"
+item_2/id = 2
+
+[node name="Toolbar" type="HBoxContainer" parent="UIManager"]
+layout_mode = 2
+anchor_top = 0.03
+anchor_right = 1.0
+anchor_bottom = 0.08
+offset_left = 8.0
+offset_top = 4.0
+offset_right = -8.0
+offset_bottom = -4.0
+
+[node name="RefreshButton" type="Button" parent="UIManager/Toolbar"]
+layout_mode = 2
+text = "Refresh"
+
+[node name="VSeparator" type="VSeparator" parent="UIManager/Toolbar"]
+layout_mode = 2
+
+[node name="RegionLabel" type="Label" parent="UIManager/Toolbar"]
+layout_mode = 2
+text = "Region:"
+vertical_alignment = 1
+
+[node name="RegionSelector" type="OptionButton" parent="UIManager/Toolbar"]
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+item_count = 5
+popup/item_0/text = "The Forge (Jita)"
+popup/item_0/id = 0
+popup/item_1/text = "Domain (Amarr)"
+popup/item_1/id = 1
+popup/item_2/text = "Sinq Laison (Dodixie)"
+popup/item_2/id = 2
+popup/item_3/text = "Metropolis (Rens)"
+popup/item_3/id = 3
+popup/item_4/text = "Heimatar (Hek)"
+popup/item_4/id = 4
+
+[node name="VSeparator2" type="VSeparator" parent="UIManager/Toolbar"]
+layout_mode = 2
+
+[node name="AlertsButton" type="Button" parent="UIManager/Toolbar"]
+layout_mode = 2
+text = "Alerts"
+
+[node name="SettingsButton" type="Button" parent="UIManager/Toolbar"]
+layout_mode = 2
+text = "Settings"
+
+[node name="Spacer" type="Control" parent="UIManager/Toolbar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="MainContent" type="HSplitContainer" parent="UIManager"]
+layout_mode = 2
+anchor_top = 0.08
+anchor_right = 1.0
+anchor_bottom = 0.97
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+split_offset = 280
+
+[node name="LeftPanel" type="VSplitContainer" parent="UIManager/MainContent"]
+custom_minimum_size = Vector2(250, 0)
+layout_mode = 2
+split_offset = 180
+
+[node name="SearchPanel" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel"]
+layout_mode = 2
+
+[node name="SearchLabel" type="Label" parent="UIManager/MainContent/LeftPanel/SearchPanel"]
+layout_mode = 2
+text = "Item Search"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="SearchContainer" type="HBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchPanel"]
+layout_mode = 2
+
+[node name="ItemSearch" type="LineEdit" parent="UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Search items..."
+clear_button_enabled = true
+
+[node name="SearchButton" type="Button" parent="UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer"]
+custom_minimum_size = Vector2(32, 32)
+layout_mode = 2
+
+[node name="SearchResults" type="ScrollContainer" parent="UIManager/MainContent/LeftPanel/SearchPanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SearchResultsList" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchPanel/SearchResults"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="WatchlistPanel" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel"]
+layout_mode = 2
+
+[node name="WatchlistHeader" type="HBoxContainer" parent="UIManager/MainContent/LeftPanel/WatchlistPanel"]
+layout_mode = 2
+
+[node name="WatchlistLabel" type="Label" parent="UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Watchlist"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="AddToWatchlistButton" type="Button" parent="UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistHeader"]
+custom_minimum_size = Vector2(24, 24)
+layout_mode = 2
+text = "+"
+
+[node name="WatchlistContainer" type="ScrollContainer" parent="UIManager/MainContent/LeftPanel/WatchlistPanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="WatchlistItems" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CenterPanel" type="TabContainer" parent="UIManager/MainContent"]
+layout_mode = 2
+size_flags_horizontal = 3
+tab_alignment = 1
+current_tab = 0
+
+[node name="MarketOverview" type="Control" parent="UIManager/MainContent/CenterPanel"]
+layout_mode = 2
+metadata/_tab_index = 0
+
+[node name="MarketGrid" type="ScrollContainer" parent="UIManager/MainContent/CenterPanel/MarketOverview"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="GridContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="GridHeader" type="HBoxContainer" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid/GridContainer"]
+layout_mode = 2
+
+[node name="ItemNameHeader" type="Label" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+custom_minimum_size = Vector2(200, 0)
+layout_mode = 2
+text = "Item"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="BuyPriceHeader" type="Label" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Buy Price"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="SellPriceHeader" type="Label" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+custom_minimum_size = Vector2(100, 0)
+layout_mode = 2
+text = "Sell Price"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="SpreadHeader" type="Label" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+text = "Spread"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="VolumeHeader" type="Label" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+text = "Volume"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="MarginHeader" type="Label" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+custom_minimum_size = Vector2(80, 0)
+layout_mode = 2
+text = "Margin %"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="GridData" type="VBoxContainer" parent="UIManager/MainContent/CenterPanel/MarketOverview/MarketGrid/GridContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Charts" type="Control" parent="UIManager/MainContent/CenterPanel"]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 1
+
+[node name="ChartContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterPanel/Charts"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ChartControls" type="HBoxContainer" parent="UIManager/MainContent/CenterPanel/Charts/ChartContainer"]
+layout_mode = 2
+
+[node name="ChartTypeLabel" type="Label" parent="UIManager/MainContent/CenterPanel/Charts/ChartContainer/ChartControls"]
+layout_mode = 2
+text = "Chart Type:"
+
+[node name="ChartTypeSelector" type="OptionButton" parent="UIManager/MainContent/CenterPanel/Charts/ChartContainer/ChartControls"]
+layout_mode = 2
+item_count = 3
+popup/item_0/text = "Price Chart"
+popup/item_0/id = 0
+popup/item_1/text = "Volume Chart"
+popup/item_1/id = 1
+popup/item_2/text = "Combined"
+popup/item_2/id = 2
+
+[node name="TimeframeLabel" type="Label" parent="UIManager/MainContent/CenterPanel/Charts/ChartContainer/ChartControls"]
+layout_mode = 2
+text = "Timeframe:"
+
+[node name="TimeframeSelector" type="OptionButton" parent="UIManager/MainContent/CenterPanel/Charts/ChartContainer/ChartControls"]
+layout_mode = 2
+item_count = 4
+popup/item_0/text = "1 Day"
+popup/item_0/id = 0
+popup/item_1/text = "7 Days"
+popup/item_1/id = 1
+popup/item_2/text = "30 Days"
+popup/item_2/id = 2
+popup/item_3/text = "90 Days"
+popup/item_3/id = 3
+
+[node name="ChartArea" type="Control" parent="UIManager/MainContent/CenterPanel/Charts/ChartContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Portfolio" type="Control" parent="UIManager/MainContent/CenterPanel"]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 2
+
+[node name="PortfolioContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterPanel/Portfolio"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PortfolioSummary" type="HBoxContainer" parent="UIManager/MainContent/CenterPanel/Portfolio/PortfolioContainer"]
+layout_mode = 2
+
+[node name="TotalValueLabel" type="Label" parent="UIManager/MainContent/CenterPanel/Portfolio/PortfolioContainer/PortfolioSummary"]
+layout_mode = 2
+text = "Total Value: 0 ISK"
+
+[node name="ProfitLossLabel" type="Label" parent="UIManager/MainContent/CenterPanel/Portfolio/PortfolioContainer/PortfolioSummary"]
+layout_mode = 2
+text = "P&L: 0 ISK (0%)"
+
+[node name="PortfolioGrid" type="ScrollContainer" parent="UIManager/MainContent/CenterPanel/Portfolio/PortfolioContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Analytics" type="Control" parent="UIManager/MainContent/CenterPanel"]
+visible = false
+layout_mode = 2
+metadata/_tab_index = 3
+
+[node name="RightPanel" type="VBoxContainer" parent="UIManager/MainContent"]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+
+[node name="OrderBookPanel" type="VBoxContainer" parent="UIManager/MainContent/RightPanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="OrderBookHeader" type="Label" parent="UIManager/MainContent/RightPanel/OrderBookPanel"]
+layout_mode = 2
+text = "Order Book"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="OrderBookContainer" type="ScrollContainer" parent="UIManager/MainContent/RightPanel/OrderBookPanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="OrderBookContent" type="VBoxContainer" parent="UIManager/MainContent/RightPanel/OrderBookPanel/OrderBookContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BuyOrdersLabel" type="Label" parent="UIManager/MainContent/RightPanel/OrderBookPanel/OrderBookContainer/OrderBookContent"]
+modulate = Color(0.5, 1, 0.5, 1)
+layout_mode = 2
+text = "Buy Orders"
+
+[node name="SellOrdersLabel" type="Label" parent="UIManager/MainContent/RightPanel/OrderBookPanel/OrderBookContainer/OrderBookContent"]
+modulate = Color(1, 0.5, 0.5, 1)
+layout_mode = 2
+text = "Sell Orders"
+
+[node name="TradeDetailsPanel" type="VBoxContainer" parent="UIManager/MainContent/RightPanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="TradeDetailsHeader" type="Label" parent="UIManager/MainContent/RightPanel/TradeDetailsPanel"]
+layout_mode = 2
+text = "Trade Details"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="TradeDetailsContainer" type="ScrollContainer" parent="UIManager/MainContent/RightPanel/TradeDetailsPanel"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="TradeDetailsContent" type="VBoxContainer" parent="UIManager/MainContent/RightPanel/TradeDetailsPanel/TradeDetailsContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="ItemInfoLabel" type="Label" parent="UIManager/MainContent/RightPanel/TradeDetailsPanel/TradeDetailsContainer/TradeDetailsContent"]
+layout_mode = 2
+text = "Select an item to view details"
+
+[node name="StatusBar" type="HBoxContainer" parent="UIManager"]
+layout_mode = 2
+anchor_top = 0.97
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+
+[node name="ConnectionStatus" type="Label" parent="UIManager/StatusBar"]
+layout_mode = 2
+text = "Connecting..."
+label_settings = SubResource("LabelSettings_1")
+
+[node name="VSeparator" type="VSeparator" parent="UIManager/StatusBar"]
+layout_mode = 2
+
+[node name="APIStatus" type="Label" parent="UIManager/StatusBar"]
+layout_mode = 2
+text = "API: Initializing"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="VSeparator2" type="VSeparator" parent="UIManager/StatusBar"]
+layout_mode = 2
+
+[node name="LastUpdate" type="Label" parent="UIManager/StatusBar"]
+layout_mode = 2
+text = "Last update: Never"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="Spacer2" type="Control" parent="UIManager/StatusBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Version" type="Label" parent="UIManager/StatusBar"]
+layout_mode = 2
+text = "v1.0.0"
+label_settings = SubResource("LabelSettings_1")
+
+[node name="DialogLayer" type="CanvasLayer" parent="."]
+
+[node name="ErrorDialog" type="AcceptDialog" parent="DialogLayer"]
+title = "Error"
+initial_position = 2
+size = Vector2i(400, 200)
+dialog_text = "An error occurred."
+
+[node name="SettingsDialog" type="AcceptDialog" parent="DialogLayer"]
+title = "Settings"
+initial_position = 2
+size = Vector2i(600, 400)
+
+[node name="SettingsContent" type="VBoxContainer" parent="DialogLayer/SettingsDialog"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = -36.0
+
+[node name="GeneralSettings" type="VBoxContainer" parent="DialogLayer/SettingsDialog/SettingsContent"]
+layout_mode = 2
+
+[node name="ThemeLabel" type="Label" parent="DialogLayer/SettingsDialog/SettingsContent/GeneralSettings"]
+layout_mode = 2
+text = "Theme:"
+
+[node name="ThemeSelector" type="OptionButton" parent="DialogLayer/SettingsDialog/SettingsContent/GeneralSettings"]
+layout_mode = 2
+item_count = 2
+popup/item_0/text = "Dark Theme"
+popup/item_0/id = 0
+popup/item_1/text = "Light Theme"
+popup/item_1/id = 1
+
+[node name="RefreshIntervalLabel" type="Label" parent="DialogLayer/SettingsDialog/SettingsContent/GeneralSettings"]
+layout_mode = 2
+text = "Refresh Interval (seconds):"
+
+[node name="RefreshIntervalSpinBox" type="SpinBox" parent="DialogLayer/SettingsDialog/SettingsContent/GeneralSettings"]
+layout_mode = 2
+min_value = 5.0
+max_value = 300.0
+value = 30.0
+
+[node name="AlertDialog" type="AcceptDialog" parent="DialogLayer"]
+title = "Alert"
+initial_position = 2
+size = Vector2i(350, 150)
+dialog_text = "Alert message"
