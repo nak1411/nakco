@@ -33,8 +33,8 @@ var market_grid: MarketDataGrid
 
 # Main panels
 @onready var left_panel: VSplitContainer = $UIManager/MainContent/LeftPanel
-@onready var center_panel: TabContainer = $UIManager/MainContent/CenterPanel
-@onready var right_panel: VBoxContainer = $UIManager/MainContent/RightPanel
+@onready var center_panel: TabContainer = $UIManager/MainContent/RightSplit/CenterPanel
+@onready var right_panel: VBoxContainer = $UIManager/MainContent/RightSplit/RightPanel
 
 # Search and watchlist
 @onready var item_search: LineEdit = $UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer/ItemSearch
@@ -138,6 +138,8 @@ func setup_ui():
 
 	setup_status_bar_with_progress()
 
+	setup_right_panel()
+
 
 func setup_signals():
 	# Toolbar signals
@@ -162,6 +164,24 @@ func setup_signals():
 
 	# Tab changed signal
 	center_panel.tab_changed.connect(_on_tab_changed)
+
+
+func setup_right_panel():
+	# Remove existing right panel content
+	for child in right_panel.get_children():
+		child.queue_free()
+
+	# Create enhanced trading panel
+	var trading_panel = TradingRightPanel.new()
+	trading_panel.name = "TradingRightPanel"
+	trading_panel.data_manager = data_manager
+	right_panel.add_child(trading_panel)
+
+	# Connect signals
+	trading_panel.order_placed.connect(_on_trade_order_placed)
+	trading_panel.alert_created.connect(_on_trade_alert_created)
+
+	return trading_panel
 
 
 func populate_region_selector():
@@ -422,13 +442,29 @@ func _on_market_item_selected(item_id: int, item_data: Dictionary):
 	selected_item_id = item_id
 	print("Main: Selected market item: ", item_data.get("item_name", "Unknown"))
 
-	# Update right panel with item details
-	update_item_details_panel(item_data)
+	# Update enhanced right panel
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel:
+		trading_panel.update_item_display(item_data)
 
 
 func _on_market_progress_updated(named_items: int, total_items: int, total_available: int):
 	var region_name = get_current_region_name()
 	update_progress_indicator(region_name, named_items, total_items, total_available)
+
+
+func _on_trade_order_placed(order_data: Dictionary):
+	print("Trade order placed: ", order_data)
+	# Here you would integrate with EVE's ESI API for actual trading
+	# For now, just add to database as a simulated trade
+	if database_manager:
+		database_manager.add_trade(order_data.item_id, order_data.item_name, "BUY" if order_data.is_buy else "SELL", order_data.quantity, order_data.price, 10000002, 0)  # region_id  # station_id
+
+
+func _on_trade_alert_created(alert_data: Dictionary):
+	print("Trade alert created: ", alert_data)
+	if notification_manager:
+		notification_manager.create_price_alert(alert_data.item_id, alert_data.item_name, alert_data.target_price, alert_data.condition)
 
 
 # Data Management
