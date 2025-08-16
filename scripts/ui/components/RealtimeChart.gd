@@ -42,6 +42,7 @@ var max_zoom: float = 5.0  # 4 days (24 * 5 = 96 hours)
 var zoom_sensitivity: float = 0.5  # How much each scroll step changes zoom
 
 var hovered_point_index: int = -1
+var hovered_volume_index: int = -1
 var tooltip_content: String = ""
 var tooltip_position: Vector2 = Vector2.ZERO
 var point_hover_radius: float = 8.0  # Radius for hover detection
@@ -69,7 +70,8 @@ func _on_mouse_entered():
 
 func _on_mouse_exited():
 	show_crosshair = false
-	hovered_point_index = -1  # Clear hovered point when mouse leaves
+	hovered_point_index = -1
+	hovered_volume_index = -1  # Clear hovered volume bar when mouse leaves
 	queue_redraw()
 
 
@@ -100,19 +102,29 @@ func _gui_input(event):
 
 
 func check_point_hover(mouse_pos: Vector2):
-	"""Check if mouse is hovering over any data point"""
+	"""Check if mouse is hovering over any data point or volume bar"""
 	var old_hovered_index = hovered_point_index
+	var old_hovered_volume = hovered_volume_index
 	hovered_point_index = -1
+	hovered_volume_index = -1
 	tooltip_text = ""
 
 	if price_data.size() < 1:
-		if old_hovered_index != hovered_point_index:
+		if old_hovered_index != hovered_point_index or old_hovered_volume != hovered_volume_index:
 			queue_redraw()
 		return
 
-	var min_price = get_min_price()
-	var max_price = get_max_price()
-	var price_range = max_price - min_price
+	# Use current zoom window instead of fixed 24-hour window
+	var current_time = Time.get_unix_time_from_system()
+	var time_window = get_current_time_window()
+	var window_start = current_time - time_window
+	var window_end = current_time
+
+	# Get visible price range for accurate positioning
+	var price_info = get_visible_price_range()
+	var min_price = price_info.min_price
+	var max_price = price_info.max_price
+	var price_range = price_info.range
 
 	if price_range == 0:
 		price_range = max_price * 0.1
@@ -121,28 +133,69 @@ func check_point_hover(mouse_pos: Vector2):
 
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
-	var current_time = Time.get_unix_time_from_system()
-	var window_start = current_time - 86400.0
 
-	# Check each data point for hover
-	for i in range(price_data.size()):
-		# Calculate point position
-		var time_in_window = price_data[i].timestamp - window_start
-		var time_ratio = clamp(time_in_window / 86400.0, 0.0, 1.0)
-		var x = time_ratio * size.x
+	# Volume bar constants (must match draw_volume_bars)
+	var base_bar_width = 8.0
+	var volume_height_scale = size.y * 0.3
 
-		var normalized_price = (price_data[i].price - min_price) / price_range
-		var y = chart_y_offset + chart_height - (normalized_price * chart_height)
+	# Calculate scaling for volume bars (match draw_volume_bars logic)
+	var historical_max = 0
+	var all_max = 0
+	for i in range(min(volume_data.size(), price_data.size())):
+		var timestamp = price_data[i].timestamp
+		if timestamp >= window_start and timestamp <= window_end:
+			var volume = volume_data[i]
+			var is_historical = price_data[i].get("is_historical", false)
 
-		var point_pos = Vector2(x, y)
+			if volume > all_max:
+				all_max = volume
+			if is_historical and volume > historical_max:
+				historical_max = volume
 
-		# Check if mouse is within hover radius
-		if mouse_pos.distance_to(point_pos) <= point_hover_radius:
-			hovered_point_index = i
+	var scaling_max = historical_max if historical_max > 0 else all_max
+	var volume_cap = scaling_max * 3
+
+	# Check for volume bar hover first (priority) - only the actual physical bar
+	for i in range(min(volume_data.size(), price_data.size())):
+		var point = price_data[i]
+		var timestamp = point.timestamp
+
+		if timestamp < window_start or timestamp > window_end:
+			continue
+
+		var time_progress = (timestamp - window_start) / time_window
+		var x = time_progress * size.x
+		var volume = volume_data[i]
+		var is_historical = point.get("is_historical", false)
+
+		# Calculate actual bar dimensions (same logic as draw_volume_bars)
+		var display_volume = volume
+		if not is_historical and volume > volume_cap:
+			display_volume = volume_cap
+
+		var normalized_volume = float(display_volume) / scaling_max
+		var bar_height = normalized_volume * volume_height_scale
+
+		# Ensure minimum visibility
+		if bar_height < 1.0:
+			bar_height = 1.0
+
+		# Cap maximum height
+		var max_bar_height = size.y * 0.15
+		if bar_height > max_bar_height:
+			bar_height = max_bar_height
+
+		var bar_y = size.y - bar_height
+
+		# Create the EXACT physical bar rectangle
+		var bar_rect = Rect2(x - base_bar_width / 2, bar_y, base_bar_width, bar_height)
+
+		# Check if mouse is over this EXACT volume bar
+		if bar_rect.has_point(mouse_pos):
+			hovered_volume_index = i
 			tooltip_position = mouse_pos
 
-			# Create detailed tooltip text for data points
-			var hours_ago = (current_time - price_data[i].timestamp) / 3600.0
+			var hours_ago = (current_time - timestamp) / 3600.0
 			var time_text = ""
 			if hours_ago < 0.1:
 				time_text = "Now"
@@ -151,16 +204,62 @@ func check_point_hover(mouse_pos: Vector2):
 			else:
 				time_text = "%.0f hours ago" % hours_ago
 
-			var is_historical = price_data[i].get("is_historical", false)
+			var data_type = "Historical" if is_historical else "Real-time"
+
+			tooltip_text = ("%s Volume\nAmount: %s\nTime: %s" % [data_type, format_number(volume), time_text])
+			break
+
+	# If no volume bar hovered, check for data point hover with consistent logic
+	if hovered_volume_index == -1:
+		var closest_distance = point_hover_radius + 1  # Start beyond hover radius
+		var closest_index = -1
+
+		for i in range(price_data.size()):
+			var point = price_data[i]
+			var timestamp = point.timestamp
+
+			if timestamp < window_start or timestamp > window_end:
+				continue
+
+			var time_progress = (timestamp - window_start) / time_window
+			var x = time_progress * size.x
+
+			var normalized_price = (point.price - min_price) / price_range
+			var y = chart_y_offset + chart_height - (normalized_price * chart_height)
+
+			var point_pos = Vector2(x, y)
+			var distance = mouse_pos.distance_to(point_pos)
+
+			# Find the closest point within hover radius
+			if distance <= point_hover_radius and distance < closest_distance:
+				closest_distance = distance
+				closest_index = i
+
+		# Set hover to closest point if found
+		if closest_index != -1:
+			hovered_point_index = closest_index
+			tooltip_position = mouse_pos
+
+			var point = price_data[closest_index]
+			var hours_ago = (current_time - point.timestamp) / 3600.0
+			var time_text = ""
+			if hours_ago < 0.1:
+				time_text = "Now"
+			elif hours_ago < 1.0:
+				time_text = "%.0f minutes ago" % (hours_ago * 60)
+			else:
+				time_text = "%.0f hours ago" % hours_ago
+
+			var is_historical = point.get("is_historical", false)
 			var data_type = "Historical" if is_historical else "Real-time"
 
 			tooltip_text = (
-				"%s Data\nPrice: %s ISK\nVolume: %s\nTime: %s" % [data_type, format_price_label(price_data[i].price), format_number(volume_data[i] if i < volume_data.size() else 0), time_text]
+				"%s Data\nPrice: %s ISK\nVolume: %s\nTime: %s"
+				% [data_type, format_price_label(point.price), format_number(volume_data[closest_index] if closest_index < volume_data.size() else 0), time_text]
 			)
-			break
 
 	# Redraw if hover state changed
-	if old_hovered_index != hovered_point_index:
+	if old_hovered_index != hovered_point_index or old_hovered_volume != hovered_volume_index:
 		queue_redraw()
 
 
@@ -383,6 +482,7 @@ func draw_volume_bars():
 	var visible_volume_data = []
 	var visible_timestamps = []
 	var visible_historical_flags = []
+	var visible_indices = []
 	var historical_max = 0
 	var all_max = 0
 
@@ -395,6 +495,7 @@ func draw_volume_bars():
 			visible_volume_data.append(volume)
 			visible_timestamps.append(timestamp)
 			visible_historical_flags.append(is_historical)
+			visible_indices.append(i)
 
 			# Track maximums for scaling
 			if volume > all_max:
@@ -421,6 +522,7 @@ func draw_volume_bars():
 		var volume = visible_volume_data[i]
 		var timestamp = visible_timestamps[i]
 		var is_historical = visible_historical_flags[i]
+		var original_index = visible_indices[i]
 
 		# Calculate X position based on time within window
 		var time_progress = (timestamp - window_start) / time_window
@@ -468,6 +570,23 @@ func draw_volume_bars():
 		if bar_height > 1:
 			draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x, 1)), Color.WHITE * 0.2)
 
+		# Draw volume label ONLY when this bar is hovered
+		if hovered_volume_index == original_index:
+			var font = ThemeDB.fallback_font
+			var font_size = 10
+			var volume_text = format_number(volume)
+			var text_size = font.get_string_size(volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+
+			# Position label above the bar
+			var label_x = x - text_size.x / 2
+			var label_y = y - 6
+
+			# Ensure label stays within bounds
+			if label_x >= 0 and label_x + text_size.x <= size.x and label_y > text_size.y:
+				# Draw volume label without background
+				var text_color = Color.WHITE
+				draw_string(font, Vector2(label_x, label_y), volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
 		bars_drawn += 1
 
 	print("Drew %d volume bars across time window" % bars_drawn)
@@ -501,7 +620,7 @@ func draw_price_levels():
 			var y = chart_y_offset + chart_height - (price_ratio * chart_height)
 
 			# Draw support line
-			draw_line(Vector2(0, y), Vector2(size.x, y), Color.GREEN, 2.0, true)
+			draw_line(Vector2(0, y), Vector2(size.x, y), Color.GREEN, 1.0, false)
 
 			# Draw support label
 			var font = ThemeDB.fallback_font
@@ -527,7 +646,7 @@ func draw_price_levels():
 			var y = chart_y_offset + chart_height - (price_ratio * chart_height)
 
 			# Draw resistance line
-			draw_line(Vector2(0, y), Vector2(size.x, y), Color.RED, 2.0, true)
+			draw_line(Vector2(0, y), Vector2(size.x, y), Color.RED, 1.0, false)
 
 			# Draw resistance label
 			var font = ThemeDB.fallback_font
@@ -884,7 +1003,7 @@ func set_timeframe_hours(hours: float):
 func set_day_start_time():
 	"""Set the start time to 24 hours ago for full day view"""
 	var current_time = Time.get_unix_time_from_system()
-	day_start_timestamp = current_time - 86400.0  # Start exactly 24 hours ago
+	day_start_timestamp = current_time - 432000.0  # Start exactly 5 days ago
 	has_loaded_historical = false
 
 	print("Chart window set to show last 24 hours")
@@ -910,7 +1029,7 @@ func add_data_point(price: float, volume: int, time_label: String = ""):
 	var avg_price = calculate_moving_average()
 
 	var current_time = Time.get_unix_time_from_system()
-	var window_start = current_time - 86400.0
+	var window_start = current_time - 432000.0
 	var seconds_from_start = current_time - window_start
 
 	# Check if we already have a recent real-time point (within last 5 minutes)
@@ -984,7 +1103,7 @@ func request_historical_data():
 func add_historical_data_point(price: float, volume: int, timestamp: float):
 	"""Add a historical data point with specific timestamp"""
 	var current_time = Time.get_unix_time_from_system()
-	var max_age = max_data_retention  # Allow data up to 4 days old
+	var max_age = max_data_retention  # Allow data up to 5 days old
 	var oldest_allowed = current_time - max_age
 
 	var hours_ago = (current_time - timestamp) / 3600.0
@@ -993,7 +1112,7 @@ func add_historical_data_point(price: float, volume: int, timestamp: float):
 	print("  Timestamp: %s" % Time.get_datetime_string_from_unix_time(timestamp))
 	print("  Oldest allowed: %s" % Time.get_datetime_string_from_unix_time(oldest_allowed))
 
-	# Check if within maximum retention window (4 days)
+	# Check if within maximum retention window (5 days)
 	if timestamp < oldest_allowed:
 		print("  REJECTED: Too old (%.1f hours ago, max %.1f hours)" % [hours_ago, max_age / 3600.0])
 		return
@@ -1354,9 +1473,9 @@ func on_zoom_changed():
 
 
 func cleanup_old_data():
-	"""Remove data points older than 4 days"""
+	"""Remove data points older than 5 days"""
 	var current_time = Time.get_unix_time_from_system()
-	var cutoff_time = current_time - max_data_retention  # 4 days
+	var cutoff_time = current_time - max_data_retention  # 5 days
 
 	var removed_count = 0
 
@@ -1372,7 +1491,7 @@ func cleanup_old_data():
 		removed_count += 1
 
 	if removed_count > 0:
-		print("Cleaned up %d data points older than 4 days" % removed_count)
+		print("Cleaned up %d data points older than 5 days" % removed_count)
 
 	# Ensure arrays stay in sync
 	var min_size = min(price_data.size(), volume_data.size())

@@ -532,7 +532,7 @@ func load_historical_chart_data(history_data: Dictionary):
 		return
 
 	var current_time = Time.get_unix_time_from_system()
-	var max_window_start = current_time - 345600.0  # 4 days ago (to support max zoom)
+	var max_window_start = current_time - 432000.0  # 5 days ago (to support max zoom)
 	var points_added = 0
 
 	print("Current time: %s" % Time.get_datetime_string_from_unix_time(current_time))
