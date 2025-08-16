@@ -114,13 +114,15 @@ func setup_grid_structure():
 	# Data area with scrolling
 	data_scroll = ScrollContainer.new()
 	data_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	data_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	data_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	data_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	main_vbox.add_child(data_scroll)
 
-	# Data container
+	# Data container - EXPAND TO FILL
 	data_container = Control.new()
 	data_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	data_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	data_scroll.add_child(data_container)
 
 	print("ExcelLikeGrid structure created")
@@ -530,16 +532,7 @@ func update_market_data(data_dict: Dictionary):
 
 
 func refresh_data_display():
-	# Clear row states when refreshing
-	row_states.clear()
 	selected_row_index = -1
-	hovered_row_index = -1
-
-	# Kill any active tweens
-	if selection_tween:
-		selection_tween.kill()
-	if hover_tween:
-		hover_tween.kill()
 
 	# Clear existing data display
 	for child in data_container.get_children():
@@ -554,16 +547,12 @@ func refresh_data_display():
 		data_container.add_child(no_data)
 		return
 
-	# Calculate total width
-	var total_width = 0.0
-	for col_def in column_definitions:
-		total_width += col_def.width
-
-	# Set data container size
-	data_container.custom_minimum_size = Vector2(total_width, grid_data.size() * row_height)
+	# DON'T set custom_minimum_size - let it expand naturally
+	# Set only the height based on row count
+	data_container.custom_minimum_size.y = grid_data.size() * row_height
 
 	# Create rows
-	for row_index in range(min(grid_data.size(), 50)):  # Limit for performance
+	for row_index in range(min(grid_data.size(), 50)):
 		create_enhanced_data_row(row_index)
 
 
@@ -588,7 +577,7 @@ func create_data_row(row_index: int):
 	row_button.size = Vector2(data_container.size.x, row_height)
 	row_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row_button.mouse_filter = Control.MOUSE_FILTER_PASS
-	row_button.pressed.connect(func(): _on_row_selected(item))
+	row_button.pressed.connect(func(): _on_row_selected(row_index, item))
 	data_container.add_child(row_button)
 
 	# Create cells
@@ -603,70 +592,101 @@ func create_enhanced_data_row(row_index: int):
 	var item = grid_data[row_index]
 	var y_pos = row_index * row_height
 
-	# Calculate total width
-	var total_width = 0.0
-	for col_def in column_definitions:
-		total_width += col_def.width
-
-	# Initialize row state
-	row_states[row_index] = {"is_hovered": false, "is_selected": false}
-
-	# Main row container
+	# Main row container - EXPAND TO FILL WIDTH
 	var row_container = Control.new()
 	row_container.name = "Row_%d" % row_index
 	row_container.position = Vector2(0, y_pos)
-	row_container.size = Vector2(total_width, row_height)
+	row_container.size = Vector2(0, row_height)  # Set width to 0, let it expand
+	row_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row_container.anchor_right = 1.0  # Anchor to right edge
 	data_container.add_child(row_container)
 
-	# Background layers
+	# Base background - FILL THE ROW CONTAINER
 	var base_bg = ColorRect.new()
 	base_bg.name = "BaseBG"
 	base_bg.color = alternate_row_color if row_index % 2 == 1 else cell_color
 	base_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	base_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row_container.add_child(base_bg)
 
-	# Hover background (initially transparent)
+	# Hover background - FILL THE ROW CONTAINER
 	var hover_bg = ColorRect.new()
 	hover_bg.name = "HoverBG"
 	hover_bg.color = Color.TRANSPARENT
 	hover_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hover_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row_container.add_child(hover_bg)
 
-	# Selection background (initially transparent)
+	# Selection background - FILL THE ROW CONTAINER
 	var selection_bg = ColorRect.new()
 	selection_bg.name = "SelectionBG"
 	selection_bg.color = Color.TRANSPARENT
 	selection_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	selection_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row_container.add_child(selection_bg)
 
-	# Interactive button for mouse events
+	# Button - FILL THE ROW CONTAINER
 	var row_button = Button.new()
-	row_button.name = "RowButton"
 	row_button.flat = true
 	row_button.text = ""
 	row_button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	row_button.mouse_filter = Control.MOUSE_FILTER_PASS
-
-	# Connect signals with proper binding
-	row_button.pressed.connect(_on_row_clicked.bind(row_index, item))
-	row_button.mouse_entered.connect(_on_row_hover_start.bind(row_index))
-	row_button.mouse_exited.connect(_on_row_hover_end.bind(row_index))
-
+	row_button.add_theme_color_override("font_color", Color.TRANSPARENT)
+	row_button.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	row_button.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+	row_button.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
+	row_button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+	row_button.pressed.connect(func(): _on_row_selected(row_index, item))
+	row_button.mouse_entered.connect(func(): _set_hover(row_index, true))
+	row_button.mouse_exited.connect(func(): _set_hover(row_index, false))
 	row_container.add_child(row_button)
 
 	# Content layer for text
 	var content_layer = Control.new()
-	content_layer.name = "ContentLayer"
 	content_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	content_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row_container.add_child(content_layer)
 
-	# Create cells with text
+	# Create cells
 	var x_offset = 0.0
 	for i in range(column_definitions.size()):
 		var col_def = column_definitions[i]
 		create_enhanced_cell(item, col_def, x_offset, 0, i, content_layer)
 		x_offset += col_def.width
+
+
+func _set_hover(row_index: int, hovering: bool):
+	if row_index < 0 or row_index >= data_container.get_child_count():
+		return
+
+	var row_container = data_container.get_child(row_index)
+	if not row_container:
+		return
+
+	var hover_bg = row_container.get_node("HoverBG")
+	if hover_bg:
+		hover_bg.color = hover_row_color if hovering else Color.TRANSPARENT
+
+
+func _on_row_selected(row_index: int, item: Dictionary):
+	# Clear old selection
+	if selected_row_index >= 0:
+		var old_row = data_container.get_child(selected_row_index)
+		if old_row:
+			var old_selection = old_row.get_node("SelectionBG")
+			if old_selection:
+				old_selection.color = Color.TRANSPARENT
+
+	# Set new selection
+	selected_row_index = row_index
+	var row_container = data_container.get_child(row_index)
+	if row_container:
+		var selection_bg = row_container.get_node("SelectionBG")
+		if selection_bg:
+			selection_bg.color = selected_row_color
+
+	# Emit signal
+	var item_id = item.get("item_id", 0)
+	emit_signal("item_selected", item_id, item)
 
 
 func _on_row_clicked(row_index: int, item: Dictionary):
@@ -847,11 +867,6 @@ func create_cell(item: Dictionary, col_def: Dictionary, x: float, y: float, col_
 		border.size = Vector2(1, row_height)
 		border.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		cell.add_child(border)
-
-
-func _on_row_selected(item: Dictionary):
-	var item_id = item.get("item_id", 0)
-	emit_signal("item_selected", item_id, item)
 
 
 # Utility functions
