@@ -16,7 +16,6 @@ var quick_trade_panel: VBoxContainer
 
 func _ready():
 	setup_panels()
-	setup_real_time_updates()
 
 
 func setup_panels():
@@ -508,15 +507,6 @@ func create_order_row(order: Dictionary, is_buy: bool):
 	type_label.custom_minimum_size.x = 40
 	type_label.add_theme_color_override("font_color", Color.GREEN if is_buy else Color.RED)
 	row.add_child(type_label)
-
-
-func setup_real_time_updates():
-	# Set up timer for real-time updates
-	var timer = Timer.new()
-	timer.wait_time = 5.0  # Update every 5 seconds
-	timer.timeout.connect(_update_real_time_data)
-	add_child(timer)
-	timer.start()
 
 
 func _update_real_time_data():

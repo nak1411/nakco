@@ -400,16 +400,14 @@ func _on_search_submitted(text: String):
 
 
 func _on_data_updated(data_type: String, data: Dictionary):
-	# print("=== MAIN DATA UPDATE ===")
-	# print("Type: ", data_type)
-	# print("========================")
+	print("=== MAIN DATA UPDATE ===")
+	print("Type: ", data_type)
 
 	match data_type:
 		"market_orders":
+			# Only update the grid - don't interfere with individual selections
+			print("Updating main market display")
 			update_market_display(data)
-			# If this is data for a specific selected item, update right panel
-			if selected_item_id > 0:
-				update_right_panel_with_market_data(data)
 		"market_history":
 			update_charts(data)
 		"item_search":
@@ -459,8 +457,9 @@ func _on_tab_changed(tab_index: int):
 func _on_market_item_selected(item_id: int, item_data: Dictionary):
 	selected_item_id = item_id
 	print("Main: Selected market item: ", item_data.get("item_name", "Unknown"))
+	print("Item data available: ", item_data.keys())
 
-	# Update enhanced right panel
+	# Update enhanced right panel with the EXISTING data
 	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
 	if trading_panel:
 		trading_panel.update_item_display(item_data)
@@ -816,15 +815,35 @@ func _on_search_item_selected(item_id: int):
 	print("Selected item from search: ", item_id)
 	selected_item_id = item_id
 
-	# Get detailed market data for this specific item
-	if data_manager:
-		# Get item info
-		data_manager.get_item_info(item_id)
-		# Get market orders for this item
-		data_manager.get_market_orders(current_region_id, item_id)
+	# For search results, we need to find the data in the grid
+	# since search only gives us the item_id
+	var existing_item_data = {}
+	if market_grid:
+		existing_item_data = market_grid.get_item_data(item_id)
 
-	# Update right panel immediately with basic info
-	update_right_panel_for_item(item_id)
+	if existing_item_data.is_empty():
+		# Create basic item data structure if not found in grid
+		existing_item_data = {
+			"item_id": item_id,
+			"item_name": data_manager.get_item_name(item_id) if data_manager else "Item %d" % item_id,
+			"max_buy": 0.0,
+			"min_sell": 0.0,
+			"spread": 0.0,
+			"margin": 0.0,
+			"volume": 0,
+			"buy_orders": [],
+			"sell_orders": [],
+			"region_id": current_region_id,
+			"region_name": get_current_region_name()
+		}
+		print("Created basic item data for search result")
+	else:
+		print("Found existing grid data for search result")
+
+	# Update right panel
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel:
+		trading_panel.update_item_display(existing_item_data)
 
 
 func _on_search_result_selected(item_id: int):
@@ -850,22 +869,35 @@ func update_right_panel_for_item(item_id: int):
 
 	print("Updating right panel for item: ", item_id)
 
-	# Create basic item data structure
-	var basic_item_data = {
-		"item_id": item_id,
-		"item_name": data_manager.get_item_name(item_id) if data_manager else "Item %d" % item_id,
-		"max_buy": 0.0,
-		"min_sell": 0.0,
-		"spread": 0.0,
-		"margin": 0.0,
-		"volume": 0,
-		"buy_orders": [],
-		"sell_orders": [],
-		"region_id": current_region_id,
-		"region_name": get_current_region_name()
-	}
+	# Try to find existing data for this item in the market grid
+	var existing_item_data = find_item_data_in_grid(item_id)
 
-	trading_panel.update_item_display(basic_item_data)
+	if existing_item_data.is_empty():
+		# Create basic item data structure if not found
+		existing_item_data = {
+			"item_id": item_id,
+			"item_name": data_manager.get_item_name(item_id) if data_manager else "Item %d" % item_id,
+			"max_buy": 0.0,
+			"min_sell": 0.0,
+			"spread": 0.0,
+			"margin": 0.0,
+			"volume": 0,
+			"buy_orders": [],
+			"sell_orders": [],
+			"region_id": current_region_id,
+			"region_name": get_current_region_name()
+		}
+
+	trading_panel.update_item_display(existing_item_data)
+
+
+func find_item_data_in_grid(item_id: int) -> Dictionary:
+	# Get the existing item data from the market grid
+	if market_grid and market_grid.has_method("get_item_data"):
+		return market_grid.get_item_data(item_id)
+
+	print("Market grid not available or doesn't have get_item_data method")
+	return {}
 
 
 # Dialog Management

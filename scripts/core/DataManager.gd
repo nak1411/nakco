@@ -49,6 +49,11 @@ var item_names_cache: Dictionary = {}
 var pending_item_lookups: Array = []
 var item_lookup_timer: Timer
 
+var debug_items_data: Dictionary = {}
+var debug_items_pending: Array = []
+var debug_region_id: int = 0
+var is_collecting_debug_data: bool = false
+
 
 func _ready():
 	setup_http_client()
@@ -101,7 +106,14 @@ func get_market_orders(region_id: int, type_id: int = -1) -> void:
 		url += "?type_id=%d" % type_id
 
 	var request_context = {
-		"url": url, "method": HTTPClient.METHOD_GET, "cache_key": cache_key, "data_type": "market_orders", "region_id": region_id, "type_id": type_id, "region_name": get_region_name_by_id(region_id)
+		"url": url,
+		"method": HTTPClient.METHOD_GET,
+		"cache_key": cache_key,
+		"data_type": "market_orders",
+		"region_id": region_id,
+		"type_id": type_id,
+		"region_name": get_region_name_by_id(region_id),
+		"is_individual_item": type_id != -1  # Flag to identify individual item requests
 	}
 
 	queue_request(request_context)
@@ -239,6 +251,19 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 
 				# Emit signal to update all displays
 				emit_signal("data_updated", "batch_item_names_updated", {"updated_count": raw_data.size() if typeof(raw_data) == TYPE_ARRAY else 0})
+				return
+
+			# Handle debug market orders (individual items)
+			if context.get("data_type") == "debug_market_orders":
+				var item_id = context.get("type_id", 0)
+				var structured_data = {"data": raw_data, "context": context, "timestamp": Time.get_ticks_msec()}
+
+				# Cache the data
+				if context.has("cache_key"):
+					cache_data(context.cache_key, structured_data)
+
+				# Process this debug item
+				_process_debug_item_response(structured_data, item_id)
 				return
 
 			# Handle single item name responses
@@ -407,18 +432,29 @@ func request_item_names_batch_single(type_ids: Array):
 
 
 func get_debug_market_data(region_id: int) -> void:
+	# Prevent multiple simultaneous collection attempts
+	if is_collecting_debug_data:
+		print("Debug data collection already in progress, skipping...")
+		return
+
 	print("Getting debug market data for popular items only...")
 
+	# Set collection flag
+	is_collecting_debug_data = true
+
+	# Reset debug data collection
+	debug_items_data.clear()
+	debug_items_pending.clear()
+	debug_region_id = region_id
+
 	# List of popular items to fetch
-	var debug_items = [34, 35, 36, 37, 38, 39, 40, 11399]  # Minerals
+	var debug_items = [34, 35, 36, 37, 38, 39, 40, 11399, 16275, 9848]  # 10 items
+	debug_items_pending = debug_items.duplicate()
+
+	print("Fetching ", debug_items.size(), " debug items...")
 
 	for item_id in debug_items:
 		var cache_key = "orders_%d_%d" % [region_id, item_id]
-
-		if is_cached(cache_key):
-			var cached_data = get_cached_data(cache_key)
-			emit_signal("data_updated", "market_orders", cached_data)
-			continue
 
 		var url = ESI_BASE_URL + "/markets/%d/orders/?type_id=%d" % [region_id, item_id]
 
@@ -426,14 +462,62 @@ func get_debug_market_data(region_id: int) -> void:
 			"url": url,
 			"method": HTTPClient.METHOD_GET,
 			"cache_key": cache_key,
-			"data_type": "market_orders",
+			"data_type": "debug_market_orders",  # Keep the debug data type
 			"region_id": region_id,
 			"type_id": item_id,
 			"region_name": get_region_name_by_id(region_id),
-			"debug_mode": true
+			"debug_collection_id": Time.get_ticks_msec()  # Add unique collection ID
 		}
 
 		queue_request(request_context)
 
 		# Add small delay between requests
-		await get_tree().create_timer(0.1).timeout
+		await get_tree().create_timer(0.05).timeout
+
+
+func _process_debug_item_response(response_data: Dictionary, item_id: int):
+	if not is_collecting_debug_data:
+		print("Received debug response but not collecting, ignoring...")
+		return
+
+	# Store this item's data
+	var orders = response_data.get("data", [])
+	debug_items_data[item_id] = orders
+
+	# Remove from pending list
+	debug_items_pending.erase(item_id)
+
+	print("Collected data for item ", item_id, " (", orders.size(), " orders). Pending: ", debug_items_pending.size())
+
+	# If all items are collected, combine and emit
+	if debug_items_pending.is_empty():
+		_emit_combined_debug_data()
+
+
+func _emit_combined_debug_data():
+	print("Combining debug market data from ", debug_items_data.size(), " items...")
+
+	# Combine all orders into one array
+	var combined_orders = []
+
+	for item_id in debug_items_data:
+		var item_orders = debug_items_data[item_id]
+		for order in item_orders:
+			combined_orders.append(order)
+
+	print("Combined ", combined_orders.size(), " total orders")
+
+	# Create combined market data structure
+	var combined_data = {
+		"data": combined_orders,
+		"context": {"region_id": debug_region_id, "region_name": get_region_name_by_id(debug_region_id), "debug_mode": true, "items_fetched": debug_items_data.keys(), "combined_response": true},  # Flag to identify this as combined data
+		"timestamp": Time.get_ticks_msec()
+	}
+
+	# Reset collection flag
+	is_collecting_debug_data = false
+
+	# Emit the combined data
+	emit_signal("data_updated", "market_orders", combined_data)
+
+	print("Emitted combined debug market data - collection complete")

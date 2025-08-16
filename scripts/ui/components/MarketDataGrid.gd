@@ -378,7 +378,7 @@ func _on_item_selected(item: Dictionary):
 	enhanced_item_data["region_id"] = current_region_id
 	enhanced_item_data["region_name"] = current_region_name
 
-	# Emit the selection signal
+	# Emit the selection signal with the COMPLETE item data
 	emit_signal("item_selected", item_id, enhanced_item_data)
 
 
@@ -423,6 +423,17 @@ func set_region_info(region_id: int, region_name: String):
 func get_current_region_name() -> String:
 	# You'll need to pass this from Main or store it
 	return "Current Region"  # Placeholder for now
+
+
+func get_item_data(item_id: int) -> Dictionary:
+	# Find the item data in our existing grid_data
+	for item in grid_data:
+		if item.get("item_id", 0) == item_id:
+			print("MarketDataGrid: Found existing data for item ", item_id)
+			return item.duplicate()  # Return a copy to avoid reference issues
+
+	print("MarketDataGrid: No existing data found for item ", item_id)
+	return {}
 
 
 func get_trading_hub_info(region_name: String) -> String:
