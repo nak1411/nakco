@@ -513,8 +513,8 @@ func _on_historical_data_requested():
 
 
 func load_historical_chart_data(history_data: Dictionary):
-	"""Load historical market data into the chart"""
-	print("=== LOADING HISTORICAL CHART DATA ===")
+	"""Load historical market data into the chart - EXTENDED VERSION"""
+	print("=== LOADING EXTENDED HISTORICAL CHART DATA ===")
 
 	if not real_time_chart:
 		print("ERROR: No real_time_chart available")
@@ -532,82 +532,83 @@ func load_historical_chart_data(history_data: Dictionary):
 		return
 
 	var current_time = Time.get_unix_time_from_system()
-	var window_start = current_time - 86400.0  # 24 hours ago
+	var max_window_start = current_time - 345600.0  # 4 days ago (to support max zoom)
 	var points_added = 0
 
 	print("Current time: %s" % Time.get_datetime_string_from_unix_time(current_time))
-	print("Window start (24h ago): %s" % Time.get_datetime_string_from_unix_time(window_start))
+	print("Max window start (4 days ago): %s" % Time.get_datetime_string_from_unix_time(max_window_start))
 
-	# Find the most recent entry that has data
-	var most_recent_entry = null
-	var most_recent_timestamp = 0.0
-
+	# Process ALL available historical entries (not just most recent)
+	var valid_entries = []
 	for entry in history_entries:
 		var date_str = entry.get("date", "")
 		if date_str.is_empty():
 			continue
 
 		var entry_timestamp = parse_eve_date(date_str)
-		if entry_timestamp > most_recent_timestamp:
-			most_recent_timestamp = entry_timestamp
-			most_recent_entry = entry
+		if entry_timestamp >= max_window_start and entry_timestamp <= current_time:
+			valid_entries.append({"timestamp": entry_timestamp, "data": entry})
 
-	if not most_recent_entry:
-		print("No valid historical entries found")
-		real_time_chart.finish_historical_data_load()
-		return
+	# Sort entries by timestamp (oldest first)
+	valid_entries.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
-	print("Using most recent entry: %s" % most_recent_entry.get("date", ""))
+	print("Found %d valid historical entries within 4 days" % valid_entries.size())
 
-	var avg_price = most_recent_entry.get("average", 0.0)
-	var daily_volume = most_recent_entry.get("volume", 0)
-	var highest = most_recent_entry.get("highest", avg_price)
-	var lowest = most_recent_entry.get("lowest", avg_price)
+	# Create data points for each historical day
+	for entry_info in valid_entries:
+		var entry = entry_info.data
+		var base_timestamp = entry_info.timestamp
 
-	if avg_price <= 0:
-		print("Invalid price data in most recent entry")
-		real_time_chart.finish_historical_data_load()
-		return
+		var avg_price = entry.get("average", 0.0)
+		var daily_volume = entry.get("volume", 0)
+		var highest = entry.get("highest", avg_price)
+		var lowest = entry.get("lowest", avg_price)
 
-	if daily_volume <= 0:
-		daily_volume = 100000  # Default volume
-
-	print("Entry data: price=%.2f, volume=%d, range=%.2f-%.2f" % [avg_price, daily_volume, lowest, highest])
-
-	# Create historical data points for EVERY hour in the last 24 hours
-	for hours_back in range(0, 24):  # Changed from range(1, 25) to range(0, 24)
-		var point_timestamp = current_time - (hours_back * 3600.0)
-
-		# Make sure it's within our window
-		if point_timestamp < window_start:
+		if avg_price <= 0:
+			print("Skipping entry with invalid price: %s" % entry.get("date", ""))
 			continue
 
-		# Simulate price variation throughout the day
-		var time_factor = float(hours_back) / 24.0
-		var price_variation = (highest - lowest) * 0.3
-		var point_price = avg_price + (sin(time_factor * PI * 4) * price_variation)
-		point_price = clamp(point_price, lowest * 0.9, highest * 1.1)
+		if daily_volume <= 0:
+			daily_volume = 100000  # Default volume
 
-		# Simulate volume variation
-		var base_volume = daily_volume / 24.0
-		var volume_multiplier = 1.0
+		print("Processing entry: %s, price=%.2f, volume=%d" % [entry.get("date", ""), avg_price, daily_volume])
 
-		# Simulate trading patterns based on hour of day
-		var hour_of_day = (24 - hours_back) % 24
-		if hour_of_day >= 8 and hour_of_day <= 20:  # Peak hours
-			volume_multiplier = 1.5
-		elif hour_of_day >= 22 or hour_of_day <= 6:  # Low hours
-			volume_multiplier = 0.5
+		# Create multiple data points throughout each day (every 2 hours = 12 points per day)
+		var points_per_day = 12
+		for hour_offset in range(points_per_day):
+			var point_timestamp = base_timestamp + (hour_offset * 7200.0)  # Every 2 hours
 
-		var point_volume = int(base_volume * volume_multiplier * (0.8 + randf() * 0.4))
-		point_volume = max(1000, point_volume)  # Minimum volume
+			# Skip if this point would be in the future
+			if point_timestamp > current_time:
+				continue
 
-		print("Creating historical point: %.1fh ago, price=%.2f, volume=%d" % [hours_back, point_price, point_volume])
+			# Simulate price variation throughout the day
+			var time_factor = float(hour_offset) / points_per_day
+			var price_variation = (highest - lowest) * 0.4
+			var point_price = avg_price + (sin(time_factor * PI * 3) * price_variation)
+			point_price = clamp(point_price, lowest * 0.95, highest * 1.05)
 
-		real_time_chart.add_historical_data_point(point_price, point_volume, point_timestamp)
-		points_added += 1
+			# Simulate volume variation throughout the day
+			var base_volume = daily_volume / points_per_day
+			var volume_multiplier = 1.0
 
-	print("=== HISTORICAL LOADING COMPLETE ===")
+			# Simulate trading patterns (higher volume during certain hours)
+			var hour_of_day = (hour_offset * 2) % 24
+			if hour_of_day >= 8 and hour_of_day <= 20:  # Peak hours
+				volume_multiplier = 1.5
+			elif hour_of_day >= 22 or hour_of_day <= 6:  # Low hours
+				volume_multiplier = 0.6
+
+			var point_volume = int(base_volume * volume_multiplier * (0.8 + randf() * 0.4))
+			point_volume = max(1000, point_volume)
+
+			var hours_ago = (current_time - point_timestamp) / 3600.0
+			print("  Creating point: %.1fh ago, price=%.2f, volume=%d" % [hours_ago, point_price, point_volume])
+
+			real_time_chart.add_historical_data_point(point_price, point_volume, point_timestamp)
+			points_added += 1
+
+	print("=== EXTENDED HISTORICAL LOADING COMPLETE ===")
 	print("Total points added: %d" % points_added)
 	real_time_chart.finish_historical_data_load()
 

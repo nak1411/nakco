@@ -116,20 +116,21 @@ func get_market_orders(region_id: int, type_id: int = -1) -> void:
 	queue_request(request_context)
 
 
-func get_market_history(region_id: int, type_id: int) -> void:
-	var cache_key = "history_%d_%d" % [region_id, type_id]
+func get_market_history(region_id: int, type_id: int, days: int = 90) -> void:
+	var cache_key = "history_%d_%d_%d" % [region_id, type_id, days]
 
 	if is_cached(cache_key):
 		var cached_data = get_cached_data(cache_key)
 		emit_signal("data_updated", "market_history", cached_data)
 		return
 
+	# EVE API can return up to 90+ days of history
 	var url = ESI_BASE_URL + "/markets/%d/history/?type_id=%d" % [region_id, type_id]
 
-	var request_context = {"url": url, "method": HTTPClient.METHOD_GET, "cache_key": cache_key, "data_type": "market_history", "region_id": region_id, "type_id": type_id}
+	var request_context = {"url": url, "method": HTTPClient.METHOD_GET, "cache_key": cache_key, "data_type": "market_history", "region_id": region_id, "type_id": type_id, "days_requested": days}
 
 	queue_request(request_context)
-	print("Requesting market history for item %d in region %d" % [type_id, region_id])
+	print("Requesting %d days of market history for item %d in region %d" % [days, type_id, region_id])
 
 
 func get_item_info(type_id: int) -> void:
