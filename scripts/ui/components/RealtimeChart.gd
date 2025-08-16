@@ -424,6 +424,33 @@ func draw_volume_bars():
 		if bar_height > 1:
 			draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x, 1)), Color.WHITE * 0.2)
 
+		# Add volume label on top of each bar (for ALL bars)
+		var volume_text = format_number(volume)
+		var font_size = 8
+		var label_color = Color.WHITE
+
+		# Calculate text position (centered on bar, above it)
+		var text_size = chart_font.get_string_size(volume_text, HORIZONTAL_ALIGNMENT_CENTER, -1, font_size)
+		var label_x = x - text_size.x / 2
+		var label_y = y - 2  # Slightly above the bar
+
+		# For very short bars, position label higher to avoid overlap with bar
+		if bar_height < 15:
+			label_y = y - 12  # More space above short bars
+
+		# Ensure label stays within chart bounds
+		if label_x < 0:
+			label_x = 0
+		elif label_x + text_size.x > size.x:
+			label_x = size.x - text_size.x
+
+		# Ensure label doesn't go above chart area
+		if label_y < 10:
+			label_y = 10
+
+		# Draw volume label for every bar
+		draw_string(chart_font, Vector2(label_x, label_y), volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, label_color)
+
 		bars_drawn += 1
 
 	print("Drew %d volume bars (%d historical, %d realtime)" % [bars_drawn, historical_count, realtime_count])
@@ -772,6 +799,11 @@ func add_historical_data_point(price: float, volume: int, timestamp: float):
 
 	if timestamp > current_time:
 		print("  REJECTED: In the future")
+		return
+
+	# NEW: Reject historical points that are too recent (less than 1 hour old)
+	if hours_ago < 1.0:
+		print("  REJECTED: Too recent (%.1f hours ago) - historical data must be at least 1 hour old" % hours_ago)
 		return
 
 	var seconds_from_start = timestamp - window_start

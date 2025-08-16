@@ -318,6 +318,11 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 			var type_id = context.get("type_id", 0)
 			item_names_cache[type_id] = "Unknown Item %d" % type_id
 			return
+		elif response_code == 504:
+			error_msg = "API request timed out (504) - server overloaded"
+			print("504 timeout for request: ", context.get("data_type", "unknown"))
+			# Don't emit error for timeouts, just log it
+			return
 		emit_signal("api_error", error_msg)
 
 
