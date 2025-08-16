@@ -239,66 +239,162 @@ func create_alert_panel():
 	alert_container.add_child(create_alert_button)
 
 
+func create_order_book_header():
+	"""Create order book header"""
+	var header = HBoxContainer.new()
+	order_book_list.add_child(header)
+
+	var price_header = Label.new()
+	price_header.text = "Price (ISK)"
+	price_header.custom_minimum_size.x = 100
+	price_header.add_theme_color_override("font_color", Color.CYAN)
+	header.add_child(price_header)
+
+	var volume_header = Label.new()
+	volume_header.text = "Volume"
+	volume_header.custom_minimum_size.x = 80
+	volume_header.add_theme_color_override("font_color", Color.CYAN)
+	header.add_child(volume_header)
+
+	var type_header = Label.new()
+	type_header.text = "Type"
+	type_header.custom_minimum_size.x = 50
+	type_header.add_theme_color_override("font_color", Color.CYAN)
+	header.add_child(type_header)
+
+
 func update_item_display(item_data: Dictionary):
 	print("TradingRightPanel: update_item_display called with: ", item_data.keys())
 
 	selected_item_data = item_data
 
-	# Update header
+	# Update header with real-time indicator
 	var item_name_label = get_node_or_null("ItemInfoPanel/VBoxContainer/ItemNameLabel")
 	if item_name_label:
 		var item_name = item_data.get("item_name", "Unknown Item")
 		var item_id = item_data.get("item_id", 0)
-		item_name_label.text = "%s (ID: %d)" % [item_name, item_id]
-		print("Updated item name label to: ", item_name_label.text)
-	else:
-		print("Could not find ItemNameLabel")
+		var realtime_indicator = " 🔴 LIVE" if item_data.get("is_realtime", false) else ""
+		item_name_label.text = "%s (ID: %d)%s" % [item_name, item_id, realtime_indicator]
 
+		# Color the indicator
+		if item_data.get("is_realtime", false):
+			item_name_label.add_theme_color_override("font_color", Color.LIGHT_GREEN)
+		else:
+			item_name_label.add_theme_color_override("font_color", Color.CYAN)
+
+	# Update prices with animation for real-time data
+	update_price_labels_with_animation(item_data)
+
+	# Rest of existing update_item_display code...
+	update_trading_defaults(item_data)
+	update_alert_defaults(item_data)
+	update_order_book(item_data)
+
+
+func update_price_labels_with_animation(item_data: Dictionary):
+	"""Update price labels with smooth animation for real-time updates"""
 	var buy_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/BuyPriceLabel")
 	if buy_price_label:
 		var max_buy = item_data.get("max_buy", 0)
-		buy_price_label.text = "Buy: %s ISK" % format_isk(max_buy)
-		print("Updated buy price to: ", buy_price_label.text)
+		var new_text = "Buy: %s ISK" % format_isk(max_buy)
+
+		if item_data.get("is_realtime", false) and buy_price_label.text != new_text:
+			# Flash animation for real-time updates
+			var original_color = Color.GREEN
+			buy_price_label.add_theme_color_override("font_color", Color.YELLOW)
+
+			var tween = create_tween()
+			tween.tween_method(func(color): buy_price_label.add_theme_color_override("font_color", color), Color.YELLOW, original_color, 0.5)
+
+		buy_price_label.text = new_text
 
 	var sell_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SellPriceLabel")
 	if sell_price_label:
 		var min_sell = item_data.get("min_sell", 0)
-		sell_price_label.text = "Sell: %s ISK" % format_isk(min_sell)
-		print("Updated sell price to: ", sell_price_label.text)
+		var new_text = "Sell: %s ISK" % format_isk(min_sell)
+
+		if item_data.get("is_realtime", false) and sell_price_label.text != new_text:
+			# Flash animation for real-time updates
+			var original_color = Color.RED
+			sell_price_label.add_theme_color_override("font_color", Color.YELLOW)
+
+			var tween = create_tween()
+			tween.tween_method(func(color): sell_price_label.add_theme_color_override("font_color", color), Color.YELLOW, original_color, 0.5)
+
+		sell_price_label.text = new_text
 
 	var spread_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SpreadLabel")
 	if spread_label:
 		var spread = item_data.get("spread", 0)
 		var margin = item_data.get("margin", 0)
 		spread_label.text = "Spread: %s ISK (%.1f%%)" % [format_isk(spread), margin]
-		print("Updated spread to: ", spread_label.text)
 
-	# Update trading panel with current prices
-	var price_spinbox = get_node_or_null("TradingPanel/VBoxContainer/HBoxContainer2/PriceSpinBox")
-	if price_spinbox:
-		# Set default price to current best buy price
-		var suggested_price = item_data.get("max_buy", 100.0)
-		if suggested_price > 0:
-			price_spinbox.value = suggested_price
 
-	var alert_price_input = get_node_or_null("AlertPanel/VBoxContainer/HBoxContainer/AlertPriceInput")
-	if alert_price_input:
-		# Set default alert price to current sell price
-		var current_price = item_data.get("min_sell", item_data.get("max_buy", 100.0))
-		if current_price > 0:
-			alert_price_input.value = current_price
+func update_with_realtime_data(realtime_data: Dictionary):
+	"""Update panel with fresh real-time data"""
+	print("TradingRightPanel: Received real-time data update")
 
-	# Update chart
-	if real_time_chart:
-		var price = item_data.get("max_buy", item_data.get("min_sell", 0))
-		var volume = item_data.get("volume", 0)
-		if price > 0:
-			real_time_chart.add_data_point(price, volume, Time.get_datetime_string_from_system())
+	# Update the basic display
+	update_item_display(realtime_data)
 
-	# Update order book
-	update_order_book(item_data)
+	# Update chart with new price point
+	update_realtime_chart_data(realtime_data)
 
-	print("TradingRightPanel: Item display update complete")
+	# Update order book with fresh orders
+	update_order_book_realtime(realtime_data)
+
+
+func update_realtime_chart_data(data: Dictionary):
+	"""Add new data point to real-time chart"""
+	if not real_time_chart:
+		return
+
+	var max_buy = data.get("max_buy", 0.0)
+	var min_sell = data.get("min_sell", 0.0)
+	var volume = data.get("volume", 0)
+	var timestamp = data.get("timestamp", Time.get_ticks_msec())
+
+	# Use mid-point price for chart if we have both buy and sell
+	var chart_price = 0.0
+	if max_buy > 0 and min_sell > 0:
+		chart_price = (max_buy + min_sell) / 2.0
+	elif max_buy > 0:
+		chart_price = max_buy
+	elif min_sell > 0:
+		chart_price = min_sell
+
+	if chart_price > 0:
+		var time_label = Time.get_datetime_string_from_system().substr(11, 8)
+		real_time_chart.add_data_point(chart_price, volume, time_label)
+		print("Added chart data point: price=", chart_price, " volume=", volume)
+
+
+func update_order_book_realtime(data: Dictionary):
+	"""Update order book with real-time order data"""
+	if not order_book_list:
+		return
+
+	# Clear existing orders
+	for child in order_book_list.get_children():
+		child.queue_free()
+
+	# Add updated header
+	create_order_book_header()
+
+	# Add fresh buy orders (top 10)
+	var buy_orders = data.get("buy_orders", [])
+	for i in range(min(10, buy_orders.size())):
+		create_order_row(buy_orders[i], true)
+
+	# Add separator
+	var separator = HSeparator.new()
+	separator.add_theme_color_override("separator", Color.GRAY)
+	order_book_list.add_child(separator)
+
+	# Add fresh sell orders (top 10)
+	var sell_orders = data.get("sell_orders", [])
+	for i in range(min(10, sell_orders.size())):
+		create_order_row(sell_orders[i], false)
 
 
 func update_item_header(item_data: Dictionary):

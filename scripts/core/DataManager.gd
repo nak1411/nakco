@@ -30,6 +30,8 @@ var request_queue: Array[Dictionary] = []
 var requests_this_second: int = 0
 var max_requests_per_second: int = 80  # Stay under 100 limit
 var last_request_time: float = 0.0
+var selected_item_timer: Timer
+var current_selected_item: Dictionary = {}
 
 # HTTP clients
 var http_request: HTTPRequest
@@ -521,3 +523,78 @@ func _emit_combined_debug_data():
 	emit_signal("data_updated", "market_orders", combined_data)
 
 	print("Emitted combined debug market data - collection complete")
+
+
+func get_realtime_item_data(region_id: int, type_id: int) -> void:
+	"""Fetch real-time data for a specific item with shorter cache duration"""
+	var cache_key = "realtime_orders_%d_%d" % [region_id, type_id]
+
+	# Use shorter cache for real-time updates (10 seconds vs 60 seconds)
+	var realtime_cache_duration = 10.0
+
+	if is_cached_with_duration(cache_key, realtime_cache_duration):
+		var cached_data = get_cached_data(cache_key)
+		emit_signal("data_updated", "realtime_item_data", cached_data)
+		return
+
+	var url = ESI_BASE_URL + "/markets/%d/orders/?type_id=%d" % [region_id, type_id]
+
+	var request_context = {
+		"url": url,
+		"method": HTTPClient.METHOD_GET,
+		"cache_key": cache_key,
+		"data_type": "realtime_item_data",
+		"region_id": region_id,
+		"type_id": type_id,
+		"region_name": get_region_name_by_id(region_id),
+		"priority": "high",
+		"timestamp": Time.get_ticks_msec()
+	}
+
+	# Add to front of queue for immediate processing
+	request_queue.push_front(request_context)
+	print("Queued real-time data request for item ", type_id, " in region ", region_id)
+
+
+func is_cached_with_duration(key: String, duration: float) -> bool:
+	"""Check if data is cached with custom duration"""
+	if not market_data_cache.has(key):
+		return false
+
+	var cache_entry = market_data_cache[key]
+	var current_time = Time.get_ticks_msec() / 1000.0
+
+	return (current_time - cache_entry.timestamp) < duration
+
+
+func start_realtime_updates_for_item(region_id: int, type_id: int, item_name: String):
+	"""Start automatic real-time updates for selected item"""
+	current_selected_item = {"region_id": region_id, "type_id": type_id, "item_name": item_name}
+
+	if not selected_item_timer:
+		selected_item_timer = Timer.new()
+		add_child(selected_item_timer)
+		selected_item_timer.wait_time = 15.0  # Update every 15 seconds
+		selected_item_timer.timeout.connect(_update_selected_item)
+
+	selected_item_timer.start()
+	print("Started real-time updates for ", item_name)
+
+	# Get initial data immediately
+	get_realtime_item_data(region_id, type_id)
+
+
+func stop_realtime_updates():
+	"""Stop automatic updates"""
+	if selected_item_timer:
+		selected_item_timer.stop()
+	current_selected_item.clear()
+	print("Stopped real-time updates")
+
+
+func _update_selected_item():
+	"""Timer callback to update selected item"""
+	if current_selected_item.has("type_id"):
+		var region_id = current_selected_item.get("region_id", 0)
+		var type_id = current_selected_item.get("type_id", 0)
+		get_realtime_item_data(region_id, type_id)

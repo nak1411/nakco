@@ -375,6 +375,13 @@ func _on_region_changed(index: int):
 	current_region_id = region_selector.get_item_metadata(index)
 	print("Changed to region: ", region_selector.get_item_text(index))
 
+	# Stop real-time updates when region changes
+	if data_manager:
+		data_manager.stop_realtime_updates()
+
+	# Reset selected item
+	selected_item_id = -1
+
 	# Update the market grid region info
 	update_market_grid_region_info()
 
@@ -408,6 +415,10 @@ func _on_data_updated(data_type: String, data: Dictionary):
 			# Only update the grid - don't interfere with individual selections
 			print("Updating main market display")
 			update_market_display(data)
+		"realtime_item_data":
+			# Handle real-time individual item data
+			print("Updating real-time item data")
+			update_realtime_item_display(data)
 		"market_history":
 			update_charts(data)
 		"item_search":
@@ -457,7 +468,10 @@ func _on_tab_changed(tab_index: int):
 func _on_market_item_selected(item_id: int, item_data: Dictionary):
 	selected_item_id = item_id
 	print("Main: Selected market item: ", item_data.get("item_name", "Unknown"))
-	print("Item data available: ", item_data.keys())
+
+	# Start real-time updates for this item
+	if data_manager:
+		data_manager.start_realtime_updates_for_item(current_region_id, item_id, item_data.get("item_name", "Unknown"))
 
 	# Update enhanced right panel with the EXISTING data
 	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
@@ -606,6 +620,68 @@ func refresh_analytics_data():
 	pass
 
 
+func process_individual_item_orders(orders: Array, type_id: int, context: Dictionary) -> Dictionary:
+	"""Process raw order data into structured format for charts"""
+	var buy_orders = []
+	var sell_orders = []
+	var total_buy_volume = 0
+	var total_sell_volume = 0
+	var max_buy = 0.0
+	var min_sell = 999999999.0
+
+	# Sort orders into buy/sell
+	for order in orders:
+		if typeof(order) != TYPE_DICTIONARY:
+			continue
+
+		var price = order.get("price", 0.0)
+		var volume = order.get("volume_remain", 0)
+		var is_buy = order.get("is_buy_order", false)
+
+		if is_buy:
+			buy_orders.append({"price": price, "volume": volume})
+			total_buy_volume += volume
+			if price > max_buy:
+				max_buy = price
+		else:
+			sell_orders.append({"price": price, "volume": volume})
+			total_sell_volume += volume
+			if price < min_sell:
+				min_sell = price
+
+	# Sort orders by price
+	buy_orders.sort_custom(func(a, b): return a.price > b.price)
+	sell_orders.sort_custom(func(a, b): return a.price < b.price)
+
+	# Calculate metrics
+	var spread = 0.0
+	var margin = 0.0
+	if max_buy > 0 and min_sell < 999999999.0:
+		spread = min_sell - max_buy
+		margin = (spread / max_buy) * 100.0 if max_buy > 0 else 0.0
+
+	# Get item name
+	var item_name = data_manager.get_item_name(type_id) if data_manager else "Item %d" % type_id
+
+	return {
+		"item_id": type_id,
+		"item_name": item_name,
+		"region_id": context.get("region_id", current_region_id),
+		"region_name": context.get("region_name", get_current_region_name()),
+		"buy_orders": buy_orders,
+		"sell_orders": sell_orders,
+		"max_buy": max_buy if max_buy > 0 else 0.0,
+		"min_sell": min_sell if min_sell < 999999999.0 else 0.0,
+		"spread": spread,
+		"margin": margin,
+		"total_buy_volume": total_buy_volume,
+		"total_sell_volume": total_sell_volume,
+		"volume": total_buy_volume + total_sell_volume,
+		"timestamp": Time.get_ticks_msec(),
+		"is_realtime": true
+	}
+
+
 # UI Updates
 func update_market_display(data: Dictionary):
 	print("Main: Updating market display...")
@@ -621,6 +697,28 @@ func update_market_display(data: Dictionary):
 		print("Market grid updated successfully")
 	else:
 		print("ERROR: market_grid is null!")
+
+
+func update_realtime_item_display(data: Dictionary):
+	"""Handle real-time data updates for selected item"""
+	print("Main: Processing real-time item data...")
+
+	var raw_orders = data.get("data", [])
+	var context = data.get("context", {})
+	var type_id = context.get("type_id", 0)
+
+	if type_id != selected_item_id:
+		print("Real-time data is for different item, ignoring")
+		return
+
+	# Process the raw orders into structured data
+	var processed_data = process_individual_item_orders(raw_orders, type_id, context)
+
+	# Update the right panel with fresh data
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel:
+		trading_panel.update_with_realtime_data(processed_data)
+		print("Updated trading panel with real-time data")
 
 
 func update_market_grid_region_info():
