@@ -198,11 +198,17 @@ func create_resize_handles():
 		handle.size.x = 10
 		handle.size.y = header_height
 		handle.mouse_default_cursor_shape = Control.CURSOR_HSIZE
+
+		# Make it slightly visible for debugging (remove this in production)
+		handle.modulate = Color(1, 1, 1, 0.1)
+
 		header_container.add_child(handle)
 
 		# Connect signals for this handle
 		var column_index = i
 		handle.gui_input.connect(_on_resize_handle_input.bind(column_index))
+		handle.mouse_entered.connect(func(): handle.modulate = Color(1, 1, 1, 0.2))
+		handle.mouse_exited.connect(func(): handle.modulate = Color(1, 1, 1, 0.1))
 
 		resize_handles.append(handle)
 
@@ -211,20 +217,35 @@ func setup_input_handling():
 	gui_input.connect(_on_grid_input)
 
 
+func _on_global_input(event: InputEvent):
+	# Handle global mouse release to prevent stuck resize state
+	if event is InputEventMouseButton:
+		var mouse_event = event as InputEventMouseButton
+		if mouse_event.button_index == MOUSE_BUTTON_LEFT and not mouse_event.pressed:
+			if is_resizing:
+				end_column_resize()
+
+
 func _on_resize_handle_input(event: InputEvent, column_index: int):
 	if event is InputEventMouseButton:
 		var mouse_event = event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT:
 			if mouse_event.pressed:
 				start_column_resize(column_index, mouse_event.global_position.x)
+				# Capture mouse to prevent losing events
+				get_viewport().set_input_as_handled()
 			else:
-				end_column_resize()
-	elif event is InputEventMouseMotion and is_resizing:
+				if is_resizing and resize_column_index == column_index:
+					end_column_resize()
+	elif event is InputEventMouseMotion and is_resizing and resize_column_index == column_index:
 		update_column_resize(event.global_position.x)
+		get_viewport().set_input_as_handled()
 
 
 func _on_grid_input(event: InputEvent):
-	if event is InputEventMouseButton:
+	if event is InputEventMouseMotion and is_resizing:
+		update_column_resize(event.global_position.x)
+	elif event is InputEventMouseButton:
 		var mouse_event = event as InputEventMouseButton
 		if mouse_event.button_index == MOUSE_BUTTON_LEFT and not mouse_event.pressed:
 			if is_resizing:
@@ -234,10 +255,17 @@ func _on_grid_input(event: InputEvent):
 
 
 func start_column_resize(column_index: int, mouse_x: float):
+	if is_resizing:
+		return  # Prevent double-start
+
 	is_resizing = true
 	resize_column_index = column_index
 	resize_start_pos = mouse_x
 	resize_start_width = column_definitions[column_index].width
+
+	# Change mouse cursor globally
+	Input.set_default_cursor_shape(Input.CURSOR_HSIZE)
+	print("Started resizing column ", column_index)
 
 
 func update_column_resize(mouse_x: float):
@@ -251,16 +279,108 @@ func update_column_resize(mouse_x: float):
 	# Clamp to min/max width
 	new_width = max(col_def.min_width, min(col_def.max_width, new_width))
 
-	# Update column width
-	set_column_width(resize_column_index, new_width)
+	# Only update if width actually changed
+	if abs(new_width - col_def.width) > 1.0:
+		set_column_width_immediate(resize_column_index, new_width)
 
 
 func end_column_resize():
-	if is_resizing:
+	if not is_resizing:
+		return
+
+	print("Ended resizing column ", resize_column_index)
+
+	# Reset cursor
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+
+	# Emit signal for saving preferences
+	if resize_column_index >= 0:
 		emit_signal("column_resized", resize_column_index, column_definitions[resize_column_index].width)
 
 	is_resizing = false
 	resize_column_index = -1
+
+
+func set_column_width_immediate(column_index: int, new_width: float):
+	if column_index < 0 or column_index >= column_definitions.size():
+		return
+
+	column_definitions[column_index].width = new_width
+	update_header_positions()
+	update_data_positions()
+	refresh_data_display()
+
+
+func update_header_positions():
+	var x_offset = 0.0
+	var child_index = 0
+
+	for i in range(column_definitions.size()):
+		var col_def = column_definitions[i]
+
+		# Update header cell position and size
+		if child_index < header_container.get_child_count():
+			var cell_bg = header_container.get_child(child_index)
+			if cell_bg is ColorRect:
+				cell_bg.position.x = x_offset
+				cell_bg.size.x = col_def.width
+				child_index += 1
+
+			# Update label
+			if child_index < header_container.get_child_count():
+				var label = header_container.get_child(child_index)
+				if label is Label:
+					label.position.x = x_offset + 5
+					label.size.x = col_def.width - 10
+					child_index += 1
+
+		# Update separator position
+		if i < column_definitions.size() - 1 and child_index < header_container.get_child_count():
+			var separator = header_container.get_child(child_index)
+			if separator is ColorRect:
+				separator.position.x = x_offset + col_def.width
+				child_index += 1
+
+		x_offset += col_def.width
+
+	# Update resize handles
+	update_resize_handle_positions()
+
+
+func update_resize_handle_positions():
+	var x_offset = 0.0
+
+	for i in range(resize_handles.size()):
+		if i < column_definitions.size():
+			x_offset += column_definitions[i].width
+			if i < resize_handles.size():
+				resize_handles[i].position.x = x_offset - 5
+
+
+func update_data_positions():
+	# Update data rows to match new column positions
+	# This is more efficient than rebuilding everything
+	for row_child in data_container.get_children():
+		if row_child.has_method("get_children"):
+			update_row_positions(row_child)
+
+
+func update_row_positions(row_node: Node):
+	# Update cell positions in a data row
+	var x_offset = 0.0
+	var cell_index = 0
+
+	for i in range(column_definitions.size()):
+		var col_def = column_definitions[i]
+
+		# Find and update cell at this column
+		for child in row_node.get_children():
+			if child.position.x >= x_offset - 1 and child.position.x <= x_offset + 1:
+				child.position.x = x_offset
+				child.size.x = col_def.width
+				break
+
+		x_offset += col_def.width
 
 
 func set_column_width(column_index: int, new_width: float):
@@ -432,16 +552,12 @@ func create_data_row(row_index: int):
 	var item = grid_data[row_index]
 	var y_pos = row_index * row_height
 
-	# Row background (alternating colors)
+	# Row background (alternating colors) - fill available width
 	var row_bg = ColorRect.new()
 	row_bg.color = alternate_row_color if row_index % 2 == 1 else cell_color
-	row_bg.position.y = y_pos
-	row_bg.size.y = row_height
-
-	var total_width = 0.0
-	for col_def in column_definitions:
-		total_width += col_def.width
-	row_bg.size.x = total_width
+	row_bg.position = Vector2(0, y_pos)
+	row_bg.size = Vector2(data_container.size.x, row_height)
+	row_bg.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	data_container.add_child(row_bg)
 
@@ -450,7 +566,8 @@ func create_data_row(row_index: int):
 	row_button.flat = true
 	row_button.text = ""
 	row_button.position = Vector2(0, y_pos)
-	row_button.size = Vector2(total_width, row_height)
+	row_button.size = Vector2(data_container.size.x, row_height)
+	row_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	row_button.mouse_filter = Control.MOUSE_FILTER_PASS
 	row_button.pressed.connect(func(): _on_row_selected(item))
 	data_container.add_child(row_button)
