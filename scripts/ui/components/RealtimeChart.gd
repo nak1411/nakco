@@ -35,11 +35,21 @@ var price_history: Array[float] = []  # Store raw prices for moving average calc
 var mouse_position: Vector2 = Vector2.ZERO
 var show_crosshair: bool = false
 
+var hovered_point_index: int = -1
+var tooltip_content: String = ""
+var tooltip_position: Vector2 = Vector2.ZERO
+var point_hover_radius: float = 8.0  # Radius for hover detection
+var point_visual_radius: float = 4.0  # Visual radius of points
+
 
 func _ready():
 	custom_minimum_size = Vector2(400, 200)
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
+
+	# DISABLE built-in tooltip system
+	mouse_filter = Control.MOUSE_FILTER_PASS
+	tooltip_text = ""  # Clear any default tooltip
 
 	chart_font = ThemeDB.fallback_font
 
@@ -53,14 +63,91 @@ func _on_mouse_entered():
 
 func _on_mouse_exited():
 	show_crosshair = false
+	hovered_point_index = -1  # Clear hovered point when mouse leaves
 	queue_redraw()
 
 
 func _gui_input(event):
 	if event is InputEventMouseMotion:
 		mouse_position = event.position
+
+		# Check for point hovering first (priority over crosshair)
+		check_point_hover(mouse_position)
+
+		# Always accept the event to prevent default tooltip behavior
+		get_viewport().set_input_as_handled()
+
 		if show_crosshair:
 			queue_redraw()
+
+	# Prevent any other input from triggering tooltips
+	if event is InputEventMouseButton:
+		get_viewport().set_input_as_handled()
+
+
+func check_point_hover(mouse_pos: Vector2):
+	"""Check if mouse is hovering over any data point"""
+	var old_hovered_index = hovered_point_index
+	hovered_point_index = -1
+	tooltip_text = ""
+
+	if price_data.size() < 1:
+		if old_hovered_index != hovered_point_index:
+			queue_redraw()
+		return
+
+	var min_price = get_min_price()
+	var max_price = get_max_price()
+	var price_range = max_price - min_price
+
+	if price_range == 0:
+		price_range = max_price * 0.1
+		min_price = max_price - price_range / 2
+		max_price = max_price + price_range / 2
+
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
+	var current_time = Time.get_unix_time_from_system()
+	var window_start = current_time - 86400.0
+
+	# Check each data point for hover
+	for i in range(price_data.size()):
+		# Calculate point position
+		var time_in_window = price_data[i].timestamp - window_start
+		var time_ratio = clamp(time_in_window / 86400.0, 0.0, 1.0)
+		var x = time_ratio * size.x
+
+		var normalized_price = (price_data[i].price - min_price) / price_range
+		var y = chart_y_offset + chart_height - (normalized_price * chart_height)
+
+		var point_pos = Vector2(x, y)
+
+		# Check if mouse is within hover radius
+		if mouse_pos.distance_to(point_pos) <= point_hover_radius:
+			hovered_point_index = i
+			tooltip_position = mouse_pos
+
+			# Create detailed tooltip text for data points
+			var hours_ago = (current_time - price_data[i].timestamp) / 3600.0
+			var time_text = ""
+			if hours_ago < 0.1:
+				time_text = "Now"
+			elif hours_ago < 1.0:
+				time_text = "%.0f minutes ago" % (hours_ago * 60)
+			else:
+				time_text = "%.0f hours ago" % hours_ago
+
+			var is_historical = price_data[i].get("is_historical", false)
+			var data_type = "Historical" if is_historical else "Real-time"
+
+			tooltip_text = (
+				"%s Data\nPrice: %s ISK\nVolume: %s\nTime: %s" % [data_type, format_price_label(price_data[i].price), format_number(volume_data[i] if i < volume_data.size() else 0), time_text]
+			)
+			break
+
+	# Redraw if hover state changed
+	if old_hovered_index != hovered_point_index:
+		queue_redraw()
 
 
 func _draw():
@@ -71,12 +158,74 @@ func _draw():
 	draw_price_line()
 	draw_volume_bars()
 	draw_price_levels()
-	if show_crosshair:
+
+	# Only draw one type of tooltip at a time
+	if hovered_point_index != -1:
+		draw_tooltip()  # Priority: data point tooltip
+	elif show_crosshair:
 		draw_crosshair()
 
 
 func draw_background():
 	draw_rect(Rect2(Vector2.ZERO, size), background_color)
+
+
+func draw_tooltip():
+	"""Draw tooltip for hovered data point"""
+	if hovered_point_index == -1 or tooltip_text.is_empty():
+		return
+
+	var font = ThemeDB.fallback_font
+	var font_size = 11
+	var padding = Vector2(8, 12)
+	var line_height = 14
+
+	# Split tooltip text into lines
+	var lines = tooltip_text.split("\n")
+	var max_width = 0.0
+
+	# Calculate tooltip dimensions
+	for line in lines:
+		var text_size = font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+		if text_size.x > max_width:
+			max_width = text_size.x
+
+	var tooltip_size = Vector2(max_width + padding.x * 2, lines.size() * line_height + padding.y - 8)
+
+	# Position tooltip near cursor, but keep it on screen
+	var tooltip_pos = tooltip_position + Vector2(15, -tooltip_size.y / 2)
+
+	# Keep tooltip within screen bounds
+	if tooltip_pos.x + tooltip_size.x > size.x:
+		tooltip_pos.x = tooltip_position.x - tooltip_size.x - 15
+	if tooltip_pos.y < 0:
+		tooltip_pos.y = 0
+	if tooltip_pos.y + tooltip_size.y > size.y:
+		tooltip_pos.y = size.y - tooltip_size.y
+
+	# Draw tooltip background
+	var tooltip_rect = Rect2(tooltip_pos, tooltip_size)
+	var bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	var border_color = Color(0.4, 0.4, 0.5, 1.0)
+
+	draw_rect(tooltip_rect, bg_color)
+	draw_rect(tooltip_rect, border_color, false, 1.0)
+
+	# Draw tooltip text
+	var text_pos = tooltip_pos + padding
+	for i in range(lines.size()):
+		var line_pos = text_pos + Vector2(0, i * line_height)
+		var text_color = Color.WHITE
+
+		# Color code different parts of the tooltip
+		if lines[i].begins_with("Price:"):
+			text_color = Color.YELLOW
+		elif lines[i].begins_with("Volume:"):
+			text_color = Color.LIGHT_BLUE
+		elif lines[i].begins_with("Time:"):
+			text_color = Color.LIGHT_GREEN
+
+		draw_string(font, line_pos, lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
 
 func draw_grid():
@@ -90,7 +239,7 @@ func draw_grid():
 
 	# Horizontal grid lines (price) - aligned with Y-axis labels
 	var chart_height = size.y * 0.6
-	var chart_y_offset = size.y * 0.06
+	var chart_y_offset = size.y * 0.05
 
 	for i in range(grid_divisions_y + 1):
 		var y = chart_y_offset + (float(i) / grid_divisions_y) * chart_height
@@ -120,7 +269,7 @@ func draw_price_line():
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
 	var current_time = Time.get_unix_time_from_system()
-	var window_start = current_time - 86400.0  # 24 hours ago
+	var window_start = current_time - 86400.0
 
 	var points: PackedVector2Array = []
 
@@ -140,24 +289,39 @@ func draw_price_line():
 
 	print("Generated %d drawing points" % points.size())
 
-	# Draw the price line with thicker, more visible lines
+	# Draw the price line
 	for i in range(points.size() - 1):
 		var is_historical = price_data[i].get("is_historical", false)
 		var line_color = Color(0.6, 0.8, 1.0, 0.8) if is_historical else Color.YELLOW
-		var line_width = 0.5 if is_historical else 0.5
+		var line_width = 2.0 if is_historical else 2.5
 		draw_line(points[i], points[i + 1], line_color, line_width, true)
 
-	# Draw price points - make them very visible
+	# Draw data point circles
 	for i in range(points.size()):
 		var is_historical = price_data[i].get("is_historical", false)
-		var point_color = Color(0.8, 0.9, 1.0) if is_historical else Color.YELLOW
-		var point_size = 0.5 if is_historical else 0.5
+		var is_hovered = i == hovered_point_index
 
-		# Draw all points, but thin out historical ones
-		if not is_historical or i % 2 == 0:
-			draw_circle(points[i], point_size, point_color, true)
-			# Add outline for visibility
-			draw_arc(points[i], point_size + 1, 0, TAU, 16, Color.WHITE, 1.0, true)
+		# Determine circle properties
+		var circle_radius = point_visual_radius
+		var circle_color = Color(0.8, 0.9, 1.0, 0.9) if is_historical else Color.YELLOW
+		var outline_color = Color.WHITE
+		var outline_width = 1.0
+
+		# Highlight hovered point
+		if is_hovered:
+			circle_radius = point_visual_radius * 1.5
+			outline_width = 2.0
+			outline_color = Color.CYAN
+
+		# Draw circle with outline
+		draw_circle(points[i], circle_radius + outline_width, outline_color, true)
+		draw_circle(points[i], circle_radius, circle_color, true)
+
+		# Add a subtle inner highlight
+		if not is_historical or is_hovered:
+			var highlight_color = Color.WHITE
+			highlight_color.a = 0.4 if is_hovered else 0.2
+			draw_circle(points[i], circle_radius * 0.6, highlight_color, true)
 
 	print("=== PRICE LINE DRAWN ===")
 
@@ -188,7 +352,7 @@ func draw_volume_bars():
 
 	print("Historical max: %d, Volume cap: %d" % [historical_max, volume_cap])
 
-	var volume_height_scale = size.y * 0.3  # Reduced from 0.2 to 0.15
+	var volume_height_scale = size.y * 0.3
 	var current_time = Time.get_unix_time_from_system()
 	var window_start = current_time - 86400.0
 
@@ -196,13 +360,18 @@ func draw_volume_bars():
 	var historical_count = 0
 	var realtime_count = 0
 
-	# Draw all volume bars with capped scaling
+	# Calculate optimal bar width for 24 hourly bars
+	var available_width = size.x
+	var target_bars = 24  # 24 hours of data
+	var optimal_bar_width = (available_width / target_bars) * 0.8  # 80% of available space per bar
+
+	# Draw all volume bars with consistent spacing
 	for i in range(min(volume_data.size(), price_data.size())):
 		var volume = volume_data[i]
 		var timestamp = price_data[i].timestamp
 		var is_historical = price_data[i].get("is_historical", false)
 
-		# Calculate position
+		# Calculate position based on time
 		var time_in_window = timestamp - window_start
 		var time_ratio = clamp(time_in_window / 86400.0, 0.0, 1.0)
 		var x = time_ratio * size.x
@@ -233,8 +402,8 @@ func draw_volume_bars():
 
 		var y = size.y - bar_height
 
-		# Consistent bar width
-		var bar_width = max(2.0, (size.x / volume_data.size()) * 0.8)
+		# Use calculated optimal bar width
+		var bar_width = max(2.0, optimal_bar_width)
 		var bar_rect = Rect2(x - bar_width / 2, y, bar_width, bar_height)
 
 		# Color coding
@@ -251,16 +420,11 @@ func draw_volume_bars():
 		# Draw the bar
 		draw_rect(bar_rect, bar_color)
 
-		# Add border
+		# Add border for better visibility
 		if bar_height > 1:
 			draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x, 1)), Color.WHITE * 0.2)
 
 		bars_drawn += 1
-
-		# Debug key bars
-		if bars_drawn <= 3 or bars_drawn > volume_data.size() - 3 or not is_historical:
-			var hours_ago = (current_time - timestamp) / 3600.0
-			print("Volume bar %d: x=%.1f, vol=%d->%d, height=%.1f, historical=%s, %.1fh ago" % [bars_drawn, x, volume, display_volume, bar_height, is_historical, hours_ago])
 
 	print("Drew %d volume bars (%d historical, %d realtime)" % [bars_drawn, historical_count, realtime_count])
 	print("=== VOLUME BARS COMPLETE ===")
@@ -330,9 +494,9 @@ func draw_y_axis_labels():
 
 
 func draw_x_axis_labels():
-	"""Draw time labels for 24-hour rolling window"""
+	"""Draw time labels for 24-hour rolling window - every hour"""
 	var font_size = 9
-	var grid_divisions = 8  # 3-hour intervals
+	var grid_divisions = 12  # Show every 2 hours to avoid overcrowding
 	var chart_bottom = size.y * 0.7
 	var current_time = Time.get_unix_time_from_system()
 
@@ -353,7 +517,7 @@ func draw_x_axis_labels():
 
 func draw_crosshair():
 	"""Draw crosshair and price/time info at mouse position"""
-	if not show_crosshair:
+	if not show_crosshair or hovered_point_index != -1:  # Don't show crosshair tooltip if hovering over a point
 		return
 
 	# Draw crosshair lines
@@ -367,20 +531,43 @@ func draw_crosshair():
 		var price_range = max_price - min_price
 
 		if price_range > 0:
-			var price_y_ratio = (size.y * 0.7 - mouse_position.y) / (size.y * 0.6)
+			var chart_height = size.y * 0.6
+			var chart_y_offset = size.y * 0.05
+			var price_y_ratio = (chart_y_offset + chart_height - mouse_position.y) / chart_height
 			var price_at_mouse = min_price + (price_y_ratio * price_range)
 
-			# Draw price label
+			# Calculate time at mouse position
+			var current_time = Time.get_unix_time_from_system()
+			var window_start = current_time - 86400.0
+			var time_ratio = mouse_position.x / size.x
+			var time_at_mouse = window_start + (time_ratio * 86400.0)
+			var hours_ago = (current_time - time_at_mouse) / 3600.0
+
+			var time_text = ""
+			if hours_ago < 0.1:
+				time_text = "Now"
+			elif hours_ago < 1.0:
+				time_text = "%.0fm ago" % (hours_ago * 60)
+			else:
+				time_text = "%.1fh ago" % hours_ago
+
+			# Draw crosshair tooltip (simpler than point tooltip)
 			var font = ThemeDB.fallback_font
-			var font_size = 12
-			var price_text = "%.2f ISK" % price_at_mouse
-			var text_size = font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+			var font_size = 11
+			var tooltip_text = "%.2f ISK | %s" % [price_at_mouse, time_text]
+			var text_size = font.get_string_size(tooltip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+
+			var padding = Vector2(6, 4)
+			var tooltip_size = text_size + padding * 2
 
 			var label_pos = Vector2(mouse_position.x + 10, mouse_position.y - 10)
-			if label_pos.x + text_size.x > size.x:
-				label_pos.x = mouse_position.x - text_size.x - 10
+			if label_pos.x + tooltip_size.x > size.x:
+				label_pos.x = mouse_position.x - tooltip_size.x - 10
+			if label_pos.y - tooltip_size.y < 0:
+				label_pos.y = mouse_position.y + 20
 
-			draw_string(font, label_pos, price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.LIGHT_GRAY)
+			# Draw text
+			draw_string(font, label_pos, tooltip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.LIGHT_GRAY)
 
 
 func find_closest_time_index(target_time: float) -> int:
@@ -440,6 +627,16 @@ func format_rolling_time_label(hours_back: float) -> String:
 		return "-%dh" % int(hours_back)
 
 	return "-1d"
+
+
+func format_number(value: float) -> String:
+	if value >= 1000000000:
+		return "%.1fB" % (value / 1000000000.0)
+	if value >= 1000000:
+		return "%.1fM" % (value / 1000000.0)
+	if value >= 1000:
+		return "%.1fK" % (value / 1000.0)
+	return "%.0f" % value
 
 
 func get_timeframe_info() -> String:
@@ -898,3 +1095,13 @@ func debug_chart_data():
 	print("Has loaded historical: %s" % has_loaded_historical)
 	print("Is loading historical: %s" % is_loading_historical)
 	print("==========================")
+
+
+func _make_custom_tooltip(_for_text: String) -> Control:
+	# Return null to disable built-in tooltip system completely
+	return null
+
+
+func _get_tooltip(_at_position: Vector2) -> String:
+	# Return empty string to disable built-in tooltips
+	return ""

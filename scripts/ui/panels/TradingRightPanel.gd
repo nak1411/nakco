@@ -104,6 +104,11 @@ func create_real_time_chart():
 	real_time_chart = RealtimeChart.new()
 	real_time_chart.name = "RealtimeChart"
 	real_time_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	# EXPLICITLY disable any tooltip behavior
+	real_time_chart.tooltip_text = ""
+	real_time_chart.mouse_filter = Control.MOUSE_FILTER_PASS
+
 	chart_vbox.add_child(real_time_chart)
 
 	# Connect historical data request signal
@@ -569,9 +574,8 @@ func load_historical_chart_data(history_data: Dictionary):
 
 	print("Entry data: price=%.2f, volume=%d, range=%.2f-%.2f" % [avg_price, daily_volume, lowest, highest])
 
-	# Create historical data points by going backwards from now
-	# Create a point every hour for the last 24 hours
-	for hours_back in range(1, 25):  # 1 to 24 hours ago
+	# Create historical data points for EVERY hour in the last 24 hours
+	for hours_back in range(0, 24):  # Changed from range(1, 25) to range(0, 24)
 		var point_timestamp = current_time - (hours_back * 3600.0)
 
 		# Make sure it's within our window

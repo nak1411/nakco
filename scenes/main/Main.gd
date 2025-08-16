@@ -36,8 +36,9 @@ var market_grid: SpreadsheetGrid
 
 # Main panels
 @onready var left_panel: VSplitContainer = $UIManager/MainContent/LeftPanel
-@onready var center_panel: TabContainer = $UIManager/MainContent/RightSplit/CenterPanel
-@onready var right_panel: VBoxContainer = $UIManager/MainContent/RightSplit/RightPanel
+@onready var center_panel: TabContainer = $UIManager/MainContent/CenterRightPanel/CenterPanel
+@onready var center_right_panel: VSplitContainer = $UIManager/MainContent/CenterRightPanel
+@onready var right_panel: VBoxContainer = $UIManager/MainContent/CenterRightPanel/RightPanel
 
 # Search and watchlist
 @onready var item_search: LineEdit = $UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer/ItemSearch
@@ -125,7 +126,10 @@ func setup_ui():
 	item_search.clear_button_enabled = true
 
 	# Setup tab container
-	center_panel.tab_alignment = TabBar.ALIGNMENT_LEFT
+	if center_panel:
+		center_panel.tab_alignment = TabBar.ALIGNMENT_LEFT
+	else:
+		print("ERROR: center_panel is null - check node path")
 
 	# Configure status bar
 	connection_status.text = "Connecting..."
@@ -184,6 +188,11 @@ func setup_right_panel():
 	var trading_panel = TradingRightPanel.new()
 	trading_panel.name = "TradingRightPanel"
 	trading_panel.data_manager = data_manager
+
+	# Ensure no tooltips on the panel
+	trading_panel.tooltip_text = ""
+	trading_panel.mouse_filter = Control.MOUSE_FILTER_PASS
+
 	right_panel.add_child(trading_panel)
 
 	print("Trading panel created and added to right panel")
@@ -296,52 +305,47 @@ func configure_panel_constraints():
 	# Set minimum sizes to prevent overlap
 	left_panel.custom_minimum_size = Vector2(200, 0)
 
-	var right_split = main_content.get_node("RightSplit")
-	if right_split:
-		right_split.split_offset = -300  # Negative means from right edge
-
+	# Configure the vertical split for center-right panel
+	if center_right_panel:
+		center_right_panel.split_offset = 400  # Default height for center panel
 		# Connect resize signals for responsive behavior
-		right_split.resized.connect(_on_right_split_resized)
+		center_right_panel.resized.connect(_on_center_right_panel_resized)
+
+	# Set minimum height for chart panel
+	if right_panel:
+		right_panel.custom_minimum_size = Vector2(0, 200)
 
 	# Connect main splitter resize
 	main_content.resized.connect(_on_main_content_resized)
 
 
+func _on_center_right_panel_resized():
+	if not center_right_panel:
+		return
+
+	var total_height = center_right_panel.size.y
+	var min_chart_height = 200
+	var min_center_height = 300
+
+	# Ensure chart panel doesn't get too small
+	if center_right_panel.split_offset > (total_height - min_chart_height):
+		center_right_panel.split_offset = total_height - min_chart_height
+
+	# Ensure center panel doesn't get too small
+	if center_right_panel.split_offset < min_center_height:
+		center_right_panel.split_offset = min_center_height
+
+
 func _on_main_content_resized():
 	var total_width = main_content.size.x
 	var min_left = 200
-	var min_right = 250
-	var min_center = 400
+	var min_center_right = 600
 
 	# Ensure minimum sizes are respected
-	if total_width < (min_left + min_center + min_right):
+	if total_width < (min_left + min_center_right):
 		# Force minimum layout
 		var left_width = min(main_content.split_offset, min_left)
 		main_content.split_offset = left_width
-
-		var right_split = main_content.get_node("RightSplit")
-		if right_split:
-			var remaining_width = total_width - left_width
-			var right_width = min(min_right, remaining_width / 3)
-			right_split.split_offset = remaining_width - right_width
-
-
-func _on_right_split_resized():
-	var right_split = main_content.get_node("RightSplit")
-	if not right_split:
-		return
-
-	var total_width = right_split.size.x
-	var min_right_panel = 250
-	var min_center_panel = 400
-
-	# Ensure right panel doesn't get too small
-	if right_split.split_offset > (total_width - min_right_panel):
-		right_split.split_offset = total_width - min_right_panel
-
-	# Ensure center panel doesn't get too small
-	if right_split.split_offset < min_center_panel:
-		right_split.split_offset = min_center_panel
 
 
 func apply_theme():

@@ -209,24 +209,24 @@ size_flags_vertical = 3
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="RightSplit" type="HSplitContainer" parent="UIManager/MainContent"]
+[node name="CenterRightPanel" type="VSplitContainer" parent="UIManager/MainContent"]
 clip_contents = true
 layout_mode = 2
 size_flags_horizontal = 3
-split_offset = -320
+split_offset = 400
 
-[node name="CenterPanel" type="TabContainer" parent="UIManager/MainContent/RightSplit"]
+[node name="CenterPanel" type="TabContainer" parent="UIManager/MainContent/CenterRightPanel"]
 clip_contents = true
 layout_mode = 2
 size_flags_horizontal = 3
 tab_alignment = 1
 current_tab = 0
 
-[node name="MarketOverview" type="Control" parent="UIManager/MainContent/RightSplit/CenterPanel"]
+[node name="MarketOverview" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel"]
 layout_mode = 2
 metadata/_tab_index = 0
 
-[node name="MarketGrid" type="ScrollContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview"]
+[node name="MarketGrid" type="ScrollContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -234,59 +234,59 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="GridContainer" type="VBoxContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid"]
+[node name="GridContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="GridHeader" type="HBoxContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid/GridContainer"]
+[node name="GridHeader" type="HBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer"]
 layout_mode = 2
 
-[node name="ItemNameHeader" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+[node name="ItemNameHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(200, 0)
 layout_mode = 2
 text = "Item"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="BuyPriceHeader" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+[node name="BuyPriceHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 text = "Buy Price"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="SellPriceHeader" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+[node name="SellPriceHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 text = "Sell Price"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="SpreadHeader" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+[node name="SpreadHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 text = "Spread"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="VolumeHeader" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+[node name="VolumeHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 text = "Volume"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="MarginHeader" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
+[node name="MarginHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 text = "Margin %"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="GridData" type="VBoxContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/MarketOverview/MarketGrid/GridContainer"]
+[node name="GridData" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="Charts" type="Control" parent="UIManager/MainContent/RightSplit/CenterPanel"]
+[node name="Charts" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel"]
 visible = false
 layout_mode = 2
 metadata/_tab_index = 1
 
-[node name="ChartContainer" type="VBoxContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/Charts"]
+[node name="ChartContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -294,14 +294,14 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="ChartControls" type="HBoxContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/Charts/ChartContainer"]
+[node name="ChartControls" type="HBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer"]
 layout_mode = 2
 
-[node name="ChartTypeLabel" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/Charts/ChartContainer/ChartControls"]
+[node name="ChartTypeLabel" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer/ChartControls"]
 layout_mode = 2
 text = "Chart Type:"
 
-[node name="ChartTypeSelector" type="OptionButton" parent="UIManager/MainContent/RightSplit/CenterPanel/Charts/ChartContainer/ChartControls"]
+[node name="ChartTypeSelector" type="OptionButton" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer/ChartControls"]
 layout_mode = 2
 item_count = 3
 popup/item_0/text = "Price Chart"
@@ -311,11 +311,11 @@ popup/item_1/id = 1
 popup/item_2/text = "Combined"
 popup/item_2/id = 2
 
-[node name="TimeframeLabel" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/Charts/ChartContainer/ChartControls"]
+[node name="TimeframeLabel" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer/ChartControls"]
 layout_mode = 2
 text = "Timeframe:"
 
-[node name="TimeframeSelector" type="OptionButton" parent="UIManager/MainContent/RightSplit/CenterPanel/Charts/ChartContainer/ChartControls"]
+[node name="TimeframeSelector" type="OptionButton" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer/ChartControls"]
 layout_mode = 2
 item_count = 4
 popup/item_0/text = "1 Day"
@@ -327,16 +327,16 @@ popup/item_2/id = 2
 popup/item_3/text = "90 Days"
 popup/item_3/id = 3
 
-[node name="ChartArea" type="Control" parent="UIManager/MainContent/RightSplit/CenterPanel/Charts/ChartContainer"]
+[node name="ChartArea" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="Portfolio" type="Control" parent="UIManager/MainContent/RightSplit/CenterPanel"]
+[node name="Portfolio" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel"]
 visible = false
 layout_mode = 2
 metadata/_tab_index = 2
 
-[node name="PortfolioContainer" type="VBoxContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/Portfolio"]
+[node name="PortfolioContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Portfolio"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -344,29 +344,29 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="PortfolioSummary" type="HBoxContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/Portfolio/PortfolioContainer"]
+[node name="PortfolioSummary" type="HBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Portfolio/PortfolioContainer"]
 layout_mode = 2
 
-[node name="TotalValueLabel" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/Portfolio/PortfolioContainer/PortfolioSummary"]
+[node name="TotalValueLabel" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Portfolio/PortfolioContainer/PortfolioSummary"]
 layout_mode = 2
 text = "Total Value: 0 ISK"
 
-[node name="ProfitLossLabel" type="Label" parent="UIManager/MainContent/RightSplit/CenterPanel/Portfolio/PortfolioContainer/PortfolioSummary"]
+[node name="ProfitLossLabel" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Portfolio/PortfolioContainer/PortfolioSummary"]
 layout_mode = 2
 text = "P&L: 0 ISK (0%)"
 
-[node name="PortfolioGrid" type="ScrollContainer" parent="UIManager/MainContent/RightSplit/CenterPanel/Portfolio/PortfolioContainer"]
+[node name="PortfolioGrid" type="ScrollContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Portfolio/PortfolioContainer"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="Analytics" type="Control" parent="UIManager/MainContent/RightSplit/CenterPanel"]
+[node name="Analytics" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel"]
 visible = false
 layout_mode = 2
 metadata/_tab_index = 3
 
-[node name="RightPanel" type="VBoxContainer" parent="UIManager/MainContent/RightSplit"]
+[node name="RightPanel" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel"]
 clip_contents = true
-custom_minimum_size = Vector2(300, 0)
+custom_minimum_size = Vector2(0, 250)
 layout_mode = 2
 
 [node name="StatusBar" type="HBoxContainer" parent="UIManager"]
