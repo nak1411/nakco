@@ -532,7 +532,7 @@ func load_historical_chart_data(history_data: Dictionary):
 		return
 
 	var current_time = Time.get_unix_time_from_system()
-	var max_window_start = current_time - 31536000.0  # 1 year ago
+	var max_window_start = current_time - 31536000.0  # 1 year ago (changed from 432000.0)
 	var points_added = 0
 
 	print("Current time: %s" % Time.get_datetime_string_from_unix_time(current_time))
@@ -552,7 +552,7 @@ func load_historical_chart_data(history_data: Dictionary):
 	# Sort entries by timestamp (oldest first)
 	valid_entries.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
-	print("Found %d valid historical entries within 5 days" % valid_entries.size())
+	print("Found %d valid historical entries within 1 year" % valid_entries.size())
 
 	# Create ONLY ONE data point per day using REAL EVE data - NO GAP FILLING
 	for entry_info in valid_entries:
@@ -573,8 +573,8 @@ func load_historical_chart_data(history_data: Dictionary):
 		if day_timestamp > current_time:
 			continue
 
-		var hours_ago = (current_time - day_timestamp) / 3600.0
-		print("  Adding REAL data point: %.1fh ago, price=%.2f, volume=%d" % [hours_ago, real_avg_price, real_daily_volume])
+		var days_ago = (current_time - day_timestamp) / 86400.0
+		print("  Adding REAL data point: %.1f days ago, price=%.2f, volume=%d" % [days_ago, real_avg_price, real_daily_volume])
 		print("    Date: %s, High: %.2f, Low: %.2f" % [entry.get("date", ""), real_highest, real_lowest])
 
 		# Add the REAL daily data point

@@ -9,10 +9,10 @@ var price_data: Array[Dictionary] = []
 var volume_data: Array[int] = []
 var time_labels: Array[String] = []
 var max_data_points: int = 365
-var timeframe_hours: float = 24.0  # 1 day timeframe
-var data_retention_seconds: float = 86400.0  # 24 hours in seconds
-var base_time_window: float = 86400.0  # 24 hours in seconds (base window)
-var max_data_retention: float = 3024000.0  # 1 year in seconds (24 * 365 * 3600)
+var timeframe_hours: float = 8760.0  # 1 year timeframe (365 * 24)
+var data_retention_seconds: float = 31536000.0  # 1 year in seconds (365 * 24 * 3600)
+var base_time_window: float = 31536000.0  # 1 year in seconds (base window)
+var max_data_retention: float = 31536000.0  # 1 year in seconds
 var day_start_timestamp: float = 0.0
 var current_day_data: Array = []
 var has_loaded_historical: bool = false
@@ -37,16 +37,16 @@ var price_history: Array[float] = []  # Store raw prices for moving average calc
 var mouse_position: Vector2 = Vector2.ZERO
 var show_crosshair: bool = false
 var zoom_level: float = 1.0
-var min_zoom: float = 1.0  # 1 day (24 * 1.0)
-var max_zoom: float = 365.0  # 1 year (24 * 365 = 8760 hours)
-var zoom_sensitivity: float = 365.0  # How much each scroll step changes zoom
+var min_zoom: float = 1.0  # 1x = 1 year (full view)
+var max_zoom: float = 365.0  # 365x = 1 day (most zoomed in)
+var zoom_sensitivity: float = 1.2  # Multiplicative zoom factor (20% change per step)
 
 var hovered_point_index: int = -1
 var hovered_volume_index: int = -1
 var tooltip_content: String = ""
 var tooltip_position: Vector2 = Vector2.ZERO
 var point_hover_radius: float = 8.0  # Radius for hover detection
-var point_visual_radius: float = 2.0  # Visual radius of points
+var point_visual_radius: float = 4.0  # Visual radius of points
 
 
 func _ready():
@@ -469,7 +469,7 @@ func draw_price_line():
 			# Both points are historical = historical line
 			if current_is_historical and next_is_historical:
 				var line_color = Color(0.6, 0.8, 1.0, 0.8)
-				var line_width = 2.0
+				var line_width = 1.0
 				draw_line(points[i], points[i + 1], line_color, line_width, true)
 			# One or both are real-time = real-time line
 			else:
@@ -492,28 +492,36 @@ func draw_price_line():
 
 		var is_hovered = original_index == hovered_point_index
 
+		# Get zoom-based scaling
+		var scale_factors = get_zoom_scale_factor()
+		var base_point_scale = scale_factors.point_scale
+
 		# Different styling for real data vs gap fills
-		var circle_radius = point_visual_radius
+		var circle_radius = point_visual_radius * base_point_scale  # Apply zoom scaling
 		var circle_color: Color
 		var outline_color = Color.WHITE
-		var outline_width = 1.0
+		var outline_width = 1.0 * base_point_scale  # Scale outline too
 
 		# Real data points (have volume > 0) vs gap fills (volume = 0)
 		if volume > 0:
 			# Real data point
 			circle_color = Color(0.8, 0.9, 1.0, 0.9) if is_historical else Color.YELLOW
-			circle_radius = point_visual_radius * 1.2  # Slightly larger for real data
+			circle_radius = point_visual_radius * 1.2 * base_point_scale  # Slightly larger for real data
 		else:
 			# Gap fill / interpolated point
 			circle_color = Color(0.5, 0.5, 0.6, 0.6)  # Dimmer for interpolated
-			circle_radius = point_visual_radius * 0.8  # Smaller for interpolated
+			circle_radius = point_visual_radius * 0.8 * base_point_scale  # Smaller for interpolated
 			outline_color = Color.GRAY
 
-		# Highlight hovered point
+		# Highlight hovered point (but don't scale hover effect)
 		if is_hovered:
-			circle_radius *= 1.5
+			circle_radius *= 1.5  # Keep hover scaling consistent
 			outline_width = 1.5
 			outline_color = Color.CYAN
+
+		# Ensure minimum visibility
+		circle_radius = max(circle_radius, 1.0)
+		outline_width = max(outline_width, 0.5)
 
 		# Draw circle with outline
 		draw_circle(points[i], circle_radius + outline_width, outline_color, true)
@@ -525,13 +533,11 @@ func draw_price_line():
 			highlight_color.a = 0.4 if is_hovered else 0.2
 			draw_circle(points[i], circle_radius * 0.6, highlight_color, true)
 
-	print("=== PRICE LINE DRAWN WITH REAL DATA INTERVALS ===")
-
 
 # Modify draw_volume_bars to maintain consistent bar width
 func draw_volume_bars():
-	print("=== DRAWING VOLUME BARS WITH HISTORICAL TIME RANGE ===")
-	print("Volume data size: %d, Time window: %.1f hours" % [volume_data.size(), get_current_time_window() / 3600.0])
+	print("=== DRAWING VOLUME BARS WITH ZOOM SCALING ===")
+	print("Volume data size: %d, Time window: %.1f days" % [volume_data.size(), get_current_time_window() / 86400.0])
 
 	if volume_data.size() == 0 or price_data.size() == 0:
 		print("No volume or price data to draw")
@@ -541,6 +547,10 @@ func draw_volume_bars():
 	var time_window = get_current_time_window()
 	var window_start = current_time - time_window
 	var window_end = current_time
+
+	# Get zoom-based scaling
+	var scale_factors = get_zoom_scale_factor()
+	var volume_scale = scale_factors.volume_scale
 
 	# Collect all volume data within the time window
 	var visible_volume_data = []
@@ -571,7 +581,7 @@ func draw_volume_bars():
 		print("No visible volume data in time window")
 		return
 
-	print("Visible volume bars: %d, Historical max: %d, All max: %d" % [visible_volume_data.size(), historical_max, all_max])
+	print("Visible volume bars: %d, Volume scale: %.2f" % [visible_volume_data.size(), volume_scale])
 
 	# Find the actual data time range for full-width scaling
 	var data_start_time = visible_timestamps[0]
@@ -589,7 +599,7 @@ func draw_volume_bars():
 	var volume_cap = scaling_max * 3  # Cap for real-time spikes
 
 	var volume_height_scale = size.y * 0.3
-	var base_bar_width = 8.0
+	var base_bar_width = 30.0 * volume_scale  # Apply zoom scaling to bar width
 	var bars_drawn = 0
 
 	# Draw all visible volume bars
@@ -611,7 +621,6 @@ func draw_volume_bars():
 		var display_volume = volume
 		if not is_historical and volume > volume_cap:
 			display_volume = volume_cap
-			print("Capped real-time volume from %d to %d" % [volume, display_volume])
 
 		# Scale volume to bar height
 		var normalized_volume = float(display_volume) / scaling_max
@@ -641,14 +650,26 @@ func draw_volume_bars():
 		# Draw the volume bar
 		draw_rect(bar_rect, bar_color)
 
-		# Add subtle border
-		if bar_height > 1:
-			draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x, 1)), Color.WHITE * 0.2)
+		# Add highlight when hovered
+		if hovered_volume_index == original_index:
+			# Draw highlight overlay
+			var highlight_color = Color(1.0, 1.0, 1.0, 0.3)  # White with transparency
+			draw_rect(bar_rect, highlight_color)
+
+			# Draw highlight border
+			var border_color = Color.CYAN
+			var border_width = max(1.0, 2.0 * volume_scale)
+			draw_rect(bar_rect, border_color, false, border_width)
+
+		# Add subtle border (scaled) - only for non-hovered bars
+		elif bar_height > 1:
+			var border_height = max(1.0, 1.0 * volume_scale)
+			draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x, border_height)), Color.WHITE * 0.2)
 
 		# Draw volume label ONLY when this bar is hovered
 		if hovered_volume_index == original_index:
 			var font = ThemeDB.fallback_font
-			var font_size = 10
+			var font_size = max(8, int(10 * volume_scale))  # Scale font size too
 			var volume_text = format_number(volume)
 			var text_size = font.get_string_size(volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
@@ -658,14 +679,17 @@ func draw_volume_bars():
 
 			# Ensure label stays within bounds
 			if label_x >= 0 and label_x + text_size.x <= size.x and label_y > text_size.y:
-				# Draw volume label without background
+				# Draw volume label with background for better visibility when highlighted
+				var bg_padding = Vector2(4, 2)
+				var label_bg_rect = Rect2(Vector2(label_x - bg_padding.x, label_y - text_size.y - bg_padding.y), Vector2(text_size.x + bg_padding.x * 2, text_size.y + bg_padding.y * 2))
+
+				# Draw text
 				var text_color = Color.WHITE
 				draw_string(font, Vector2(label_x, label_y), volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
 		bars_drawn += 1
 
-	print("Drew %d volume bars spanning full chart width" % bars_drawn)
-	print("=== VOLUME BARS COMPLETE ===")
+	print("Drew %d volume bars with %.2f scale factor" % [bars_drawn, volume_scale])
 
 
 func draw_price_levels():
@@ -913,17 +937,19 @@ func draw_zoom_indicator():
 	var font = ThemeDB.fallback_font
 	var font_size = 10
 	var time_window = get_current_time_window()
-	var window_hours = time_window / 3600.0
+	var window_days = time_window / 86400.0
 
 	var zoom_text = ""
-	if window_hours < 1.0:
-		zoom_text = "%.0f minutes" % (window_hours * 60)
-	elif window_hours < 24.0:
-		zoom_text = "%.1f hours" % window_hours
-	elif window_hours < 168.0:  # Less than a week
-		zoom_text = "%.1f days" % (window_hours / 24.0)
+	if window_days < 1.0:
+		zoom_text = "%.1f hours" % (window_days * 24.0)
+	elif window_days < 7.0:
+		zoom_text = "%.1f days" % window_days
+	elif window_days < 30.0:
+		zoom_text = "%.1f weeks" % (window_days / 7.0)
+	elif window_days < 365.0:
+		zoom_text = "%.1f months" % (window_days / 30.0)
 	else:
-		zoom_text = "%.1f weeks" % (window_hours / 168.0)
+		zoom_text = "%.1f years" % (window_days / 365.0)
 
 	var text_size = font.get_string_size(zoom_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 	var padding = Vector2(8, 4)
@@ -939,24 +965,24 @@ func draw_zoom_indicator():
 
 func zoom_in(_zoom_point: Vector2):
 	var old_zoom = zoom_level
-	zoom_level = max(zoom_level - zoom_sensitivity, min_zoom)
+	zoom_level = min(zoom_level * zoom_sensitivity, max_zoom)  # MULTIPLY to zoom IN
 
 	if zoom_level != old_zoom:
-		var hours = (base_time_window * zoom_level) / 3600.0
-		update_price_levels()  # Recalculate levels for new time window
+		var days = (base_time_window / zoom_level) / 86400.0
+		update_price_levels()
 		on_zoom_changed()
-		print("Zoomed in to %.1fx (%.1f hours)" % [zoom_level, hours])
+		print("Zoomed in to %.1fx (%.1f days)" % [zoom_level, days])
 
 
 func zoom_out(_zoom_point: Vector2):
 	var old_zoom = zoom_level
-	zoom_level = min(zoom_level + zoom_sensitivity, max_zoom)
+	zoom_level = max(zoom_level / zoom_sensitivity, min_zoom)  # DIVIDE to zoom OUT
 
 	if zoom_level != old_zoom:
-		var hours = (base_time_window * zoom_level) / 3600.0
-		update_price_levels()  # Recalculate levels for new time window
+		var days = (base_time_window / zoom_level) / 86400.0
+		update_price_levels()
 		on_zoom_changed()
-		print("Zoomed out to %.1fx (%.1f hours)" % [zoom_level, hours])
+		print("Zoomed out to %.1fx (%.1f days)" % [zoom_level, days])
 
 
 func reset_zoom():
@@ -1035,29 +1061,32 @@ func format_number(value: float) -> String:
 
 
 func format_time_for_window(hours_back: float, time_window: float) -> String:
-	var window_hours = time_window / 3600.0
+	var window_days = time_window / 86400.0
 
-	if window_hours <= 6:  # 6 hours or less - show minutes
-		if hours_back < 0.1:
-			return "Now"
-		if hours_back < 1.0:
-			return "-%dm" % int(hours_back * 60)
-		return "-%dh" % int(hours_back)
-	if window_hours <= 48:  # 2 days or less - show hours
+	if window_days <= 1:  # 1 day or less - show hours
 		if hours_back < 0.5:
 			return "Now"
 		return "-%dh" % int(hours_back)
-
-	if hours_back < 0.5:
-		return "Now"
-	if hours_back < 12:
-		return "-%dh" % int(hours_back)
-
-	var days = hours_back / 24.0
-	if days < 1.0:
-		return "-%dh" % int(hours_back)
-
-	return "-%.0fd" % days  # Changed from %.1fd to %.0fd to avoid decimals
+	elif window_days <= 7:  # 1 week or less - show days
+		if hours_back < 12:
+			return "-%dh" % int(hours_back)
+		var days = hours_back / 24.0
+		return "-%.1fd" % days
+	elif window_days <= 30:  # 1 month or less - show weeks
+		var weeks = hours_back / 168.0
+		if weeks < 1:
+			var days = hours_back / 24.0
+			return "-%.0fd" % days
+		return "-%.1fw" % weeks
+	elif window_days <= 365:  # 1 year or less - show months
+		var months = hours_back / 720.0
+		if months < 1:
+			var weeks = hours_back / 168.0
+			return "-%.0fw" % weeks
+		return "-%.1fm" % months
+	else:  # More than a year - show years
+		var years = hours_back / 8760.0
+		return "-%.1fy" % years
 
 
 func format_crosshair_time(time_diff: float, time_window: float) -> String:
@@ -1118,15 +1147,15 @@ func set_timeframe_hours(hours: float):
 
 
 func set_day_start_time():
-	"""Set the start time to 24 hours ago for full day view"""
+	"""Set the start time to 1 year ago for full year view"""
 	var current_time = Time.get_unix_time_from_system()
-	day_start_timestamp = current_time - 432000.0  # Start exactly 5 days ago
+	day_start_timestamp = current_time - 31536000.0  # Start exactly 1 year ago
 	has_loaded_historical = false
 
-	print("Chart window set to show last 24 hours")
+	print("Chart window set to show last 1 year")
 	print("Start time: ", Time.get_datetime_string_from_unix_time(day_start_timestamp))
 	print("End time: ", Time.get_datetime_string_from_unix_time(current_time))
-	print("Window duration: %.1f hours" % ((current_time - day_start_timestamp) / 3600.0))
+	print("Window duration: %.1f days" % ((current_time - day_start_timestamp) / 86400.0))
 
 
 func add_data_point(price: float, volume: int, time_label: String = ""):
@@ -1508,7 +1537,7 @@ func get_price_change_percent() -> float:
 
 
 func get_current_time_window() -> float:
-	return base_time_window * zoom_level
+	return base_time_window / zoom_level
 
 
 func get_day_progress() -> float:
@@ -1589,14 +1618,27 @@ func on_zoom_changed():
 	queue_redraw()
 
 
+func get_zoom_scale_factor() -> Dictionary:
+	"""Calculate scale factors based on current zoom level"""
+	var zoom_ratio = zoom_level / max_zoom  # 0.0 (zoomed out) to 1.0 (zoomed in)
+
+	# Point scale: smaller when zoomed out, normal when zoomed in
+	var point_scale = lerp(0.3, 1.0, zoom_ratio)  # 30% to 100% size
+
+	# Volume bar scale: thinner when zoomed out, normal when zoomed in
+	var volume_scale = lerp(0.1, 1.0, zoom_ratio)  # 40% to 100% width
+
+	return {"point_scale": point_scale, "volume_scale": volume_scale, "zoom_ratio": zoom_ratio}
+
+
 func cleanup_old_data():
-	"""Remove data points older than 5 days"""
+	"""Remove data points older than 1 year"""
 	var current_time = Time.get_unix_time_from_system()
-	var cutoff_time = current_time - max_data_retention  # 5 days
+	var cutoff_time = current_time - max_data_retention  # 1 year
 
 	var removed_count = 0
 
-	# Remove data older than 4 days
+	# Remove data older than 1 year
 	while price_data.size() > 0 and price_data[0].timestamp < cutoff_time:
 		price_data.pop_front()
 		if volume_data.size() > 0:
@@ -1608,15 +1650,7 @@ func cleanup_old_data():
 		removed_count += 1
 
 	if removed_count > 0:
-		print("Cleaned up %d data points older than 5 days" % removed_count)
-
-	# Ensure arrays stay in sync
-	var min_size = min(price_data.size(), volume_data.size())
-	if price_data.size() != volume_data.size():
-		print("WARNING: Data arrays out of sync - trimming to %d" % min_size)
-		price_data = price_data.slice(0, min_size)
-		volume_data = volume_data.slice(0, min_size)
-		time_labels = time_labels.slice(0, min_size)
+		print("Cleaned up %d data points older than 1 year" % removed_count)
 
 
 func debug_chart_data():
