@@ -27,11 +27,14 @@ func _ready():
 	setup_grid()
 	setup_name_update_timer()
 
+	resized.connect(_on_grid_resized)
+
 
 func setup_grid():
-	# Set up the main layout
+	# Set up the main layout with proper clipping
 	var main_vbox = VBoxContainer.new()
 	main_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	main_vbox.clip_contents = true  # Enable clipping
 	add_child(main_vbox)
 
 	# Create header
@@ -40,34 +43,40 @@ func setup_grid():
 	# Create scrollable data area
 	scroll_container = ScrollContainer.new()
 	scroll_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll_container.clip_contents = true  # Enable clipping
 	main_vbox.add_child(scroll_container)
 
 	data_container = VBoxContainer.new()
 	data_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	data_container.clip_contents = true  # Enable clipping
 	scroll_container.add_child(data_container)
 
-	print("MarketDataGrid setup complete")
+	print("MarketDataGrid setup complete with responsive layout")
 
 
 func create_header(parent: VBoxContainer):
 	header_row = HBoxContainer.new()
 	header_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_row.clip_contents = true  # Add clipping to header
 	parent.add_child(header_row)
 
 	var headers = [
-		{"text": "Item Name", "width": 200},
-		{"text": "Buy Price", "width": 100},
-		{"text": "Sell Price", "width": 100},
-		{"text": "Spread", "width": 80},
-		{"text": "Margin %", "width": 80},
-		{"text": "Volume", "width": 80}
+		{"text": "Item Name", "width": 200, "min_width": 150},
+		{"text": "Buy Price", "width": 100, "min_width": 80},
+		{"text": "Sell Price", "width": 100, "min_width": 80},
+		{"text": "Spread", "width": 80, "min_width": 70},
+		{"text": "Margin %", "width": 80, "min_width": 70},
+		{"text": "Volume", "width": 80, "min_width": 70}
 	]
 
-	for header in headers:
+	for i in range(headers.size()):
+		var header = headers[i]
 		var label = Label.new()
 		label.text = header.text
 		label.custom_minimum_size.x = header.width
 		label.add_theme_color_override("font_color", Color.CYAN)
+		label.clip_contents = true  # Clip individual labels
+		label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 		header_row.add_child(label)
 
 
@@ -229,6 +238,50 @@ func _process_pending_name_updates():
 	if pending_name_updates:
 		refresh_display()
 		pending_name_updates = false
+
+
+func _on_grid_resized():
+	# Adjust column widths based on available space
+	adjust_column_widths()
+	queue_redraw()
+
+
+func adjust_column_widths():
+	if not header_row:
+		return
+
+	var available_width = size.x
+	var min_total_width = 640  # Minimum width for all columns
+
+	# Define responsive column widths
+	var column_configs = [
+		{"name": "Item Name", "min_width": 150, "flex": 3},
+		{"name": "Buy Price", "min_width": 80, "flex": 1},
+		{"name": "Sell Price", "min_width": 80, "flex": 1},
+		{"name": "Spread", "min_width": 70, "flex": 1},
+		{"name": "Volume", "min_width": 70, "flex": 1},
+		{"name": "Margin %", "min_width": 70, "flex": 1}
+	]
+
+	if available_width < min_total_width:
+		# Use minimum widths when space is constrained
+		for i in range(header_row.get_child_count()):
+			if i < column_configs.size():
+				var child = header_row.get_child(i)
+				child.custom_minimum_size.x = column_configs[i].min_width
+	else:
+		# Use flexible widths when space is available
+		var total_flex = 0
+		for config in column_configs:
+			total_flex += config.flex
+
+		var remaining_width = available_width
+		for i in range(header_row.get_child_count()):
+			if i < column_configs.size():
+				var child = header_row.get_child(i)
+				var config = column_configs[i]
+				var flex_width = (remaining_width * config.flex) / total_flex
+				child.custom_minimum_size.x = max(config.min_width, flex_width)
 
 
 func refresh_display():

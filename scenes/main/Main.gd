@@ -2,7 +2,7 @@
 class_name Main
 extends Control
 
-const MarketDataGrid = preload("res://scripts/ui/components/MarketDataGrid.gd")
+const SpreadsheetGrid = preload("res://scripts/ui/components/SpreadsheetGrid.gd")
 const TradingRightPanel = preload("res://scripts/ui/panels/TradingRightPanel.gd")
 
 # Constants
@@ -19,7 +19,7 @@ var data_manager: DataManager
 var config_manager: ConfigManager
 var notification_manager: NotificationManager
 var database_manager: DatabaseManager
-var market_grid: MarketDataGrid
+var market_grid: SpreadsheetGrid
 
 # UI Components
 @onready var ui_manager: Control = $UIManager
@@ -143,6 +143,8 @@ func setup_ui():
 
 	setup_right_panel()
 
+	configure_panel_constraints()
+
 
 func setup_signals():
 	# Toolbar signals
@@ -211,20 +213,19 @@ func populate_region_selector():
 
 
 func setup_market_grid():
-	print("Setting up market grid...")
+	print("Setting up Excel-like market grid...")
 
-	# Get the MarketOverview tab content
 	var market_overview = center_panel.get_node("MarketOverview")
 
-	# Remove the existing placeholder grid completely
+	# Remove existing grid
 	var existing_grid = market_overview.get_node_or_null("MarketGrid")
 	if existing_grid:
 		existing_grid.queue_free()
-		await existing_grid.tree_exited  # Wait for it to be removed
+		await existing_grid.tree_exited
 
-	# Create and add our custom market grid
-	market_grid = MarketDataGrid.new()
-	market_grid.name = "CustomMarketGrid"
+	# Create new Excel-like market grid
+	market_grid = SpreadsheetGrid.new()
+	market_grid.name = "ExcelLikeGrid"
 	market_grid.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	# Pass reference to data manager
@@ -235,11 +236,12 @@ func setup_market_grid():
 
 	market_overview.add_child(market_grid)
 
-	# Connect signals AFTER adding to tree
+	# Connect signals
 	market_grid.item_selected.connect(_on_market_item_selected)
 	market_grid.progress_updated.connect(_on_market_progress_updated)
+	market_grid.column_resized.connect(_on_column_resized)
 
-	print("Market grid setup complete - signals connected")
+	print("Excel-like market grid setup complete")
 
 
 func setup_status_bar_with_progress():
@@ -284,6 +286,62 @@ func setup_status_bar_with_progress():
 	# Another separator
 	var separator2 = VSeparator.new()
 	progress_container.add_child(separator2)
+
+
+func configure_panel_constraints():
+	# Set up responsive panel behavior
+	main_content.split_offset = 280
+	main_content.collapsed = false
+
+	# Set minimum sizes to prevent overlap
+	left_panel.custom_minimum_size = Vector2(200, 0)
+
+	var right_split = main_content.get_node("RightSplit")
+	if right_split:
+		right_split.split_offset = -300  # Negative means from right edge
+
+		# Connect resize signals for responsive behavior
+		right_split.resized.connect(_on_right_split_resized)
+
+	# Connect main splitter resize
+	main_content.resized.connect(_on_main_content_resized)
+
+
+func _on_main_content_resized():
+	var total_width = main_content.size.x
+	var min_left = 200
+	var min_right = 250
+	var min_center = 400
+
+	# Ensure minimum sizes are respected
+	if total_width < (min_left + min_center + min_right):
+		# Force minimum layout
+		var left_width = min(main_content.split_offset, min_left)
+		main_content.split_offset = left_width
+
+		var right_split = main_content.get_node("RightSplit")
+		if right_split:
+			var remaining_width = total_width - left_width
+			var right_width = min(min_right, remaining_width / 3)
+			right_split.split_offset = remaining_width - right_width
+
+
+func _on_right_split_resized():
+	var right_split = main_content.get_node("RightSplit")
+	if not right_split:
+		return
+
+	var total_width = right_split.size.x
+	var min_right_panel = 250
+	var min_center_panel = 400
+
+	# Ensure right panel doesn't get too small
+	if right_split.split_offset > (total_width - min_right_panel):
+		right_split.split_offset = total_width - min_right_panel
+
+	# Ensure center panel doesn't get too small
+	if right_split.split_offset < min_center_panel:
+		right_split.split_offset = min_center_panel
 
 
 func apply_theme():
@@ -572,6 +630,13 @@ func _on_trade_alert_created(alert_data: Dictionary):
 	print("Trade alert created: ", alert_data)
 	if notification_manager:
 		notification_manager.create_price_alert(alert_data.item_id, alert_data.item_name, alert_data.target_price, alert_data.condition)
+
+
+func _on_column_resized(column_index: int, new_width: float):
+	print("Column ", column_index, " resized to ", new_width)
+	# Save column preferences if needed
+	if config_manager:
+		config_manager.set_setting("grid_column_%d_width" % column_index, new_width)
 
 
 # Data Management
