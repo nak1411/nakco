@@ -536,7 +536,7 @@ func load_historical_chart_data(history_data: Dictionary):
 	var points_added = 0
 
 	print("Current time: %s" % Time.get_datetime_string_from_unix_time(current_time))
-	print("Max window start (4 days ago): %s" % Time.get_datetime_string_from_unix_time(max_window_start))
+	print("Max window start (5 days ago): %s" % Time.get_datetime_string_from_unix_time(max_window_start))
 
 	# Process ALL available historical entries (not just most recent)
 	var valid_entries = []
@@ -552,7 +552,7 @@ func load_historical_chart_data(history_data: Dictionary):
 	# Sort entries by timestamp (oldest first)
 	valid_entries.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
-	print("Found %d valid historical entries within 4 days" % valid_entries.size())
+	print("Found %d valid historical entries within 5 days" % valid_entries.size())
 
 	# Create data points for each historical day
 	for entry_info in valid_entries:
@@ -573,10 +573,10 @@ func load_historical_chart_data(history_data: Dictionary):
 
 		print("Processing entry: %s, price=%.2f, volume=%d" % [entry.get("date", ""), avg_price, daily_volume])
 
-		# Create multiple data points throughout each day (every 2 hours = 12 points per day)
-		var points_per_day = 12
+		# Create multiple data points throughout each day (every hour = 24 points per day)
+		var points_per_day = 24
 		for hour_offset in range(points_per_day):
-			var point_timestamp = base_timestamp + (hour_offset * 7200.0)  # Every 2 hours
+			var point_timestamp = base_timestamp + (hour_offset * 3600.0)  # Every 1 hour
 
 			# Skip if this point would be in the future
 			if point_timestamp > current_time:
@@ -588,24 +588,100 @@ func load_historical_chart_data(history_data: Dictionary):
 			var point_price = avg_price + (sin(time_factor * PI * 3) * price_variation)
 			point_price = clamp(point_price, lowest * 0.95, highest * 1.05)
 
-			# Simulate volume variation throughout the day
-			var base_volume = daily_volume / points_per_day
+			# Simulate MORE REALISTIC volume variation throughout the day
+			var hour_of_day = hour_offset % 24
 			var volume_multiplier = 1.0
 
-			# Simulate trading patterns (higher volume during certain hours)
-			var hour_of_day = (hour_offset * 2) % 24
-			if hour_of_day >= 8 and hour_of_day <= 20:  # Peak hours
-				volume_multiplier = 1.5
-			elif hour_of_day >= 22 or hour_of_day <= 6:  # Low hours
-				volume_multiplier = 0.6
+			# Create realistic trading volume patterns based on EVE Online peak hours
+			if hour_of_day >= 18 and hour_of_day <= 23:  # Peak evening hours (6PM-11PM UTC)
+				volume_multiplier = randf_range(2.5, 4.0)
+			elif hour_of_day >= 12 and hour_of_day <= 17:  # Afternoon hours
+				volume_multiplier = randf_range(1.5, 2.5)
+			elif hour_of_day >= 8 and hour_of_day <= 11:  # Morning hours
+				volume_multiplier = randf_range(1.0, 1.8)
+			elif hour_of_day >= 0 and hour_of_day <= 7:  # Late night/early morning
+				volume_multiplier = randf_range(0.3, 0.8)
 
-			var point_volume = int(base_volume * volume_multiplier * (0.8 + randf() * 0.4))
-			point_volume = max(1000, point_volume)
+			# Add some random variation to make it look more realistic
+			volume_multiplier *= randf_range(0.7, 1.3)
+
+			# Calculate hourly volume as a portion of daily volume
+			var base_hourly_volume = daily_volume / 24.0
+			var point_volume = int(base_hourly_volume * volume_multiplier)
+			if daily_volume < 2400:  # If daily volume is very low (less than 100/hour average)
+				# For low-volume items, create more realistic small volumes
+				point_volume = max(int(randf_range(1, 50)), point_volume)
+			else:
+				# For normal items, use reasonable minimum
+				point_volume = max(100, point_volume)
 
 			var hours_ago = (current_time - point_timestamp) / 3600.0
-			print("  Creating point: %.1fh ago, price=%.2f, volume=%d" % [hours_ago, point_price, point_volume])
+			print("  Creating point: %.1fh ago, price=%.2f, volume=%d (mult=%.2f)" % [hours_ago, point_price, point_volume, volume_multiplier])
 
 			real_time_chart.add_historical_data_point(point_price, point_volume, point_timestamp)
+			points_added += 1
+
+	# FILL THE GAP: Create interpolated data points between most recent historical data and now
+	var most_recent_historical = current_time - 86400.0  # 1 day ago (approximate)
+
+	# Get the last historical price and volume for interpolation base
+	var base_price = 1000.0  # Default fallback
+	var base_volume = 10000  # Default fallback
+
+	# Find the actual most recent historical data point and get its values
+	if valid_entries.size() > 0:
+		var last_entry = valid_entries[-1]
+		most_recent_historical = last_entry.timestamp + 86400.0  # End of last historical day
+		base_price = last_entry.data.get("average", 1000.0)
+		base_volume = last_entry.data.get("volume", 100000) / 24  # Divide by 24 points per day
+
+	# Fill gap from most recent historical data ALL THE WAY to current time
+	# Only fill gap if it's significant (more than 2 hours)
+	if (current_time - most_recent_historical) > 7200.0:
+		print("FILLING GAP: From %s to %s" % [Time.get_datetime_string_from_unix_time(most_recent_historical), Time.get_datetime_string_from_unix_time(current_time)])
+
+		# Create data points every hour in the gap, going all the way to now
+		var gap_duration = current_time - most_recent_historical
+		var gap_points = int(gap_duration / 3600.0)  # One point per hour
+
+		for i in range(gap_points):
+			var gap_timestamp = most_recent_historical + (i * 3600.0)  # Every hour
+
+			# Don't go into the future, but get close to current time
+			if gap_timestamp >= current_time - 1800.0:  # Stop 30 minutes before now to leave room for real-time data
+				break
+
+			# Simulate gradual price evolution toward current market conditions
+			var evolution_factor = float(i) / gap_points
+			var price_drift = randf_range(-0.05, 0.05)  # ±5% random drift
+			var gap_price = base_price * (1.0 + (evolution_factor * price_drift))
+
+			# Simulate realistic volume patterns
+			var hour_of_day = int(fmod(gap_timestamp, 86400.0) / 3600.0)
+			var volume_multiplier = 1.0
+
+			# Use same realistic volume patterns as historical data
+			if hour_of_day >= 18 and hour_of_day <= 23:  # Peak evening hours
+				volume_multiplier = randf_range(2.5, 4.0)
+			elif hour_of_day >= 12 and hour_of_day <= 17:  # Afternoon hours
+				volume_multiplier = randf_range(1.5, 2.5)
+			elif hour_of_day >= 8 and hour_of_day <= 11:  # Morning hours
+				volume_multiplier = randf_range(1.0, 1.8)
+			elif hour_of_day >= 0 and hour_of_day <= 7:  # Late night/early morning
+				volume_multiplier = randf_range(0.3, 0.8)
+
+			volume_multiplier *= randf_range(0.7, 1.3)  # Add random variation
+
+			var gap_volume = int(base_volume * volume_multiplier)
+			if base_volume < 100:  # If base volume is very low
+				gap_volume = max(int(randf_range(1, 20)), gap_volume)
+			else:
+				gap_volume = max(100, gap_volume)
+
+			var hours_ago = (current_time - gap_timestamp) / 3600.0
+			print("  Gap fill point: %.1fh ago, price=%.2f, volume=%d" % [hours_ago, gap_price, gap_volume])
+
+			real_time_chart.add_historical_data_point(gap_price, gap_volume, gap_timestamp)
 			points_added += 1
 
 	print("=== EXTENDED HISTORICAL LOADING COMPLETE ===")

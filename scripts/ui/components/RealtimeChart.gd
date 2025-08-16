@@ -46,7 +46,7 @@ var hovered_volume_index: int = -1
 var tooltip_content: String = ""
 var tooltip_position: Vector2 = Vector2.ZERO
 var point_hover_radius: float = 8.0  # Radius for hover detection
-var point_visual_radius: float = 4.0  # Visual radius of points
+var point_visual_radius: float = 2.0  # Visual radius of points
 
 
 func _ready():
@@ -483,7 +483,7 @@ func draw_price_line():
 		# Highlight hovered point
 		if is_hovered:
 			circle_radius = point_visual_radius * 1.5
-			outline_width = 2.0
+			outline_width = 1.5
 			outline_color = Color.CYAN
 
 		# Draw circle with outline
