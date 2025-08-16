@@ -8,11 +8,11 @@ signal historical_data_requested
 var price_data: Array[Dictionary] = []
 var volume_data: Array[int] = []
 var time_labels: Array[String] = []
-var max_data_points: int = 200
+var max_data_points: int = 365
 var timeframe_hours: float = 24.0  # 1 day timeframe
 var data_retention_seconds: float = 86400.0  # 24 hours in seconds
 var base_time_window: float = 86400.0  # 24 hours in seconds (base window)
-var max_data_retention: float = 432000.0  # 5 days in seconds (24 * 5 * 3600)
+var max_data_retention: float = 3024000.0  # 1 year in seconds (24 * 365 * 3600)
 var day_start_timestamp: float = 0.0
 var current_day_data: Array = []
 var has_loaded_historical: bool = false
@@ -37,9 +37,9 @@ var price_history: Array[float] = []  # Store raw prices for moving average calc
 var mouse_position: Vector2 = Vector2.ZERO
 var show_crosshair: bool = false
 var zoom_level: float = 1.0
-var min_zoom: float = 0.041667  # 6 hours (24 * 0.25)
-var max_zoom: float = 5.0  # 4 days (24 * 5 = 96 hours)
-var zoom_sensitivity: float = 0.5  # How much each scroll step changes zoom
+var min_zoom: float = 1.0  # 1 day (24 * 1.0)
+var max_zoom: float = 365.0  # 1 year (24 * 365 = 8760 hours)
+var zoom_sensitivity: float = 365.0  # How much each scroll step changes zoom
 
 var hovered_point_index: int = -1
 var hovered_volume_index: int = -1
@@ -387,7 +387,7 @@ func draw_grid():
 
 
 func draw_price_line():
-	print("=== DRAWING PRICE LINE WITH HISTORICAL TIME RANGE ===")
+	print("=== DRAWING PRICE LINE WITH REAL DATA INTERVALS ===")
 	print("Data points: %d, Time window: %.1f hours" % [price_data.size(), get_current_time_window() / 3600.0])
 
 	if price_data.size() < 1:
@@ -450,20 +450,38 @@ func draw_price_line():
 
 		points.append(Vector2(x, y))
 
-	print("Generated %d drawing points spanning full chart width" % points.size())
+	print("Generated %d drawing points" % points.size())
 
-	# Draw connecting lines between points
+	# ONLY draw lines between consecutive REAL data points (not interpolated gap fills)
 	for i in range(points.size() - 1):
-		var point_data = visible_points[i]
-		var is_historical = point_data.get("is_historical", false)
-		var line_color = Color(0.6, 0.8, 1.0, 0.8) if is_historical else Color.YELLOW
-		var line_width = 2.0 if is_historical else 2.5
-		draw_line(points[i], points[i + 1], line_color, line_width, true)
+		var current_point_data = visible_points[i]
+		var next_point_data = visible_points[i + 1]
 
-	# Draw data point circles
+		# Check if these are consecutive real data points (not gap fills)
+		var time_diff = next_point_data.timestamp - current_point_data.timestamp
+		var is_real_connection = time_diff <= 31536000.0  # Within 2 days = real consecutive data
+
+		# Only draw connecting lines between real consecutive data points
+		if is_real_connection:
+			var current_is_historical = current_point_data.get("is_historical", false)
+			var next_is_historical = next_point_data.get("is_historical", false)
+
+			# Both points are historical = historical line
+			if current_is_historical and next_is_historical:
+				var line_color = Color(0.6, 0.8, 1.0, 0.8)
+				var line_width = 2.0
+				draw_line(points[i], points[i + 1], line_color, line_width, true)
+			# One or both are real-time = real-time line
+			else:
+				var line_color = Color.YELLOW
+				var line_width = 2.5
+				draw_line(points[i], points[i + 1], line_color, line_width, true)
+
+	# Draw data point circles - but distinguish between real data and gap fills
 	for i in range(points.size()):
 		var point_data = visible_points[i]
 		var is_historical = point_data.get("is_historical", false)
+		var volume = point_data.get("volume", 0)
 
 		# Find original index for hover detection
 		var original_index = -1
@@ -474,15 +492,26 @@ func draw_price_line():
 
 		var is_hovered = original_index == hovered_point_index
 
-		# Circle properties
+		# Different styling for real data vs gap fills
 		var circle_radius = point_visual_radius
-		var circle_color = Color(0.8, 0.9, 1.0, 0.9) if is_historical else Color.YELLOW
+		var circle_color: Color
 		var outline_color = Color.WHITE
 		var outline_width = 1.0
 
+		# Real data points (have volume > 0) vs gap fills (volume = 0)
+		if volume > 0:
+			# Real data point
+			circle_color = Color(0.8, 0.9, 1.0, 0.9) if is_historical else Color.YELLOW
+			circle_radius = point_visual_radius * 1.2  # Slightly larger for real data
+		else:
+			# Gap fill / interpolated point
+			circle_color = Color(0.5, 0.5, 0.6, 0.6)  # Dimmer for interpolated
+			circle_radius = point_visual_radius * 0.8  # Smaller for interpolated
+			outline_color = Color.GRAY
+
 		# Highlight hovered point
 		if is_hovered:
-			circle_radius = point_visual_radius * 1.5
+			circle_radius *= 1.5
 			outline_width = 1.5
 			outline_color = Color.CYAN
 
@@ -490,13 +519,13 @@ func draw_price_line():
 		draw_circle(points[i], circle_radius + outline_width, outline_color, true)
 		draw_circle(points[i], circle_radius, circle_color, true)
 
-		# Inner highlight
-		if not is_historical or is_hovered:
+		# Inner highlight for real data only
+		if volume > 0 and (not is_historical or is_hovered):
 			var highlight_color = Color.WHITE
 			highlight_color.a = 0.4 if is_hovered else 0.2
 			draw_circle(points[i], circle_radius * 0.6, highlight_color, true)
 
-	print("=== PRICE LINE DRAWN WITH FULL WIDTH SCALING ===")
+	print("=== PRICE LINE DRAWN WITH REAL DATA INTERVALS ===")
 
 
 # Modify draw_volume_bars to maintain consistent bar width
