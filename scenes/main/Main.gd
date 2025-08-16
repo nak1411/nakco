@@ -1,4 +1,4 @@
-# Main.gd
+# scenes/main/Main.gd
 class_name Main
 extends Control
 
@@ -12,10 +12,10 @@ var selected_item_id: int = -1
 var is_loading: bool = false
 
 # Core managers
-@onready var data_manager: DataManager
-@onready var config_manager: ConfigManager
-@onready var notification_manager: NotificationManager
-@onready var database_manager: DatabaseManager
+var data_manager: DataManager
+var config_manager: ConfigManager
+var notification_manager: NotificationManager
+var database_manager: DatabaseManager
 
 # UI Components
 @onready var ui_manager: Control = $UIManager
@@ -36,7 +36,8 @@ var is_loading: bool = false
 @onready var right_panel: VBoxContainer = $UIManager/MainContent/RightPanel
 
 # Search and watchlist
-@onready var item_search: LineEdit = $UIManager/MainContent/LeftPanel/SearchPanel/ItemSearch
+@onready var item_search: LineEdit = $UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer/ItemSearch
+@onready var search_button: Button = $UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer/SearchButton
 @onready var watchlist_items: VBoxContainer = $UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistContainer/WatchlistItems
 
 # Status bar elements
@@ -51,20 +52,11 @@ var is_loading: bool = false
 
 
 func _ready():
-	setup_application()
-	setup_managers()
+	setup_managers()  # Initialize managers FIRST
+	setup_application()  # Then setup application (which uses managers)
 	setup_ui()
 	setup_signals()
 	load_initial_data()
-
-
-func setup_application():
-	# Set window properties
-	get_window().title = "%s v%s" % [APP_NAME, VERSION]
-	get_window().min_size = Vector2i(1200, 800)
-
-	# Setup theme
-	apply_theme()
 
 
 func setup_managers():
@@ -80,7 +72,19 @@ func setup_managers():
 	add_child(notification_manager)
 	add_child(database_manager)
 
+	# Set cross-references between managers
+	notification_manager.config_manager = config_manager
+
 	print("Managers initialized")
+
+
+func setup_application():
+	# Set window properties
+	get_window().title = "%s v%s" % [APP_NAME, VERSION]
+	get_window().min_size = Vector2i(1200, 800)
+
+	# Setup theme (now that config_manager exists)
+	apply_theme()
 
 
 func setup_ui():
@@ -99,6 +103,13 @@ func setup_ui():
 	var settings_icon_path = "res://assets/icons/ui/settings.svg"
 	if FileAccess.file_exists(settings_icon_path):
 		settings_button.icon = load(settings_icon_path)
+
+	# Setup search button icon
+	var search_icon_path = "res://assets/icons/ui/search.svg"
+	if FileAccess.file_exists(search_icon_path):
+		search_button.icon = load(search_icon_path)
+	else:
+		search_button.text = "🔍"  # Fallback emoji
 
 	# Setup region selector
 	populate_region_selector()
@@ -128,21 +139,27 @@ func setup_signals():
 	region_selector.item_selected.connect(_on_region_changed)
 
 	# Search signals
+	search_button.pressed.connect(_on_search_button_pressed)
 	item_search.text_changed.connect(_on_search_text_changed)
 	item_search.text_submitted.connect(_on_search_submitted)
 
 	# Data manager signals
-	data_manager.data_updated.connect(_on_data_updated)
-	data_manager.api_error.connect(_on_api_error)
+	if data_manager:
+		data_manager.data_updated.connect(_on_data_updated)
+		data_manager.api_error.connect(_on_api_error)
 
 	# Notification manager signals
-	notification_manager.notification_triggered.connect(_on_notification)
+	if notification_manager:
+		notification_manager.notification_triggered.connect(_on_notification)
 
 	# Tab changed signal
 	center_panel.tab_changed.connect(_on_tab_changed)
 
 
 func populate_region_selector():
+	if not data_manager:
+		return
+
 	var regions = data_manager.get_major_trade_hubs()
 	region_selector.clear()
 
@@ -155,28 +172,78 @@ func populate_region_selector():
 
 
 func apply_theme():
-	# Load and apply theme
-	var theme_path = config_manager.get_setting("ui_theme", "res://assets/themes/dark_theme.tres")
+	# Ensure config_manager exists before using it
+	if not config_manager:
+		print("Warning: config_manager not initialized, using default theme")
+		apply_fallback_theme()
+		return
+
+	# Get theme name from settings
+	var theme_name = config_manager.get_setting("ui_theme", "dark")
+	var theme_path = config_manager.get_theme_path(theme_name)
+
 	if FileAccess.file_exists(theme_path):
 		var custom_theme = load(theme_path)
 		if custom_theme:
 			theme = custom_theme
+			print("Applied theme: ", theme_path)
+			return
+
+	print("Theme file not found: ", theme_path, " - using fallback theme")
+	apply_fallback_theme()
+
+
+func apply_fallback_theme():
+	# Create a basic dark theme programmatically
+	var fallback_theme = Theme.new()
+
+	# Create basic styles
+	var button_normal = StyleBoxFlat.new()
+	button_normal.bg_color = Color(0.15, 0.15, 0.2, 1)
+	button_normal.border_width_left = 1
+	button_normal.border_width_top = 1
+	button_normal.border_width_right = 1
+	button_normal.border_width_bottom = 1
+	button_normal.border_color = Color(0.3, 0.3, 0.4, 1)
+	button_normal.corner_radius_top_left = 4
+	button_normal.corner_radius_top_right = 4
+	button_normal.corner_radius_bottom_right = 4
+	button_normal.corner_radius_bottom_left = 4
+
+	var button_hover = StyleBoxFlat.new()
+	button_hover.bg_color = Color(0.2, 0.2, 0.25, 1)
+	button_hover.border_width_left = 1
+	button_hover.border_width_top = 1
+	button_hover.border_width_right = 1
+	button_hover.border_width_bottom = 1
+	button_hover.border_color = Color(0.4, 0.4, 0.5, 1)
+	button_hover.corner_radius_top_left = 4
+	button_hover.corner_radius_top_right = 4
+	button_hover.corner_radius_bottom_right = 4
+	button_hover.corner_radius_bottom_left = 4
+
+	# Apply styles to theme
+	fallback_theme.set_stylebox("normal", "Button", button_normal)
+	fallback_theme.set_stylebox("hover", "Button", button_hover)
+	fallback_theme.set_color("font_color", "Button", Color(0.85, 0.85, 0.9, 1))
+	fallback_theme.set_color("font_color", "Label", Color(0.85, 0.85, 0.9, 1))
+
+	theme = fallback_theme
+	print("Applied fallback theme")
 
 
 func load_initial_data():
-	# Load user settings
-	config_manager.load_settings()
+	# Load user settings (config_manager should call load_settings in its _ready)
 
 	# Initialize database
-	database_manager.initialize()
+	if database_manager:
+		database_manager.initialize()
 
 	# Start data refresh
 	refresh_market_data()
 
 
 # Signal Handlers
-
-
 func _on_refresh_pressed():
 	refresh_market_data()
 
@@ -195,6 +262,12 @@ func _on_region_changed(index: int):
 	refresh_market_data()
 
 
+func _on_search_button_pressed():
+	var search_text = item_search.text
+	if search_text.length() >= 2:
+		_on_search_submitted(search_text)
+
+
 func _on_search_text_changed(new_text: String):
 	if new_text.length() >= 3:
 		# Trigger search with debounce
@@ -202,7 +275,7 @@ func _on_search_text_changed(new_text: String):
 
 
 func _on_search_submitted(text: String):
-	if text.length() >= 2:
+	if text.length() >= 2 and data_manager:
 		data_manager.search_items(text)
 
 
@@ -234,10 +307,10 @@ func _on_api_error(error_message: String):
 
 func _on_notification(notification: Dictionary):
 	# Handle various notification types
-	match notification.type:
-		"price_alert":
+	match notification.get("type", 0):
+		NotificationManager.NotificationType.PRICE_ALERT:
 			show_price_alert(notification)
-		"system_alert":
+		NotificationManager.NotificationType.SYSTEM_ALERT:
 			show_system_alert(notification)
 
 
@@ -254,10 +327,8 @@ func _on_tab_changed(tab_index: int):
 
 
 # Data Management
-
-
 func refresh_market_data():
-	if is_loading:
+	if is_loading or not data_manager:
 		return
 
 	is_loading = true
@@ -274,16 +345,14 @@ func refresh_market_data():
 
 func search_items_debounced(search_text: String):
 	# Simple debounce implementation
-	if has_method("_search_timer"):
-		return
-
 	var timer = Timer.new()
 	timer.wait_time = 0.5
 	timer.one_shot = true
 	add_child(timer)
 	timer.timeout.connect(
 		func():
-			data_manager.search_items(search_text)
+			if data_manager:
+				data_manager.search_items(search_text)
 			timer.queue_free()
 	)
 	timer.start()
@@ -291,8 +360,9 @@ func search_items_debounced(search_text: String):
 
 func refresh_portfolio_data():
 	# Load portfolio from database
-	var portfolio_data = database_manager.get_portfolio()
-	# Update portfolio display
+	if database_manager:
+		var portfolio_data = database_manager.get_portfolio()
+		# Update portfolio display
 
 
 func refresh_analytics_data():
@@ -301,32 +371,56 @@ func refresh_analytics_data():
 
 
 # UI Updates
-
-
 func update_market_display(_data: Dictionary):
 	# Update the market overview panel
-	pass
+	print("Updating market display with: ", _data.keys())
 
 
 func update_charts(_data: Dictionary):
 	# Update price/volume charts
-
-	pass
-
-
-func update_search_results(_data: Dictionary):
-	pass
+	print("Updating charts with: ", _data.keys())
 
 
-func update_item_details(_data: Dictionary):
+func update_search_results(data: Dictionary):
+	# Clear previous results
+	for child in get_search_results_container().get_children():
+		child.queue_free()
+
+	# Add new results
+	if data.has("data") and data.data.has("inventory_type"):
+		var items = data.data.inventory_type
+		for item_id in items:
+			add_search_result_item(item_id)
+
+
+func get_search_results_container() -> VBoxContainer:
+	return $UIManager/MainContent/LeftPanel/SearchPanel/SearchResults/SearchResultsList
+
+
+func add_search_result_item(item_id: int):
+	var button = Button.new()
+	button.text = "Item ID: %d" % item_id
+	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	button.pressed.connect(_on_search_result_selected.bind(item_id))
+	get_search_results_container().add_child(button)
+
+
+func _on_search_result_selected(item_id: int):
+	selected_item_id = item_id
+	print("Selected item: ", item_id)
+
+	# Get detailed item info
+	if data_manager:
+		data_manager.get_item_info(item_id)
+		data_manager.get_market_orders(current_region_id, item_id)
+
+
+func update_item_details(data: Dictionary):
 	# Update item information panel
-
-	pass
+	print("Updating item details with: ", data.keys())
 
 
 # Dialog Management
-
-
 func show_error_dialog(title: String, message: String):
 	error_dialog.title = title
 	error_dialog.dialog_text = message
@@ -334,31 +428,29 @@ func show_error_dialog(title: String, message: String):
 
 
 func show_price_alert(alert: Dictionary):
-	var message = "Price alert: %s has reached %s ISK" % [alert.item_name, alert.price]
+	var message = "Price alert: %s has reached %s ISK" % [alert.get("item_name", "Unknown"), alert.get("price", 0)]
 	show_system_alert({"message": message})
 
 
 func show_system_alert(alert: Dictionary):
-	alert_dialog.dialog_text = alert.message
+	alert_dialog.dialog_text = alert.get("message", "Alert")
 	alert_dialog.popup_centered()
 
 
 # Cleanup
-
-
 func _exit_tree():
 	# Save settings
-	config_manager.save_settings()
+	if config_manager:
+		config_manager.save_settings()
 
 	# Close database connections
-	database_manager.close()
+	if database_manager:
+		database_manager.close()
 
 	print("Application cleanup completed")
 
 
 # Utility Methods
-
-
 func get_current_region_name() -> String:
 	if region_selector.selected >= 0:
 		return region_selector.get_item_text(region_selector.selected)

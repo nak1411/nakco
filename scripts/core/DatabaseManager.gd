@@ -2,6 +2,7 @@
 class_name DatabaseManager
 extends Node
 
+# Remove the problematic preload line and use this instead:
 var db: SQLite
 var db_path: String = "user://eve_trader.db"
 var is_initialized: bool = false
@@ -12,10 +13,14 @@ func _ready():
 
 
 func initialize() -> bool:
+	# Create SQLite instance using the new API
 	db = SQLite.new()
 
+	# Set database path
+	db.path = db_path
+
 	# Open database
-	if not db.open(db_path):
+	if not db.open_db():
 		print("Error: Could not open database at ", db_path)
 		return false
 
@@ -106,13 +111,12 @@ func create_tables():
 	var tables = [portfolio_sql, trades_sql, watchlist_sql, price_history_sql, settings_sql]
 
 	for sql in tables:
-		if not db.query(sql):
-			print("Error creating table: ", sql)
+		db.query(sql)
+		if db.error_message:
+			print("Error creating table: ", db.error_message)
 
 
 # Portfolio Management
-
-
 func add_portfolio_item(item_id: int, item_name: String, quantity: int, buy_price: float, region_id: int, station_id: int = 0, notes: String = "") -> bool:
 	var sql = """
 	INSERT INTO portfolio (item_id, item_name, quantity, buy_price, buy_date, region_id, station_id, notes)
@@ -122,11 +126,12 @@ func add_portfolio_item(item_id: int, item_name: String, quantity: int, buy_pric
 	var buy_date = Time.get_datetime_string_from_system()
 	var bindings = [item_id, item_name, quantity, buy_price, buy_date, region_id, station_id, notes]
 
-	if db.query_with_bindings(sql, bindings):
+	db.query_with_bindings(sql, bindings)
+	if not db.error_message:
 		print("Added portfolio item: ", item_name)
 		return true
 
-	print("Error adding portfolio item")
+	print("Error adding portfolio item: ", db.error_message)
 	return false
 
 
@@ -134,12 +139,14 @@ func get_portfolio() -> Array[Dictionary]:
 	var sql = "SELECT * FROM portfolio ORDER BY created_at DESC"
 	db.query(sql)
 
-	var portfolio = []
-	for i in range(db.get_row_count()):
-		var row = {}
-		for j in range(db.get_column_count()):
-			var column_name = db.get_column_name(j)
-			row[column_name] = db.get_column_value(i, j)
+	var portfolio: Array[Dictionary] = []
+
+	if db.error_message:
+		print("Error getting portfolio: ", db.error_message)
+		return portfolio
+
+	var query_result = db.query_result
+	for row in query_result:
 		portfolio.append(row)
 
 	return portfolio
@@ -149,17 +156,17 @@ func update_portfolio_item(id: int, quantity: int, notes: String = "") -> bool:
 	var sql = "UPDATE portfolio SET quantity = ?, notes = ? WHERE id = ?"
 	var bindings = [quantity, notes, id]
 
-	return db.query_with_bindings(sql, bindings)
+	db.query_with_bindings(sql, bindings)
+	return not db.error_message
 
 
 func remove_portfolio_item(id: int) -> bool:
 	var sql = "DELETE FROM portfolio WHERE id = ?"
-	return db.query_with_bindings(sql, [id])
+	db.query_with_bindings(sql, [id])
+	return not db.error_message
 
 
 # Trade History Management
-
-
 func add_trade(item_id: int, item_name: String, trade_type: String, quantity: int, price: float, region_id: int, station_id: int = 0, profit_loss: float = 0.0) -> bool:
 	var sql = """
 	INSERT INTO trades (item_id, item_name, trade_type, quantity, price, total_value, region_id, station_id, profit_loss, trade_date)
@@ -170,11 +177,12 @@ func add_trade(item_id: int, item_name: String, trade_type: String, quantity: in
 	var trade_date = Time.get_datetime_string_from_system()
 	var bindings = [item_id, item_name, trade_type, quantity, price, total_value, region_id, station_id, profit_loss, trade_date]
 
-	if db.query_with_bindings(sql, bindings):
+	db.query_with_bindings(sql, bindings)
+	if not db.error_message:
 		print("Added trade: ", trade_type, " ", quantity, "x ", item_name)
 		return true
 
-	print("Error adding trade")
+	print("Error adding trade: ", db.error_message)
 	return false
 
 
@@ -182,12 +190,14 @@ func get_trade_history(limit: int = 100) -> Array[Dictionary]:
 	var sql = "SELECT * FROM trades ORDER BY created_at DESC LIMIT ?"
 	db.query_with_bindings(sql, [limit])
 
-	var trades = []
-	for i in range(db.get_row_count()):
-		var row = {}
-		for j in range(db.get_column_count()):
-			var column_name = db.get_column_name(j)
-			row[column_name] = db.get_column_value(i, j)
+	var trades: Array[Dictionary] = []
+
+	if db.error_message:
+		print("Error getting trade history: ", db.error_message)
+		return trades
+
+	var query_result = db.query_result
+	for row in query_result:
 		trades.append(row)
 
 	return trades
@@ -207,17 +217,13 @@ func get_trade_statistics() -> Dictionary:
 	"""
 
 	db.query(sql)
-	if db.get_row_count() > 0:
-		for j in range(db.get_column_count()):
-			var column_name = db.get_column_name(j)
-			stats[column_name] = db.get_column_value(0, j)
+	if not db.error_message and db.query_result.size() > 0:
+		stats = db.query_result[0]
 
 	return stats
 
 
 # Watchlist Management
-
-
 func add_watchlist_item(item_id: int, item_name: String, region_id: int, target_buy_price: float = 0.0, target_sell_price: float = 0.0, notes: String = "") -> bool:
 	var sql = """
 	INSERT OR REPLACE INTO watchlist (item_id, item_name, target_buy_price, target_sell_price, region_id, notes)
@@ -226,11 +232,12 @@ func add_watchlist_item(item_id: int, item_name: String, region_id: int, target_
 
 	var bindings = [item_id, item_name, target_buy_price, target_sell_price, region_id, notes]
 
-	if db.query_with_bindings(sql, bindings):
+	db.query_with_bindings(sql, bindings)
+	if not db.error_message:
 		print("Added to watchlist: ", item_name)
 		return true
 
-	print("Error adding to watchlist")
+	print("Error adding to watchlist: ", db.error_message)
 	return false
 
 
@@ -238,12 +245,14 @@ func get_watchlist() -> Array[Dictionary]:
 	var sql = "SELECT * FROM watchlist WHERE active = 1 ORDER BY created_at DESC"
 	db.query(sql)
 
-	var watchlist = []
-	for i in range(db.get_row_count()):
-		var row = {}
-		for j in range(db.get_column_count()):
-			var column_name = db.get_column_name(j)
-			row[column_name] = db.get_column_value(i, j)
+	var watchlist: Array[Dictionary] = []
+
+	if db.error_message:
+		print("Error getting watchlist: ", db.error_message)
+		return watchlist
+
+	var query_result = db.query_result
+	for row in query_result:
 		watchlist.append(row)
 
 	return watchlist
@@ -251,12 +260,11 @@ func get_watchlist() -> Array[Dictionary]:
 
 func remove_watchlist_item(item_id: int) -> bool:
 	var sql = "UPDATE watchlist SET active = 0 WHERE item_id = ?"
-	return db.query_with_bindings(sql, [item_id])
+	db.query_with_bindings(sql, [item_id])
+	return not db.error_message
 
 
 # Price History Management
-
-
 func cache_price_history(item_id: int, region_id: int, history_data: Array):
 	for day_data in history_data:
 		var sql = """
@@ -288,23 +296,23 @@ func get_cached_price_history(item_id: int, region_id: int, days: int = 30) -> A
 
 	db.query_with_bindings(sql, [item_id, region_id, days])
 
-	var history = []
-	for i in range(db.get_row_count()):
-		var row = {}
-		for j in range(db.get_column_count()):
-			var column_name = db.get_column_name(j)
-			row[column_name] = db.get_column_value(i, j)
+	var history: Array[Dictionary] = []
+
+	if db.error_message:
+		print("Error getting price history: ", db.error_message)
+		return history
+
+	var query_result = db.query_result
+	for row in query_result:
 		history.append(row)
 
 	return history
 
 
 # Utility Methods
-
-
 func close():
 	if db:
-		db.close()
+		db.close_db()
 		print("Database connection closed")
 
 

@@ -11,6 +11,8 @@ var sound_player: AudioStreamPlayer
 var alert_history: Array[Dictionary] = []
 var max_history_size: int = 100
 
+var config_manager: ConfigManager
+
 
 func _ready():
 	setup_audio()
@@ -142,7 +144,7 @@ func trigger_notification(notification: Dictionary):
 		alert_history.pop_front()
 
 	# Play sound if enabled
-	if ConfigManager and ConfigManager.get_setting("sound_enabled", true):
+	if config_manager and config_manager.get_setting("sound_enabled", true):
 		play_notification_sound(notification.get("type", NotificationType.SYSTEM_ALERT))
 
 	# Emit signal

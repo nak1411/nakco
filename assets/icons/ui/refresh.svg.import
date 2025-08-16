@@ -3,11 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://chgg0l1p1jrta"
-valid=false
+path="res://.godot/imported/refresh.svg-b820a2947957ae9040e2d389872821f2.ctex"
+metadata={
+"vram_texture": false
+}
 
 [deps]
 
 source_file="res://assets/icons/ui/refresh.svg"
+dest_files=["res://.godot/imported/refresh.svg-b820a2947957ae9040e2d389872821f2.ctex"]
 
 [params]
 

@@ -6,7 +6,7 @@ signal settings_changed(setting_name: String, new_value)
 
 const SETTINGS_FILE = "user://settings.cfg"
 const DEFAULT_SETTINGS = {
-	"ui_theme": "res://assets/themes/dark_theme.tres",
+	"ui_theme": "dark",  # Changed to just theme name
 	"refresh_interval": 30,
 	"api_cache_duration": 60,
 	"auto_refresh": true,
@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS = {
 
 var settings: Dictionary = {}
 var config_file: ConfigFile
+var is_loaded: bool = false
 
 
 func _ready():
@@ -43,10 +44,15 @@ func load_settings():
 		if not settings.has(key):
 			settings[key] = DEFAULT_SETTINGS[key]
 
+	is_loaded = true
 	print("Settings loaded: ", settings.size(), " entries")
 
 
 func save_settings():
+	if not is_loaded:
+		print("Warning: Attempting to save settings before they were loaded")
+		return
+
 	# Organize settings by section
 	var sections = {}
 
@@ -76,12 +82,20 @@ func save_settings():
 
 
 func get_setting(key: String, default_value = null):
+	if not is_loaded:
+		print("Warning: Getting setting before ConfigManager is loaded, using default")
+		return default_value if default_value != null else DEFAULT_SETTINGS.get(key)
+
 	if settings.has(key):
 		return settings[key]
 	return default_value if default_value != null else DEFAULT_SETTINGS.get(key)
 
 
 func set_setting(key: String, value):
+	if not is_loaded:
+		print("Warning: Setting value before ConfigManager is loaded")
+		return
+
 	var old_value = settings.get(key)
 	settings[key] = value
 
@@ -91,6 +105,16 @@ func set_setting(key: String, value):
 	# Auto-save critical settings
 	if key in ["ui_theme", "default_region"]:
 		save_settings()
+
+
+func get_theme_path(theme_name: String) -> String:
+	match theme_name:
+		"dark":
+			return "res://assets/themes/dark_theme.tres"
+		"light":
+			return "res://assets/themes/light_theme.tres"
+		_:
+			return "res://assets/themes/dark_theme.tres"
 
 
 func reset_to_defaults():

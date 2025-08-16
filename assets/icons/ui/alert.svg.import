@@ -3,11 +3,15 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://bl4jabojcpude"
-valid=false
+path="res://.godot/imported/alert.svg-01b29398e0088a8b6b91a454780a925d.ctex"
+metadata={
+"vram_texture": false
+}
 
 [deps]
 
 source_file="res://assets/icons/ui/alert.svg"
+dest_files=["res://.godot/imported/alert.svg-01b29398e0088a8b6b91a454780a925d.ctex"]
 
 [params]
 
