@@ -120,6 +120,29 @@ func check_point_hover(mouse_pos: Vector2):
 	var window_start = current_time - time_window
 	var window_end = current_time
 
+	# Get visible points and use actual data range for positioning (same as chart drawing)
+	var visible_points = []
+	for point in price_data:
+		if point.timestamp >= window_start and point.timestamp <= window_end:
+			visible_points.append(point)
+
+	if visible_points.size() == 0:
+		if old_hovered_index != hovered_point_index or old_hovered_volume != hovered_volume_index:
+			queue_redraw()
+		return
+
+	# Sort and get actual data time range (same as chart drawing)
+	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+	var data_start_time = visible_points[0].timestamp
+	var data_end_time = visible_points[-1].timestamp
+	var data_time_span = data_end_time - data_start_time
+
+	# If we only have one point or very close times, use the full window
+	if data_time_span < 60.0:  # Less than 1 minute span
+		data_start_time = window_start
+		data_end_time = window_end
+		data_time_span = time_window
+
 	# Get visible price range for accurate positioning
 	var price_info = get_visible_price_range()
 	var min_price = price_info.min_price
@@ -155,7 +178,7 @@ func check_point_hover(mouse_pos: Vector2):
 	var scaling_max = historical_max if historical_max > 0 else all_max
 	var volume_cap = scaling_max * 3
 
-	# Check for volume bar hover first (priority) - only the actual physical bar
+	# Check for volume bar hover first (priority) - using actual data range for X positioning
 	for i in range(min(volume_data.size(), price_data.size())):
 		var point = price_data[i]
 		var timestamp = point.timestamp
@@ -163,7 +186,8 @@ func check_point_hover(mouse_pos: Vector2):
 		if timestamp < window_start or timestamp > window_end:
 			continue
 
-		var time_progress = (timestamp - window_start) / time_window
+		# Use actual data time range for X position (same as draw_volume_bars)
+		var time_progress = (timestamp - data_start_time) / data_time_span
 		var x = time_progress * size.x
 		var volume = volume_data[i]
 		var is_historical = point.get("is_historical", false)
@@ -209,7 +233,7 @@ func check_point_hover(mouse_pos: Vector2):
 			tooltip_text = ("%s Volume\nAmount: %s\nTime: %s" % [data_type, format_number(volume), time_text])
 			break
 
-	# If no volume bar hovered, check for data point hover with consistent logic
+	# If no volume bar hovered, check for data point hover using actual data range
 	if hovered_volume_index == -1:
 		var closest_distance = point_hover_radius + 1  # Start beyond hover radius
 		var closest_index = -1
@@ -221,7 +245,8 @@ func check_point_hover(mouse_pos: Vector2):
 			if timestamp < window_start or timestamp > window_end:
 				continue
 
-			var time_progress = (timestamp - window_start) / time_window
+			# Use actual data time range for X position (same as draw_price_line)
+			var time_progress = (timestamp - data_start_time) / data_time_span
 			var x = time_progress * size.x
 
 			var normalized_price = (point.price - min_price) / price_range
@@ -343,20 +368,19 @@ func draw_tooltip():
 
 
 func draw_grid():
-	# Adjust grid density based on zoom level
-	var grid_divisions_x = max(2, int(12 / zoom_level))  # Fewer divisions when zoomed in
-	grid_divisions_x = min(grid_divisions_x, 24)  # Cap at 24 divisions
-	var grid_divisions_y = 3  # Keep price grid lines consistent
+	# Get consistent divisions that match the axis labels
+	var grid_divisions_x = 6  # Match X-axis label count
+	var grid_divisions_y = 3  # Match Y-axis label count
+
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
 
 	# Vertical grid lines (time) - aligned with X-axis labels
 	for i in range(grid_divisions_x + 1):
 		var x = (float(i) / grid_divisions_x) * size.x
 		draw_line(Vector2(x, 0), Vector2(x, size.y * 0.8), grid_color, 1.0)
 
-	# Horizontal grid lines (price) - aligned with Y-axis labels
-	var chart_height = size.y * 0.6
-	var chart_y_offset = size.y * 0.05
-
+	# Horizontal grid lines (price) - aligned with Y-axis labels using same calculation
 	for i in range(grid_divisions_y + 1):
 		var y = chart_y_offset + (float(i) / grid_divisions_y) * chart_height
 		draw_line(Vector2(0, y), Vector2(size.x, y), grid_color, 1.0)
@@ -401,12 +425,23 @@ func draw_price_line():
 	# Sort visible points by timestamp
 	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
-	# Create drawing points using consistent price range
+	# Find the actual data time range (not the window range)
+	var data_start_time = visible_points[0].timestamp
+	var data_end_time = visible_points[-1].timestamp
+	var data_time_span = data_end_time - data_start_time
+
+	# If we only have one point or very close times, use the full window
+	if data_time_span < 60.0:  # Less than 1 minute span
+		data_start_time = window_start
+		data_end_time = window_end
+		data_time_span = time_window
+
+	# Create drawing points using actual data range to fill chart width
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
 
-		# X position: map timestamp to chart width
-		var time_progress = (point_data.timestamp - window_start) / time_window
+		# X position: map timestamp to chart width using data span (not window span)
+		var time_progress = (point_data.timestamp - data_start_time) / data_time_span
 		var x = time_progress * size.x
 
 		# Y position: map price to chart height using same range as Y-axis
@@ -415,7 +450,7 @@ func draw_price_line():
 
 		points.append(Vector2(x, y))
 
-	print("Generated %d drawing points with consistent price range" % points.size())
+	print("Generated %d drawing points spanning full chart width" % points.size())
 
 	# Draw connecting lines between points
 	for i in range(points.size() - 1):
@@ -461,7 +496,7 @@ func draw_price_line():
 			highlight_color.a = 0.4 if is_hovered else 0.2
 			draw_circle(points[i], circle_radius * 0.6, highlight_color, true)
 
-	print("=== PRICE LINE DRAWN WITH CONSISTENT SCALING ===")
+	print("=== PRICE LINE DRAWN WITH FULL WIDTH SCALING ===")
 
 
 # Modify draw_volume_bars to maintain consistent bar width
@@ -509,6 +544,17 @@ func draw_volume_bars():
 
 	print("Visible volume bars: %d, Historical max: %d, All max: %d" % [visible_volume_data.size(), historical_max, all_max])
 
+	# Find the actual data time range for full-width scaling
+	var data_start_time = visible_timestamps[0]
+	var data_end_time = visible_timestamps[-1]
+	var data_time_span = data_end_time - data_start_time
+
+	# If we only have one point or very close times, use the full window
+	if data_time_span < 60.0:  # Less than 1 minute span
+		data_start_time = window_start
+		data_end_time = window_end
+		data_time_span = time_window
+
 	# Use historical max for scaling, fall back to all max if no historical data
 	var scaling_max = historical_max if historical_max > 0 else all_max
 	var volume_cap = scaling_max * 3  # Cap for real-time spikes
@@ -524,8 +570,8 @@ func draw_volume_bars():
 		var is_historical = visible_historical_flags[i]
 		var original_index = visible_indices[i]
 
-		# Calculate X position based on time within window
-		var time_progress = (timestamp - window_start) / time_window
+		# Calculate X position based on data time span (not window span)
+		var time_progress = (timestamp - data_start_time) / data_time_span
 		var x = time_progress * size.x
 
 		# Skip if somehow outside visible area
@@ -589,7 +635,7 @@ func draw_volume_bars():
 
 		bars_drawn += 1
 
-	print("Drew %d volume bars across time window" % bars_drawn)
+	print("Drew %d volume bars spanning full chart width" % bars_drawn)
 	print("=== VOLUME BARS COMPLETE ===")
 
 
@@ -632,8 +678,8 @@ func draw_price_levels():
 			var label_y = y - 6
 
 			# Draw label background
-			var bg_rect = Rect2(Vector2(label_x - 3, label_y - text_size.y - 2), Vector2(text_size.x + 6, text_size.y + 4))
-			draw_rect(bg_rect, Color(0, 0.5, 0, 0.9))
+			var bg_rect = Rect2(Vector2(label_x - 3, label_y - text_size.y - 2), Vector2(text_size.x + 6, text_size.y + 8))
+			draw_rect(bg_rect, Color(0, 0.5, 0, 0.3))
 			draw_string(font, Vector2(label_x, label_y), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 	# Draw exactly ONE resistance level
@@ -658,8 +704,8 @@ func draw_price_levels():
 			var label_y = y + text_size.y + 8
 
 			# Draw label background
-			var bg_rect = Rect2(Vector2(label_x - 3, label_y - text_size.y - 2), Vector2(text_size.x + 6, text_size.y + 4))
-			draw_rect(bg_rect, Color(0.5, 0, 0, 0.9))
+			var bg_rect = Rect2(Vector2(label_x - 3, label_y - text_size.y - 2), Vector2(text_size.x + 6, text_size.y + 8))
+			draw_rect(bg_rect, Color(0.5, 0, 0, 0.3))
 			draw_string(font, Vector2(label_x, label_y), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 	print("Drew %d support lines, %d resistance lines" % [1 if support_levels.size() > 0 else 0, 1 if resistance_levels.size() > 0 else 0])
@@ -700,19 +746,41 @@ func draw_y_axis_labels():
 
 
 func draw_x_axis_labels():
-	"""Draw time labels for current time window"""
+	"""Draw time labels for current time window with proper scaling"""
 	var font_size = 9
 	var current_time = Time.get_unix_time_from_system()
 	var time_window = get_current_time_window()
-	var window_start = current_time - time_window
 
-	# Adjust label density based on time window
-	var grid_divisions = 6  # Always show 6 time labels
+	# Get actual data range for consistent scaling with chart
+	var data_start_time = current_time - time_window
+	var data_end_time = current_time
+	var data_time_span = time_window
+
+	# Check if we have actual data to determine real time range
+	if price_data.size() > 0:
+		var visible_points = []
+		for point in price_data:
+			if point.timestamp >= data_start_time and point.timestamp <= data_end_time:
+				visible_points.append(point)
+
+		if visible_points.size() > 0:
+			visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+			var actual_start = visible_points[0].timestamp
+			var actual_end = visible_points[-1].timestamp
+			var actual_span = actual_end - actual_start
+
+			# Use actual data range if it spans more than 1 minute
+			if actual_span > 60.0:
+				data_start_time = actual_start
+				data_end_time = actual_end
+				data_time_span = actual_span
+
+	var grid_divisions = 6  # Match grid line count
 	var chart_bottom = size.y * 0.7
 
 	for i in range(grid_divisions + 1):
 		var time_progress = float(i) / grid_divisions
-		var target_time = window_start + (time_progress * time_window)
+		var target_time = data_start_time + (time_progress * data_time_span)
 		var x_pos = time_progress * size.x
 
 		var hours_back = (current_time - target_time) / 3600.0
@@ -737,12 +805,34 @@ func draw_crosshair():
 	if price_data.size() > 0:
 		var current_time = Time.get_unix_time_from_system()
 		var time_window = get_current_time_window()
-		var window_start = current_time - time_window
+
+		# Use same data range calculation as chart drawing
+		var data_start_time = current_time - time_window
+		var data_end_time = current_time
+		var data_time_span = time_window
+
+		# Check for actual data range
+		var visible_points = []
+		for point in price_data:
+			if point.timestamp >= data_start_time and point.timestamp <= data_end_time:
+				visible_points.append(point)
+
+		if visible_points.size() > 0:
+			visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+			var actual_start = visible_points[0].timestamp
+			var actual_end = visible_points[-1].timestamp
+			var actual_span = actual_end - actual_start
+
+			# Use actual data range if it spans more than 1 minute
+			if actual_span > 60.0:
+				data_start_time = actual_start
+				data_end_time = actual_end
+				data_time_span = actual_span
 
 		# Get visible price range for accurate price calculation
 		var visible_prices = []
 		for point in price_data:
-			if point.timestamp >= window_start:
+			if point.timestamp >= data_start_time and point.timestamp <= data_end_time:
 				visible_prices.append(point.price)
 
 		if visible_prices.size() > 0:
@@ -762,9 +852,9 @@ func draw_crosshair():
 				var price_y_ratio = (chart_y_offset + chart_height - mouse_position.y) / chart_height
 				var price_at_mouse = min_price + (price_y_ratio * price_range)
 
-				# Calculate time at mouse X position using current time window
+				# Calculate time at mouse X position using data time span
 				var time_ratio = mouse_position.x / size.x
-				var time_at_mouse = window_start + (time_ratio * time_window)
+				var time_at_mouse = data_start_time + (time_ratio * data_time_span)
 				var time_diff = current_time - time_at_mouse
 
 				# Format time based on current time window
@@ -784,11 +874,6 @@ func draw_crosshair():
 					label_pos.x = mouse_position.x - tooltip_size.x - 10
 				if label_pos.y - tooltip_size.y < 0:
 					label_pos.y = mouse_position.y + 20
-
-				# Draw tooltip background
-				var bg_rect = Rect2(label_pos - padding, tooltip_size)
-				draw_rect(bg_rect, Color(0.1, 0.1, 0.15, 0.9))
-				draw_rect(bg_rect, Color(0.4, 0.4, 0.5, 0.8), false, 1.0)
 
 				# Draw text
 				draw_string(font, label_pos, tooltip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.LIGHT_GRAY)
@@ -928,19 +1013,22 @@ func format_time_for_window(hours_back: float, time_window: float) -> String:
 			return "Now"
 		if hours_back < 1.0:
 			return "-%dm" % int(hours_back * 60)
-
 		return "-%dh" % int(hours_back)
 	if window_hours <= 48:  # 2 days or less - show hours
 		if hours_back < 0.5:
 			return "Now"
-
 		return "-%dh" % int(hours_back)
 
+	if hours_back < 0.5:
+		return "Now"
 	if hours_back < 12:
 		return "-%dh" % int(hours_back)
 
 	var days = hours_back / 24.0
-	return "-%.1fd" % days
+	if days < 1.0:
+		return "-%dh" % int(hours_back)
+
+	return "-%.0fd" % days  # Changed from %.1fd to %.0fd to avoid decimals
 
 
 func format_crosshair_time(time_diff: float, time_window: float) -> String:
