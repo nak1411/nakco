@@ -38,6 +38,14 @@ var alternate_row_color: Color = Color(0.12, 0.14, 0.17, 1)
 var border_color: Color = Color(0.3, 0.3, 0.4, 1)
 var text_color: Color = Color(0.85, 0.85, 0.9, 1)
 var header_text_color: Color = Color(0.9, 0.9, 1, 1)
+var selected_row_color: Color = Color(0.15, 0.25, 0.35, 0.4)
+var hover_row_color: Color = Color(0.2, 0.2, 0.2, 0.3)
+
+var selected_row_index: int = -1
+var hovered_row_index: int = -1
+var selection_tween: Tween
+var hover_tween: Tween
+var row_states: Dictionary = {}
 
 
 func _ready():
@@ -522,6 +530,17 @@ func update_market_data(data_dict: Dictionary):
 
 
 func refresh_data_display():
+	# Clear row states when refreshing
+	row_states.clear()
+	selected_row_index = -1
+	hovered_row_index = -1
+
+	# Kill any active tweens
+	if selection_tween:
+		selection_tween.kill()
+	if hover_tween:
+		hover_tween.kill()
+
 	# Clear existing data display
 	for child in data_container.get_children():
 		child.queue_free()
@@ -545,7 +564,7 @@ func refresh_data_display():
 
 	# Create rows
 	for row_index in range(min(grid_data.size(), 50)):  # Limit for performance
-		create_data_row(row_index)
+		create_enhanced_data_row(row_index)
 
 
 func create_data_row(row_index: int):
@@ -578,6 +597,212 @@ func create_data_row(row_index: int):
 		var col_def = column_definitions[i]
 		create_cell(item, col_def, x_offset, y_pos, i)
 		x_offset += col_def.width
+
+
+func create_enhanced_data_row(row_index: int):
+	var item = grid_data[row_index]
+	var y_pos = row_index * row_height
+
+	# Calculate total width
+	var total_width = 0.0
+	for col_def in column_definitions:
+		total_width += col_def.width
+
+	# Initialize row state
+	row_states[row_index] = {"is_hovered": false, "is_selected": false}
+
+	# Main row container
+	var row_container = Control.new()
+	row_container.name = "Row_%d" % row_index
+	row_container.position = Vector2(0, y_pos)
+	row_container.size = Vector2(total_width, row_height)
+	data_container.add_child(row_container)
+
+	# Background layers
+	var base_bg = ColorRect.new()
+	base_bg.name = "BaseBG"
+	base_bg.color = alternate_row_color if row_index % 2 == 1 else cell_color
+	base_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row_container.add_child(base_bg)
+
+	# Hover background (initially transparent)
+	var hover_bg = ColorRect.new()
+	hover_bg.name = "HoverBG"
+	hover_bg.color = Color.TRANSPARENT
+	hover_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row_container.add_child(hover_bg)
+
+	# Selection background (initially transparent)
+	var selection_bg = ColorRect.new()
+	selection_bg.name = "SelectionBG"
+	selection_bg.color = Color.TRANSPARENT
+	selection_bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row_container.add_child(selection_bg)
+
+	# Interactive button for mouse events
+	var row_button = Button.new()
+	row_button.name = "RowButton"
+	row_button.flat = true
+	row_button.text = ""
+	row_button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row_button.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	# Connect signals with proper binding
+	row_button.pressed.connect(_on_row_clicked.bind(row_index, item))
+	row_button.mouse_entered.connect(_on_row_hover_start.bind(row_index))
+	row_button.mouse_exited.connect(_on_row_hover_end.bind(row_index))
+
+	row_container.add_child(row_button)
+
+	# Content layer for text
+	var content_layer = Control.new()
+	content_layer.name = "ContentLayer"
+	content_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row_container.add_child(content_layer)
+
+	# Create cells with text
+	var x_offset = 0.0
+	for i in range(column_definitions.size()):
+		var col_def = column_definitions[i]
+		create_enhanced_cell(item, col_def, x_offset, 0, i, content_layer)
+		x_offset += col_def.width
+
+
+func _on_row_clicked(row_index: int, item: Dictionary):
+	animate_selection(row_index)
+	var item_id = item.get("item_id", 0)
+	emit_signal("item_selected", item_id, item)
+	print("ExcelGrid: Selected item: ", item.get("item_name", "Unknown"))
+
+
+func _on_row_hover_start(row_index: int):
+	# Prevent stuck highlights by checking current state
+	if not row_states.has(row_index):
+		row_states[row_index] = {"is_hovered": false, "is_selected": false}
+
+	if not row_states[row_index].is_hovered:
+		row_states[row_index].is_hovered = true
+		animate_hover(row_index, true)
+		hovered_row_index = row_index
+
+
+func _on_row_hover_end(row_index: int):
+	# Clear hover state and animate out
+	if row_states.has(row_index):
+		row_states[row_index].is_hovered = false
+
+	if hovered_row_index == row_index:
+		animate_hover(row_index, false)
+		hovered_row_index = -1
+
+
+func animate_selection(row_index: int):
+	# Clear previous selection state
+	if selected_row_index >= 0:
+		if row_states.has(selected_row_index):
+			row_states[selected_row_index].is_selected = false
+		clear_row_selection(selected_row_index)
+
+	# Set new selection
+	selected_row_index = row_index
+	if not row_states.has(row_index):
+		row_states[row_index] = {"is_hovered": false, "is_selected": false}
+	row_states[row_index].is_selected = true
+
+	var row_container = data_container.get_child(row_index)
+	if not row_container:
+		return
+
+	var selection_bg = row_container.get_node("SelectionBG")
+
+	if selection_tween:
+		selection_tween.kill()
+
+	selection_tween = create_tween()
+
+	# Simple, subtle selection animation
+	selection_tween.tween_method(func(color): selection_bg.color = color, Color.TRANSPARENT, selected_row_color, 0.15).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_SINE)
+
+
+func animate_hover(row_index: int, is_hovering: bool):
+	if row_index < 0 or row_index >= data_container.get_child_count():
+		return
+
+	var row_container = data_container.get_child(row_index)
+	if not row_container:
+		return
+
+	var hover_bg = row_container.get_node("HoverBG")
+
+	# Kill existing hover tween to prevent conflicts
+	if hover_tween:
+		hover_tween.kill()
+
+	hover_tween = create_tween()
+
+	var target_color = hover_row_color if is_hovering else Color.TRANSPARENT
+	var duration = 0.1 if is_hovering else 0.2
+
+	hover_tween.tween_method(func(color): hover_bg.color = color, hover_bg.color, target_color, duration).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_SINE)
+
+
+func clear_row_selection(row_index: int):
+	if row_index < 0 or row_index >= data_container.get_child_count():
+		return
+
+	var row_container = data_container.get_child(row_index)
+	if not row_container:
+		return
+
+	var selection_bg = row_container.get_node("SelectionBG")
+
+	var clear_tween = create_tween()
+	clear_tween.tween_method(func(color): selection_bg.color = color, selection_bg.color, Color.TRANSPARENT, 0.15).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_SINE)
+
+
+func create_enhanced_cell(item: Dictionary, col_def: Dictionary, x: float, y: float, col_index: int, parent: Control):
+	# Cell container
+	var cell = Control.new()
+	cell.position = Vector2(x, y)
+	cell.size = Vector2(col_def.width, row_height)
+	cell.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	parent.add_child(cell)
+
+	# Cell text - simplified styling
+	var label = Label.new()
+	label.position = Vector2(6, 0)
+	label.size = Vector2(col_def.width - 12, row_height)
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.horizontal_alignment = col_def.alignment
+	label.clip_contents = true
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# Get and format cell value
+	var value = item.get(col_def.key, 0)
+	var text = str(value)
+
+	if col_def.has("format_func") and col_def.format_func != null:
+		text = col_def.format_func.call(value)
+
+	label.text = text
+
+	# Apply color
+	var color = text_color
+	if col_def.has("color_func") and col_def.color_func != null:
+		color = col_def.color_func.call(value)
+
+	label.add_theme_color_override("font_color", color)
+	cell.add_child(label)
+
+	# Subtle cell border
+	if col_index < column_definitions.size() - 1:
+		var border = ColorRect.new()
+		border.color = Color(border_color.r, border_color.g, border_color.b, 0.2)
+		border.position = Vector2(col_def.width - 1, 0)
+		border.size = Vector2(1, row_height)
+		border.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cell.add_child(border)
 
 
 func create_cell(item: Dictionary, col_def: Dictionary, x: float, y: float, col_index: int):
