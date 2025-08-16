@@ -16,11 +16,11 @@ const COMMON_ITEMS = {
 	37: "Isogen",
 	38: "Nocxium",
 	39: "Zydrine",
-	40: "Megacyte",
+	28606: "Orca",
 	11399: "Morphite",
-	16275: "Oxygen",
-	9848: "Nitrogen",
-	9832: "Hydrogen",
+	33681: "Gecko",
+	16681: "Nanotransistors",
+	25595: "Alloyed Tritanium Bar",
 }
 
 var major_regions: Dictionary = {"The Forge (Jita)": 10000002, "Domain (Amarr)": 10000043, "Sinq Laison (Dodixie)": 10000032, "Metropolis (Rens)": 10000042, "Heimatar (Hek)": 10000030}
@@ -131,7 +131,10 @@ func get_market_history(region_id: int, type_id: int) -> void:
 
 	var url = ESI_BASE_URL + "/markets/%d/history/?type_id=%d" % [region_id, type_id]
 
-	queue_request({"url": url, "method": HTTPClient.METHOD_GET, "cache_key": cache_key, "data_type": "market_history"})
+	var request_context = {"url": url, "method": HTTPClient.METHOD_GET, "cache_key": cache_key, "data_type": "market_history", "region_id": region_id, "type_id": type_id}
+
+	queue_request(request_context)
+	print("Requesting market history for item %d in region %d" % [type_id, region_id])
 
 
 func get_item_info(type_id: int) -> void:
@@ -280,6 +283,26 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 
 				# Emit signal to update displays
 				emit_signal("data_updated", "item_name_updated", {"type_id": type_id, "name": item_name, "data": raw_data})
+				return
+
+			# Handle market history data
+			if context.get("data_type") == "market_history":
+				var structured_data = {"data": raw_data, "context": context, "timestamp": Time.get_ticks_msec(), "region_id": context.get("region_id", 0), "type_id": context.get("type_id", -1)}
+
+				if context.has("cache_key"):
+					cache_data(context.cache_key, structured_data)
+
+				emit_signal("data_updated", "market_history", structured_data)
+				return
+
+			# Handle realtime item data
+			if context.get("data_type") == "realtime_item_data":
+				var structured_data = {"data": raw_data, "context": context, "timestamp": Time.get_ticks_msec(), "region_id": context.get("region_id", 0), "type_id": context.get("type_id", -1)}
+
+				if context.has("cache_key"):
+					cache_data(context.cache_key, structured_data)
+
+				emit_signal("data_updated", "realtime_item_data", structured_data)
 				return
 
 			# Handle other data types (market orders, history, etc.)

@@ -3,11 +3,18 @@ class_name RealtimeChart
 extends Control
 
 signal price_level_clicked(price: float)
+signal historical_data_requested
 
 var price_data: Array[Dictionary] = []
 var volume_data: Array[int] = []
 var time_labels: Array[String] = []
 var max_data_points: int = 200
+var timeframe_hours: float = 24.0  # 1 day timeframe
+var data_retention_seconds: float = 86400.0  # 24 hours in seconds
+var day_start_timestamp: float = 0.0
+var current_day_data: Array = []
+var has_loaded_historical: bool = false
+var is_loading_historical: bool = false
 
 var chart_color: Color = Color.GREEN
 var background_color: Color = Color(0.1, 0.12, 0.15, 1)
@@ -15,10 +22,14 @@ var grid_color: Color = Color(0.3, 0.3, 0.4, 0.3)
 var buy_color: Color = Color(0.2, 0.8, 0.2, 1)
 var sell_color: Color = Color(0.8, 0.2, 0.2, 1)
 var volume_color: Color = Color(0.4, 0.6, 1.0, 0.7)
+var chart_font: Font
+var axis_label_color: Color = Color(0.7, 0.7, 0.8, 1)
 
 # Price level indicators
 var support_levels: Array[float] = []
 var resistance_levels: Array[float] = []
+var moving_average_period: int = 10  # Number of data points for moving average
+var price_history: Array[float] = []  # Store raw prices for moving average calculation
 
 # Mouse interaction
 var mouse_position: Vector2 = Vector2.ZERO
@@ -29,6 +40,11 @@ func _ready():
 	custom_minimum_size = Vector2(400, 200)
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
+
+	chart_font = ThemeDB.fallback_font
+
+	# Initialize day start time
+	set_day_start_time()
 
 
 func _on_mouse_entered():
@@ -49,6 +65,8 @@ func _gui_input(event):
 
 func _draw():
 	draw_background()
+	draw_y_axis_labels()
+	draw_x_axis_labels()
 	draw_grid()
 	draw_price_line()
 	draw_volume_bars()
@@ -62,21 +80,25 @@ func draw_background():
 
 
 func draw_grid():
-	# Vertical grid lines (time)
-	var time_divisions = 10
-	for i in range(time_divisions + 1):
-		var x = (float(i) / time_divisions) * size.x
-		draw_line(Vector2(x, 0), Vector2(x, size.y), grid_color, 1.0)
+	var grid_divisions_x = 8  # 3-hour intervals for 24 hours
+	var grid_divisions_y = 8  # Price grid lines
 
-	# Horizontal grid lines (price)
-	var price_divisions = 8
-	for i in range(price_divisions + 1):
-		var y = (float(i) / price_divisions) * size.y
+	# Vertical grid lines (time) - aligned with X-axis labels
+	for i in range(grid_divisions_x + 1):
+		var x = (float(i) / grid_divisions_x) * size.x
+		draw_line(Vector2(x, 0), Vector2(x, size.y * 0.7), grid_color, 1.0)
+
+	# Horizontal grid lines (price) - aligned with Y-axis labels
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
+
+	for i in range(grid_divisions_y + 1):
+		var y = chart_y_offset + (float(i) / grid_divisions_y) * chart_height
 		draw_line(Vector2(0, y), Vector2(size.x, y), grid_color, 1.0)
 
 
 func draw_price_line():
-	if price_data.size() < 2:
+	if price_data.size() < 1:
 		return
 
 	var min_price = get_min_price()
@@ -84,27 +106,46 @@ func draw_price_line():
 	var price_range = max_price - min_price
 
 	if price_range == 0:
-		return
+		price_range = max_price * 0.1
+		min_price = max_price - price_range / 2
+		max_price = max_price + price_range / 2
+
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
+	var current_time = Time.get_unix_time_from_system()
+	var window_start = current_time - 86400.0  # 24 hours ago
 
 	var points: PackedVector2Array = []
+
 	for i in range(price_data.size()):
-		var x = (float(i) / float(price_data.size() - 1)) * size.x
+		# X position based on time within 24-hour window
+		var time_in_window = price_data[i].timestamp - window_start
+		var time_ratio = clamp(time_in_window / 86400.0, 0.0, 1.0)
+		var x = time_ratio * size.x
+
+		# Y position based on price
 		var normalized_price = (price_data[i].price - min_price) / price_range
-		var y = size.y * 0.7 - (normalized_price * size.y * 0.6)  # Leave space for volume
+		var y = chart_y_offset + chart_height - (normalized_price * chart_height)
+
 		points.append(Vector2(x, y))
 
-	# Draw the price line with gradient effect
+	# Draw the price line
 	for i in range(points.size() - 1):
-		var color_intensity = 1.0 - (float(i) / points.size())
-		var line_color = chart_color * color_intensity
-		draw_line(points[i], points[i + 1], line_color, 2.0)
+		# Different colors for historical vs recent data
+		var is_historical = price_data[i].get("is_historical", false)
+		var line_color = Color(0.6, 0.8, 1.0) if is_historical else Color.YELLOW
+		var line_width = 1.5 if is_historical else 2.5
+		draw_line(points[i], points[i + 1], line_color, line_width)
 
 	# Draw price points
 	for i in range(points.size()):
-		var point_color = chart_color
-		if i == points.size() - 1:  # Latest point
-			point_color = Color.YELLOW
-		draw_circle(points[i], 3.0, point_color)
+		var is_historical = price_data[i].get("is_historical", false)
+		var point_color = Color(0.6, 0.8, 1.0) if is_historical else Color.YELLOW
+		var point_size = 2.0 if is_historical else 4.0
+
+		# Only draw every 4th historical point to avoid clutter
+		if not is_historical or i % 4 == 0:
+			draw_circle(points[i], point_size, point_color)
 
 
 func draw_volume_bars():
@@ -115,19 +156,30 @@ func draw_volume_bars():
 	if max_volume == 0:
 		return
 
-	var bar_width = size.x / float(volume_data.size())
-	var volume_height_scale = size.y * 0.25  # Use bottom 25% for volume
+	var volume_height_scale = size.y * 0.25
+	var current_time = Time.get_unix_time_from_system()
+	var window_start = current_time - 86400.0
 
 	for i in range(volume_data.size()):
+		if i >= price_data.size():
+			break
+
 		var bar_height = (float(volume_data[i]) / max_volume) * volume_height_scale
-		var x = i * bar_width
+
+		# X position based on time within 24-hour window
+		var time_in_window = price_data[i].timestamp - window_start
+		var time_ratio = clamp(time_in_window / 86400.0, 0.0, 1.0)
+		var x = time_ratio * size.x
 		var y = size.y - bar_height
 
-		var bar_rect = Rect2(x, y, bar_width - 1, bar_height)
+		var bar_width = max(1.0, size.x / max(1, volume_data.size() * 0.5))
+		var bar_rect = Rect2(x - bar_width / 2, y, bar_width, bar_height)
 
-		# Color based on volume intensity
+		# Different colors for historical vs recent volume
+		var is_historical = price_data[i].get("is_historical", false)
+		var base_color = Color(0.4, 0.6, 0.8, 0.6) if is_historical else volume_color
 		var volume_intensity = float(volume_data[i]) / max_volume
-		var bar_color = volume_color * (0.3 + volume_intensity * 0.7)
+		var bar_color = base_color * (0.3 + volume_intensity * 0.7)
 
 		draw_rect(bar_rect, bar_color)
 
@@ -165,6 +217,58 @@ func draw_price_levels():
 		draw_string(font, Vector2(5, y + 15), "Resistance: %.2f" % level, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.RED)
 
 
+func draw_y_axis_labels():
+	"""Draw price labels aligned with grid lines"""
+	if price_data.is_empty():
+		return
+
+	var min_price = get_min_price()
+	var max_price = get_max_price()
+	var price_range = max_price - min_price
+
+	if price_range <= 0:
+		return
+
+	var font_size = 10
+	var grid_divisions = 8  # Match grid line count
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
+
+	for i in range(grid_divisions + 1):
+		var ratio = float(i) / grid_divisions
+		var price_value = min_price + (price_range * (1.0 - ratio))  # Flip for top-to-bottom
+		var y_pos = chart_y_offset + (ratio * chart_height)
+
+		# Format price based on magnitude
+		var price_text = format_price_label(price_value)
+
+		# Draw price label aligned with grid line
+		var text_size = chart_font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+		draw_string(chart_font, Vector2(4, y_pos + text_size.y / 2 - 2), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
+
+
+func draw_x_axis_labels():
+	"""Draw time labels for 24-hour rolling window"""
+	var font_size = 9
+	var grid_divisions = 8  # 3-hour intervals
+	var chart_bottom = size.y * 0.7
+	var current_time = Time.get_unix_time_from_system()
+
+	for i in range(grid_divisions + 1):
+		var hours_back = 24.0 - (float(i) / grid_divisions) * 24.0  # 24 hours ago to now
+		var target_time = current_time - (hours_back * 3600.0)
+		var x_pos = (float(i) / grid_divisions) * size.x
+
+		var time_text = format_rolling_time_label(hours_back)
+		var text_size = chart_font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+
+		# Center the label horizontally
+		var label_x = x_pos - text_size.x / 2
+
+		# Draw time label
+		draw_string(chart_font, Vector2(label_x, chart_bottom + text_size.y + 4), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
+
+
 func draw_crosshair():
 	"""Draw crosshair and price/time info at mouse position"""
 	if not show_crosshair:
@@ -198,24 +302,213 @@ func draw_crosshair():
 			draw_string(font, label_pos, price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 
+func find_closest_time_index(target_time: float) -> int:
+	"""Find the data point closest to the target time"""
+	if price_data.is_empty():
+		return -1
+
+	var closest_index = 0
+	var smallest_diff = abs(price_data[0].timestamp - target_time)
+
+	for i in range(1, price_data.size()):
+		var diff = abs(price_data[i].timestamp - target_time)
+		if diff < smallest_diff:
+			smallest_diff = diff
+			closest_index = i
+
+	return closest_index
+
+
+func format_time_label(hours_back: float) -> String:
+	"""Format time labels for 1-day view"""
+	if hours_back < 1.0:
+		return "Now"
+	if hours_back < 24.0:
+		return "-%dh" % int(hours_back)
+
+	var days = int(hours_back / 24.0)
+	var remaining_hours = int(hours_back) % 24
+	if remaining_hours == 0:
+		return "-%dd" % days
+
+	return "-%dd%dh" % [days, remaining_hours]
+
+
+func format_day_time_label(hours_from_start: float) -> String:
+	"""Format time labels showing time of day"""
+	var hour = int(hours_from_start) % 24
+
+	# Convert to 12-hour format for readability
+	if hour == 0:
+		return "12AM"
+	if hour < 12:
+		return "%dAM" % hour
+	if hour == 12:
+		return "12PM"
+
+	return "%dPM" % (hour - 12)
+
+
+func format_rolling_time_label(hours_back: float) -> String:
+	"""Format time labels for rolling 24-hour view"""
+	if hours_back < 0.5:
+		return "Now"
+	if hours_back < 1.0:
+		return "-%dm" % int(hours_back * 60)
+	if hours_back < 24.0:
+		return "-%dh" % int(hours_back)
+
+	return "-1d"
+
+
+func get_timeframe_info() -> String:
+	"""Return human-readable timeframe info"""
+	return "24 Hours"
+
+
+func set_timeframe_hours(hours: float):
+	"""Allow changing the timeframe"""
+	timeframe_hours = hours
+	data_retention_seconds = hours * 3600.0  # Convert to seconds
+
+	# Clean up existing data that's outside new timeframe
+	if not price_data.is_empty():
+		cleanup_old_data()  # Remove the parameter
+
+	queue_redraw()
+	print("Chart timeframe set to %.1f hours" % hours)
+
+
+func set_day_start_time():
+	"""Set the start time to 24 hours ago for full day view"""
+	var current_time = Time.get_unix_time_from_system()
+	day_start_timestamp = current_time - 86400.0  # Start 24 hours ago
+	has_loaded_historical = false
+
+	print("Day view set to show last 24 hours")
+	print("Start time: ", Time.get_datetime_string_from_unix_time(day_start_timestamp))
+	print("End time: ", Time.get_datetime_string_from_unix_time(current_time))
+
+
 func add_data_point(price: float, volume: int, time_label: String = ""):
-	var data_point = {"price": price, "volume": volume, "timestamp": Time.get_ticks_msec() / 1000.0, "time_label": time_label}
+	# Load historical data on first data point if not already loaded
+	if not has_loaded_historical and not is_loading_historical:
+		request_historical_data()
+
+	# Store the raw price for moving average calculation
+	price_history.append(price)
+
+	# Calculate moving average
+	var avg_price = calculate_moving_average()
+
+	var current_time = Time.get_unix_time_from_system()
+	var seconds_from_start = current_time - day_start_timestamp
+
+	var data_point = {"price": avg_price, "raw_price": price, "volume": volume, "timestamp": current_time, "time_label": time_label, "seconds_from_day_start": seconds_from_start}
 
 	price_data.append(data_point)
 	volume_data.append(volume)
 	time_labels.append(time_label)
 
-	# Keep only recent data
-	if price_data.size() > max_data_points:
-		price_data.pop_front()
-		volume_data.pop_front()
-		time_labels.pop_front()
+	# Keep rolling 24-hour window
+	cleanup_old_data()
 
 	# Update support/resistance levels
 	update_price_levels()
 
 	queue_redraw()
-	print("Chart updated: price=", price, " volume=", volume, " at ", time_label)
+	print("Chart updated: moving_avg=%.2f at +%.1f hours from start" % [avg_price, seconds_from_start / 3600.0])
+
+
+func request_historical_data():
+	"""Request historical market data for the past 24 hours"""
+	if is_loading_historical:
+		return
+
+	is_loading_historical = true
+	print("Requesting historical data for past 24 hours...")
+
+	# Emit signal to request historical data
+	# This will be connected in the trading panel
+	if has_signal("historical_data_requested"):
+		emit_signal("historical_data_requested")
+
+
+func add_historical_data_point(price: float, volume: int, timestamp: float):
+	"""Add a historical data point with specific timestamp"""
+	var current_time = Time.get_unix_time_from_system()
+	var window_start = current_time - 86400.0  # 24 hours ago
+
+	# Only add if within our 24-hour window
+	if timestamp < window_start or timestamp > current_time:
+		return
+
+	var seconds_from_start = timestamp - window_start
+
+	var data_point = {
+		"price": price,
+		"raw_price": price,
+		"volume": volume,
+		"timestamp": timestamp,
+		"time_label": Time.get_datetime_string_from_unix_time(timestamp).substr(11, 8),
+		"seconds_from_day_start": seconds_from_start,
+		"is_historical": true
+	}
+
+	# Add to price history for moving average (but don't affect current MA)
+	price_data.append(data_point)
+	volume_data.append(volume)
+	time_labels.append(data_point.time_label)
+
+	print("Added historical point: %.2f ISK at %s" % [price, data_point.time_label])
+
+
+func finish_historical_data_load():
+	"""Called when historical data loading is complete"""
+	# Sort all data by timestamp
+	var combined_data = []
+	for i in range(price_data.size()):
+		combined_data.append({"price_data": price_data[i], "volume": volume_data[i], "time_label": time_labels[i]})
+
+	# Sort by timestamp
+	combined_data.sort_custom(func(a, b): return a.price_data.timestamp < b.price_data.timestamp)
+
+	# Rebuild arrays in sorted order
+	price_data.clear()
+	volume_data.clear()
+	time_labels.clear()
+
+	for item in combined_data:
+		price_data.append(item.price_data)
+		volume_data.append(item.volume)
+		time_labels.append(item.time_label)
+
+	has_loaded_historical = true
+	is_loading_historical = false
+	queue_redraw()
+
+	print("Historical data loaded: %d points spanning %.1f hours" % [price_data.size(), (price_data[-1].timestamp - price_data[0].timestamp) / 3600.0 if price_data.size() > 0 else 0])
+
+
+func start_new_day():
+	"""Start tracking a new day"""
+	print("Starting new trading day")
+	set_day_start_time()
+	clear_data()
+
+
+func calculate_moving_average() -> float:
+	if price_history.is_empty():
+		return 0.0
+
+	var period = min(moving_average_period, price_history.size())
+	var sum = 0.0
+
+	# Calculate average of last 'period' prices
+	for i in range(price_history.size() - period, price_history.size()):
+		sum += price_history[i]
+
+	return sum / period
 
 
 func update_price_levels():
@@ -245,9 +538,25 @@ func clear_data():
 	price_data.clear()
 	volume_data.clear()
 	time_labels.clear()
+	price_history.clear()
 	support_levels.clear()
 	resistance_levels.clear()
 	queue_redraw()
+	print("Chart data cleared - ready for new day")
+
+
+func format_price_label(price: float) -> String:
+	"""Format price for axis labels"""
+	if price >= 1000000000:
+		return "%.1fB" % (price / 1000000000.0)
+	if price >= 1000000:
+		return "%.1fM" % (price / 1000000.0)
+	if price >= 1000:
+		return "%.1fK" % (price / 1000.0)
+	if price >= 1:
+		return "%.2f" % price
+
+	return "%.4f" % price
 
 
 func get_min_price() -> float:
@@ -295,6 +604,12 @@ func set_chart_style(style: String):
 	queue_redraw()
 
 
+func set_moving_average_period(period: int):
+	"""Allow customization of moving average period"""
+	moving_average_period = max(1, period)
+	print("Moving average period set to: ", moving_average_period)
+
+
 func get_latest_price() -> float:
 	if price_data.is_empty():
 		return 0.0
@@ -314,3 +629,34 @@ func get_price_change_percent() -> float:
 	if old_price == 0:
 		return 0.0
 	return ((price_data[-1].price - old_price) / old_price) * 100.0
+
+
+func get_day_progress() -> float:
+	"""Get progress through current day (0.0 to 1.0)"""
+	var current_time = Time.get_unix_time_from_system()
+	var seconds_from_start = current_time - day_start_timestamp
+	return clamp(seconds_from_start / 86400.0, 0.0, 1.0)
+
+
+func get_current_day_info() -> String:
+	"""Return current day information"""
+	var day_date = Time.get_date_string_from_unix_time(day_start_timestamp)
+	var progress = get_day_progress() * 100.0
+	return "%s (%.1f%% complete)" % [day_date, progress]
+
+
+func cleanup_old_data():
+	"""Remove data points older than 24 hours"""
+	var current_time = Time.get_unix_time_from_system()
+	var cutoff_time = current_time - 86400.0  # 24 hours ago
+
+	# Update day_start_timestamp to maintain rolling window
+	day_start_timestamp = cutoff_time
+
+	# Remove old data
+	while price_data.size() > 0 and price_data[0].timestamp < cutoff_time:
+		price_data.pop_front()
+		volume_data.pop_front()
+		time_labels.pop_front()
+		if price_history.size() > 0:
+			price_history.pop_front()

@@ -433,6 +433,12 @@ func _on_region_changed(index: int):
 	current_region_id = region_selector.get_item_metadata(index)
 	print("Changed to region: ", region_selector.get_item_text(index))
 
+	# Clear the real-time chart when changing regions
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel and trading_panel.real_time_chart:
+		trading_panel.real_time_chart.clear_data()
+		print("Cleared chart data for region change")
+
 	# Stop real-time updates when region changes
 	if data_manager:
 		data_manager.stop_realtime_updates()
@@ -478,7 +484,9 @@ func _on_data_updated(data_type: String, data: Dictionary):
 			print("Updating real-time item data")
 			update_realtime_item_display(data)
 		"market_history":
-			update_charts(data)
+			# Handle historical market data for charts
+			print("Updating market history for charts")
+			update_chart_with_history(data)
 		"item_search":
 			update_search_results(data)
 		"item_info":
@@ -491,6 +499,13 @@ func _on_data_updated(data_type: String, data: Dictionary):
 	last_update.text = "Last update: " + Time.get_datetime_string_from_system()
 	api_status.text = "API: Connected"
 	connection_status.text = "Connected"
+
+
+func update_chart_with_history(data: Dictionary):
+	"""Handle historical market data for populating charts"""
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel and trading_panel.has_method("load_historical_chart_data"):
+		trading_panel.load_historical_chart_data(data)
 
 
 func _on_api_error(error_message: String):
@@ -527,6 +542,12 @@ func _on_market_item_selected(item_id: int, item_data: Dictionary):
 	selected_item_id = item_id
 	print("Main: Selected market item: ", item_data.get("item_name", "Unknown"))
 
+	# Clear the real-time chart when selecting a new item
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel and trading_panel.real_time_chart:
+		trading_panel.real_time_chart.clear_data()
+		print("Cleared chart data for new item selection")
+
 	# Start real-time updates for this item
 	if data_manager:
 		data_manager.start_realtime_updates_for_item(current_region_id, item_id, item_data.get("item_name", "Unknown"))
@@ -544,7 +565,6 @@ func _on_market_item_selected(item_id: int, item_data: Dictionary):
 		enhanced_item_data["sell_orders"] = []
 
 	# Update enhanced right panel with the COMPLETE data
-	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
 	if trading_panel:
 		trading_panel.update_item_display(enhanced_item_data)
 		print("Updated trading panel with enhanced item data")

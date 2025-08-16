@@ -94,15 +94,29 @@ func create_real_time_chart():
 	var chart_vbox = VBoxContainer.new()
 	chart_panel.add_child(chart_vbox)
 
+	var chart_header_container = HBoxContainer.new()
+	chart_vbox.add_child(chart_header_container)
+
 	var chart_header = Label.new()
-	chart_header.text = "Real-Time Price Chart"
+	chart_header.text = "24-Hour Price Chart"
 	chart_header.add_theme_color_override("font_color", Color.CYAN)
-	chart_vbox.add_child(chart_header)
+	chart_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chart_header_container.add_child(chart_header)
+
+	var timeframe_label = Label.new()
+	timeframe_label.name = "TimeframeLabel"
+	timeframe_label.text = "24H Rolling"
+	timeframe_label.add_theme_color_override("font_color", Color.YELLOW)
+	timeframe_label.add_theme_font_size_override("font_size", 10)
+	chart_header_container.add_child(timeframe_label)
 
 	real_time_chart = RealtimeChart.new()
 	real_time_chart.name = "RealtimeChart"
 	real_time_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	chart_vbox.add_child(real_time_chart)
+
+	# Connect historical data request signal
+	real_time_chart.historical_data_requested.connect(_on_historical_data_requested)
 
 
 func create_order_book_display():
@@ -264,30 +278,16 @@ func create_order_book_header():
 
 
 func update_item_display(item_data: Dictionary):
-	print("TradingRightPanel: update_item_display called with: ", item_data.keys())
+	print("TradingRightPanel: update_item_display called")
 
 	selected_item_data = item_data
 
-	# Update header - using the correct path based on actual structure
-	var item_name_label = get_node_or_null("ItemInfoPanel").get_child(0).get_node_or_null("ItemNameLabel")
-	if item_name_label:
-		var item_name = item_data.get("item_name", "Unknown Item")
-		var item_id = item_data.get("item_id", 0)
-		var realtime_indicator = " 🔴 LIVE" if item_data.get("is_realtime", false) else ""
-		item_name_label.text = "%s (ID: %d)%s" % [item_name, item_id, realtime_indicator]
+	# Clear chart for new item
+	if real_time_chart:
+		real_time_chart.clear_data()
 
-		# Color the indicator
-		if item_data.get("is_realtime", false):
-			item_name_label.add_theme_color_override("font_color", Color.LIGHT_GREEN)
-		else:
-			item_name_label.add_theme_color_override("font_color", Color.CYAN)
-
-		print("Updated item name label to: ", item_name_label.text)
-	else:
-		print("ERROR: Could not find ItemNameLabel")
-
-	# Update prices with animation for real-time data
-	update_price_labels_with_animation(item_data)
+	# Update header info
+	update_item_header(item_data)
 
 	# Update trading defaults
 	update_trading_defaults(item_data)
@@ -298,8 +298,8 @@ func update_item_display(item_data: Dictionary):
 	# Update order book
 	update_order_book(item_data)
 
-	# Update real-time chart
-	update_real_time_chart(item_data)
+	# The chart will automatically request historical data when first real-time point is added
+	print("Item display updated, chart will load historical data automatically")
 
 
 func update_price_labels_with_animation(item_data: Dictionary):
@@ -378,21 +378,21 @@ func update_realtime_chart_data(data: Dictionary):
 	var max_buy = data.get("max_buy", 0.0)
 	var min_sell = data.get("min_sell", 0.0)
 	var volume = data.get("volume", 0)
-	var timestamp = data.get("timestamp", Time.get_ticks_msec())
 
-	# Use mid-point price for chart if we have both buy and sell
-	var chart_price = 0.0
+	# Calculate market price (weighted average or mid-point)
+	var market_price = 0.0
 	if max_buy > 0 and min_sell > 0:
-		chart_price = (max_buy + min_sell) / 2.0
+		# Use mid-point of spread as market price
+		market_price = (max_buy + min_sell) / 2.0
 	elif max_buy > 0:
-		chart_price = max_buy
+		market_price = max_buy
 	elif min_sell > 0:
-		chart_price = min_sell
+		market_price = min_sell
 
-	if chart_price > 0:
+	if market_price > 0:
 		var time_label = Time.get_datetime_string_from_system().substr(11, 8)
-		real_time_chart.add_data_point(chart_price, volume, time_label)
-		print("Added chart data point: price=", chart_price, " volume=", volume)
+		real_time_chart.add_data_point(market_price, volume, time_label)
+		print("Added chart data point: market_price=%.2f volume=%d" % [market_price, volume])
 
 
 func update_order_book_realtime(data: Dictionary):
@@ -562,6 +562,110 @@ func handle_market_data_update(market_data: Dictionary):
 
 	if not updated_item_data.is_empty():
 		update_item_display(updated_item_data)
+
+
+func _on_historical_data_requested():
+	"""Handle request for historical data"""
+	if not selected_item_data.has("item_id") or not data_manager:
+		real_time_chart.finish_historical_data_load()  # Finish even if no data
+		return
+
+	var item_id = selected_item_data.get("item_id", 0)
+	var region_id = selected_item_data.get("region_id", 10000002)
+
+	print("Requesting historical market data for item %d" % item_id)
+
+	# Request market history for the past day
+	data_manager.get_market_history(region_id, item_id)
+
+
+func load_historical_chart_data(history_data: Dictionary):
+	"""Load historical market data into the chart"""
+	if not real_time_chart:
+		return
+
+	var history_entries = history_data.get("data", [])
+	var context = history_data.get("context", {})
+	var item_id = context.get("type_id", 0)
+
+	print("Loading historical data: %d entries for item %d" % [history_entries.size(), item_id])
+
+	if typeof(history_entries) != TYPE_ARRAY:
+		print("Invalid history data format")
+		real_time_chart.finish_historical_data_load()
+		return
+
+	# EVE history data is daily aggregates, we need to simulate intraday points
+	var current_time = Time.get_unix_time_from_system()
+	var points_added = 0
+
+	# Process last 7 days of history to get recent trend
+	var recent_entries = []
+	for entry in history_entries:
+		var date_str = entry.get("date", "")
+		if date_str.is_empty():
+			continue
+
+		var entry_timestamp = parse_eve_date(date_str)
+		if entry_timestamp > (current_time - 604800):  # Last 7 days
+			recent_entries.append(entry)
+
+	# Sort by date
+	recent_entries.sort_custom(func(a, b): return parse_eve_date(a.get("date", "")) < parse_eve_date(b.get("date", "")))
+
+	# Add historical points (simulate hourly data from daily averages)
+	for entry in recent_entries:
+		var date_str = entry.get("date", "")
+		var avg_price = entry.get("average", 0.0)
+		var volume = entry.get("volume", 0)
+		var highest = entry.get("highest", avg_price)
+		var lowest = entry.get("lowest", avg_price)
+
+		if avg_price <= 0:
+			continue
+
+		var day_timestamp = parse_eve_date(date_str)
+
+		# Create multiple data points throughout the day to simulate trading activity
+		for hour in range(24):
+			var hour_timestamp = day_timestamp + (hour * 3600)
+
+			# Only add points within last 24 hours
+			if hour_timestamp < (current_time - 86400):
+				continue
+			if hour_timestamp > current_time:
+				break
+
+			# Simulate price variation within the day's range
+			var price_variation = (highest - lowest) * 0.5
+			var hour_price = avg_price + (sin(hour * 0.5) * price_variation * 0.3)
+			hour_price = clamp(hour_price, lowest, highest)
+
+			# Simulate volume distribution (higher during peak hours)
+			var hour_volume = volume / 24.0
+			if hour >= 12 and hour <= 20:  # Peak trading hours
+				hour_volume *= 1.5
+
+			real_time_chart.add_historical_data_point(hour_price, int(hour_volume), hour_timestamp)
+			points_added += 1
+
+	print("Added %d historical data points" % points_added)
+	real_time_chart.finish_historical_data_load()
+
+
+func parse_eve_date(date_str: String) -> float:
+	"""Parse EVE date format (YYYY-MM-DD) to unix timestamp"""
+	var parts = date_str.split("-")
+	if parts.size() != 3:
+		return 0.0
+
+	var year = int(parts[0])
+	var month = int(parts[1])
+	var day = int(parts[2])
+
+	var datetime = {"year": year, "month": month, "day": day, "hour": 12, "minute": 0, "second": 0}  # Noon
+
+	return Time.get_unix_time_from_datetime_dict(datetime)
 
 
 func process_market_data_for_item(market_data: Dictionary, target_item_id: int) -> Dictionary:
