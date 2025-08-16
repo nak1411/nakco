@@ -539,8 +539,14 @@ func _on_tab_changed(tab_index: int):
 
 
 func _on_market_item_selected(item_id: int, item_data: Dictionary):
+	print("=== MAIN: ITEM SELECTED ===")
+	print("Item ID: ", item_id)
+	print("Item data keys: ", item_data.keys())
+	print("Item name: ", item_data.get("item_name", "N/A"))
+	print("Max buy: ", item_data.get("max_buy", "N/A"))
+	print("Min sell: ", item_data.get("min_sell", "N/A"))
+
 	selected_item_id = item_id
-	print("Main: Selected market item: ", item_data.get("item_name", "Unknown"))
 
 	# Clear the real-time chart when selecting a new item
 	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
@@ -556,13 +562,15 @@ func _on_market_item_selected(item_id: int, item_data: Dictionary):
 	var enhanced_item_data = item_data.duplicate()
 	enhanced_item_data["region_id"] = current_region_id
 	enhanced_item_data["region_name"] = get_current_region_name()
-	enhanced_item_data["is_realtime"] = false  # Mark as initial selection, not real-time update
+	enhanced_item_data["is_realtime"] = false
 
 	# Make sure we have proper buy/sell order arrays if they're missing
 	if not enhanced_item_data.has("buy_orders"):
 		enhanced_item_data["buy_orders"] = []
 	if not enhanced_item_data.has("sell_orders"):
 		enhanced_item_data["sell_orders"] = []
+
+	print("Enhanced item data keys: ", enhanced_item_data.keys())
 
 	# Update enhanced right panel with the COMPLETE data
 	if trading_panel:
@@ -571,8 +579,7 @@ func _on_market_item_selected(item_id: int, item_data: Dictionary):
 	else:
 		print("ERROR: Trading panel not found!")
 
-	# Update watchlist add button to show current selection
-	update_watchlist_add_button(enhanced_item_data)
+	print("=== ITEM SELECTION COMPLETE ===")
 
 
 func update_watchlist_add_button(item_data: Dictionary):
@@ -814,11 +821,12 @@ func update_realtime_item_display(data: Dictionary):
 	# Process the raw orders into structured data
 	var processed_data = process_individual_item_orders(raw_orders, type_id, context)
 
-	# Update the right panel with fresh data
+	# Update the right panel with fresh data - use the real-time update method
 	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
 	if trading_panel:
+		# Use update_with_realtime_data instead of update_item_display
 		trading_panel.update_with_realtime_data(processed_data)
-		print("Updated trading panel with real-time data")
+		print("Updated trading panel with real-time data (chart preserved)")
 
 
 func update_market_grid_region_info():

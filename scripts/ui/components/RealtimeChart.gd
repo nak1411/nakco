@@ -80,17 +80,17 @@ func draw_background():
 
 
 func draw_grid():
-	var grid_divisions_x = 8  # 3-hour intervals for 24 hours
-	var grid_divisions_y = 8  # Price grid lines
+	var grid_divisions_x = 4  # 3-hour intervals for 24 hours
+	var grid_divisions_y = 3  # Price grid lines
 
 	# Vertical grid lines (time) - aligned with X-axis labels
 	for i in range(grid_divisions_x + 1):
 		var x = (float(i) / grid_divisions_x) * size.x
-		draw_line(Vector2(x, 0), Vector2(x, size.y * 0.7), grid_color, 1.0)
+		draw_line(Vector2(x, 0), Vector2(x, size.y * 0.8), grid_color, 1.0)
 
 	# Horizontal grid lines (price) - aligned with Y-axis labels
 	var chart_height = size.y * 0.6
-	var chart_y_offset = size.y * 0.05
+	var chart_y_offset = size.y * 0.06
 
 	for i in range(grid_divisions_y + 1):
 		var y = chart_y_offset + (float(i) / grid_divisions_y) * chart_height
@@ -98,17 +98,24 @@ func draw_grid():
 
 
 func draw_price_line():
+	print("=== DRAWING PRICE LINE ===")
+	print("Data points: %d" % price_data.size())
+
 	if price_data.size() < 1:
+		print("No price data to draw")
 		return
 
 	var min_price = get_min_price()
 	var max_price = get_max_price()
 	var price_range = max_price - min_price
 
+	print("Price range: %.2f - %.2f (range: %.2f)" % [min_price, max_price, price_range])
+
 	if price_range == 0:
 		price_range = max_price * 0.1
 		min_price = max_price - price_range / 2
 		max_price = max_price + price_range / 2
+		print("Adjusted price range: %.2f - %.2f" % [min_price, max_price])
 
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
@@ -128,60 +135,135 @@ func draw_price_line():
 		var y = chart_y_offset + chart_height - (normalized_price * chart_height)
 
 		points.append(Vector2(x, y))
+		if i < 5:  # Debug first few points
+			print("Point %d: time_ratio=%.3f, x=%.1f, price=%.2f, y=%.1f" % [i, time_ratio, x, price_data[i].price, y])
 
-	# Draw the price line
+	print("Generated %d drawing points" % points.size())
+
+	# Draw the price line with thicker, more visible lines
 	for i in range(points.size() - 1):
-		# Different colors for historical vs recent data
 		var is_historical = price_data[i].get("is_historical", false)
-		var line_color = Color(0.6, 0.8, 1.0) if is_historical else Color.YELLOW
-		var line_width = 1.5 if is_historical else 2.5
-		draw_line(points[i], points[i + 1], line_color, line_width)
+		var line_color = Color(0.6, 0.8, 1.0, 0.8) if is_historical else Color.YELLOW
+		var line_width = 0.5 if is_historical else 0.5
+		draw_line(points[i], points[i + 1], line_color, line_width, true)
 
-	# Draw price points
+	# Draw price points - make them very visible
 	for i in range(points.size()):
 		var is_historical = price_data[i].get("is_historical", false)
-		var point_color = Color(0.6, 0.8, 1.0) if is_historical else Color.YELLOW
-		var point_size = 2.0 if is_historical else 4.0
+		var point_color = Color(0.8, 0.9, 1.0) if is_historical else Color.YELLOW
+		var point_size = 0.5 if is_historical else 0.5
 
-		# Only draw every 4th historical point to avoid clutter
-		if not is_historical or i % 4 == 0:
-			draw_circle(points[i], point_size, point_color)
+		# Draw all points, but thin out historical ones
+		if not is_historical or i % 2 == 0:
+			draw_circle(points[i], point_size, point_color, true)
+			# Add outline for visibility
+			draw_arc(points[i], point_size + 1, 0, TAU, 16, Color.WHITE, 1.0, true)
+
+	print("=== PRICE LINE DRAWN ===")
 
 
 func draw_volume_bars():
-	if volume_data.size() == 0:
+	print("=== DRAWING VOLUME BARS DEBUG ===")
+	print("Volume data size: %d, Price data size: %d" % [volume_data.size(), price_data.size()])
+
+	if volume_data.size() == 0 or price_data.size() == 0:
+		print("No volume or price data to draw")
 		return
 
-	var max_volume = get_max_volume()
-	if max_volume == 0:
-		return
+	# Calculate max volume but cap real-time volumes to prevent huge bars
+	var historical_max = 0
+	var realtime_volumes = []
 
-	var volume_height_scale = size.y * 0.25
+	for i in range(min(volume_data.size(), price_data.size())):
+		var vol = volume_data[i]
+		if price_data[i].get("is_historical", false):
+			if vol > historical_max:
+				historical_max = vol
+		else:
+			realtime_volumes.append(vol)
+
+	# Cap real-time volumes to 3x historical max to prevent huge bars
+	var volume_cap = historical_max * 3 if historical_max > 0 else 1000000
+	var max_volume = historical_max
+
+	print("Historical max: %d, Volume cap: %d" % [historical_max, volume_cap])
+
+	var volume_height_scale = size.y * 0.3  # Reduced from 0.2 to 0.15
 	var current_time = Time.get_unix_time_from_system()
 	var window_start = current_time - 86400.0
 
-	for i in range(volume_data.size()):
-		if i >= price_data.size():
-			break
+	var bars_drawn = 0
+	var historical_count = 0
+	var realtime_count = 0
 
-		var bar_height = (float(volume_data[i]) / max_volume) * volume_height_scale
+	# Draw all volume bars with capped scaling
+	for i in range(min(volume_data.size(), price_data.size())):
+		var volume = volume_data[i]
+		var timestamp = price_data[i].timestamp
+		var is_historical = price_data[i].get("is_historical", false)
 
-		# X position based on time within 24-hour window
-		var time_in_window = price_data[i].timestamp - window_start
+		# Calculate position
+		var time_in_window = timestamp - window_start
 		var time_ratio = clamp(time_in_window / 86400.0, 0.0, 1.0)
 		var x = time_ratio * size.x
+
+		# Skip if outside visible area
+		if x < 0 or x > size.x:
+			continue
+
+		# Cap real-time volumes for display
+		var display_volume = volume
+		if not is_historical and volume > volume_cap:
+			display_volume = volume_cap
+			print("Capped real-time volume from %d to %d" % [volume, display_volume])
+
+		# Use historical max + some buffer for scaling
+		var scaling_max = max(historical_max, volume_cap)
+		var normalized_volume = float(display_volume) / scaling_max
+		var bar_height = normalized_volume * volume_height_scale
+
+		# Ensure minimum visibility
+		if bar_height < 1.0:
+			bar_height = 1.0
+
+		# Ensure maximum height doesn't exceed chart area
+		var max_bar_height = size.y * 0.15
+		if bar_height > max_bar_height:
+			bar_height = max_bar_height
+
 		var y = size.y - bar_height
 
-		var bar_width = max(1.0, size.x / max(1, volume_data.size() * 0.5))
+		# Consistent bar width
+		var bar_width = max(2.0, (size.x / volume_data.size()) * 0.8)
 		var bar_rect = Rect2(x - bar_width / 2, y, bar_width, bar_height)
 
-		# Different colors for historical vs recent volume
-		var is_historical = price_data[i].get("is_historical", false)
-		var base_color = Color(0.4, 0.6, 0.8, 0.6) if is_historical else volume_color
-		var volume_intensity = float(volume_data[i]) / max_volume
-		var bar_color = base_color * (0.3 + volume_intensity * 0.7)
+		# Color coding
+		var bar_color: Color
+		if is_historical:
+			var volume_intensity = clamp(normalized_volume + 0.4, 0.5, 1.0)
+			bar_color = Color(0.2, 0.4, 0.8, 0.8) * volume_intensity
+			historical_count += 1
+		else:
+			var volume_intensity = clamp(normalized_volume + 0.4, 0.5, 1.0)
+			bar_color = Color(0.8, 0.9, 0.2, 0.9) * volume_intensity
+			realtime_count += 1
 
+		# Draw the bar
 		draw_rect(bar_rect, bar_color)
+
+		# Add border
+		if bar_height > 1:
+			draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x, 1)), Color.WHITE * 0.2)
+
+		bars_drawn += 1
+
+		# Debug key bars
+		if bars_drawn <= 3 or bars_drawn > volume_data.size() - 3 or not is_historical:
+			var hours_ago = (current_time - timestamp) / 3600.0
+			print("Volume bar %d: x=%.1f, vol=%d->%d, height=%.1f, historical=%s, %.1fh ago" % [bars_drawn, x, volume, display_volume, bar_height, is_historical, hours_ago])
+
+	print("Drew %d volume bars (%d historical, %d realtime)" % [bars_drawn, historical_count, realtime_count])
+	print("=== VOLUME BARS COMPLETE ===")
 
 
 func draw_price_levels():
@@ -199,7 +281,7 @@ func draw_price_levels():
 	# Draw support levels
 	for level in support_levels:
 		var y = size.y * 0.7 - ((level - min_price) / price_range) * size.y * 0.6
-		draw_line(Vector2(0, y), Vector2(size.x, y), Color.GREEN, 2.0, true)
+		draw_line(Vector2(0, y), Vector2(size.x, y), Color.GREEN, 0.5, true)
 
 		# Add label
 		var font = ThemeDB.fallback_font
@@ -209,7 +291,7 @@ func draw_price_levels():
 	# Draw resistance levels
 	for level in resistance_levels:
 		var y = size.y * 0.7 - ((level - min_price) / price_range) * size.y * 0.6
-		draw_line(Vector2(0, y), Vector2(size.x, y), Color.RED, 2.0, true)
+		draw_line(Vector2(0, y), Vector2(size.x, y), Color.RED, 0.5, true)
 
 		# Add label
 		var font = ThemeDB.fallback_font
@@ -230,7 +312,7 @@ func draw_y_axis_labels():
 		return
 
 	var font_size = 10
-	var grid_divisions = 8  # Match grid line count
+	var grid_divisions = 3  # Match grid line count
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
 
@@ -275,8 +357,8 @@ func draw_crosshair():
 		return
 
 	# Draw crosshair lines
-	draw_line(Vector2(0, mouse_position.y), Vector2(size.x, mouse_position.y), Color.WHITE, 1.0, true)
-	draw_line(Vector2(mouse_position.x, 0), Vector2(mouse_position.x, size.y), Color.WHITE, 1.0, true)
+	draw_line(Vector2(0, mouse_position.y), Vector2(size.x, mouse_position.y), Color.DIM_GRAY, 1.0, false)
+	draw_line(Vector2(mouse_position.x, 0), Vector2(mouse_position.x, size.y), Color.DIM_GRAY, 1.0, false)
 
 	# Calculate price at mouse position
 	if price_data.size() > 0:
@@ -298,8 +380,7 @@ func draw_crosshair():
 			if label_pos.x + text_size.x > size.x:
 				label_pos.x = mouse_position.x - text_size.x - 10
 
-			draw_rect(Rect2(label_pos - Vector2(2, text_size.y + 2), text_size + Vector2(4, 4)), Color.BLACK)
-			draw_string(font, label_pos, price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+			draw_string(font, label_pos, price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.LIGHT_GRAY)
 
 
 func find_closest_time_index(target_time: float) -> int:
@@ -382,17 +463,23 @@ func set_timeframe_hours(hours: float):
 func set_day_start_time():
 	"""Set the start time to 24 hours ago for full day view"""
 	var current_time = Time.get_unix_time_from_system()
-	day_start_timestamp = current_time - 86400.0  # Start 24 hours ago
+	day_start_timestamp = current_time - 86400.0  # Start exactly 24 hours ago
 	has_loaded_historical = false
 
-	print("Day view set to show last 24 hours")
+	print("Chart window set to show last 24 hours")
 	print("Start time: ", Time.get_datetime_string_from_unix_time(day_start_timestamp))
 	print("End time: ", Time.get_datetime_string_from_unix_time(current_time))
+	print("Window duration: %.1f hours" % ((current_time - day_start_timestamp) / 3600.0))
 
 
 func add_data_point(price: float, volume: int, time_label: String = ""):
+	print("=== ADDING REAL-TIME DATA POINT ===")
+	print("Price: %.2f, Volume: %d" % [price, volume])
+	print("Current data points: price=%d, volume=%d" % [price_data.size(), volume_data.size()])
+
 	# Load historical data on first data point if not already loaded
-	if not has_loaded_historical and not is_loading_historical:
+	if price_data.size() == 0 and not has_loaded_historical and not is_loading_historical:
+		print("First data point - requesting historical data...")
 		request_historical_data()
 
 	# Store the raw price for moving average calculation
@@ -402,13 +489,48 @@ func add_data_point(price: float, volume: int, time_label: String = ""):
 	var avg_price = calculate_moving_average()
 
 	var current_time = Time.get_unix_time_from_system()
-	var seconds_from_start = current_time - day_start_timestamp
+	var window_start = current_time - 86400.0
+	var seconds_from_start = current_time - window_start
 
-	var data_point = {"price": avg_price, "raw_price": price, "volume": volume, "timestamp": current_time, "time_label": time_label, "seconds_from_day_start": seconds_from_start}
+	# Check if we already have a recent real-time point (within last 5 minutes)
+	var recent_realtime_found = false
+	var recent_cutoff = current_time - 300.0  # 5 minutes ago
 
-	price_data.append(data_point)
-	volume_data.append(volume)
-	time_labels.append(time_label)
+	for i in range(price_data.size() - 1, -1, -1):  # Go backwards through data
+		var point = price_data[i]
+		if not point.get("is_historical", false) and point.timestamp > recent_cutoff:
+			# Replace this recent real-time point instead of adding a new one
+			print("Replacing recent real-time point from %s" % Time.get_datetime_string_from_unix_time(point.timestamp))
+
+			# Update the existing point
+			point.price = avg_price
+			point.raw_price = price
+			point.volume = volume
+			point.timestamp = current_time
+			point.time_label = time_label
+			point.seconds_from_day_start = seconds_from_start
+
+			# Update corresponding arrays
+			volume_data[i] = volume
+			time_labels[i] = time_label
+
+			recent_realtime_found = true
+			break
+
+	# Only add new point if we didn't replace an existing one
+	if not recent_realtime_found:
+		var data_point = {
+			"price": avg_price, "raw_price": price, "volume": volume, "timestamp": current_time, "time_label": time_label, "seconds_from_day_start": seconds_from_start, "is_historical": false
+		}
+
+		price_data.append(data_point)
+		volume_data.append(volume)
+		time_labels.append(time_label)
+		print("Added new real-time point")
+	else:
+		print("Replaced existing real-time point")
+
+	print("Total data points after update: price=%d, volume=%d" % [price_data.size(), volume_data.size()])
 
 	# Keep rolling 24-hour window
 	cleanup_old_data()
@@ -417,30 +539,42 @@ func add_data_point(price: float, volume: int, time_label: String = ""):
 	update_price_levels()
 
 	queue_redraw()
-	print("Chart updated: moving_avg=%.2f at +%.1f hours from start" % [avg_price, seconds_from_start / 3600.0])
 
 
 func request_historical_data():
 	"""Request historical market data for the past 24 hours"""
 	if is_loading_historical:
+		print("Already loading historical data, skipping...")
 		return
 
 	is_loading_historical = true
-	print("Requesting historical data for past 24 hours...")
+	print("Requesting historical data for new item...")
 
 	# Emit signal to request historical data
-	# This will be connected in the trading panel
 	if has_signal("historical_data_requested"):
 		emit_signal("historical_data_requested")
+	else:
+		print("ERROR: historical_data_requested signal not connected!")
 
 
 func add_historical_data_point(price: float, volume: int, timestamp: float):
 	"""Add a historical data point with specific timestamp"""
 	var current_time = Time.get_unix_time_from_system()
-	var window_start = current_time - 86400.0  # 24 hours ago
+	var window_start = current_time - 86400.0
+	var hours_ago = (current_time - timestamp) / 3600.0
 
-	# Only add if within our 24-hour window
-	if timestamp < window_start or timestamp > current_time:
+	print("Adding historical point: %.1fh ago, price=%.2f, volume=%d" % [hours_ago, price, volume])
+	print("  Timestamp: %s" % Time.get_datetime_string_from_unix_time(timestamp))
+	print("  Window start: %s" % Time.get_datetime_string_from_unix_time(window_start))
+	print("  Current time: %s" % Time.get_datetime_string_from_unix_time(current_time))
+
+	# Check if within 24-hour window
+	if timestamp < window_start:
+		print("  REJECTED: Too old (%.1f hours ago)" % hours_ago)
+		return
+
+	if timestamp > current_time:
+		print("  REJECTED: In the future")
 		return
 
 	var seconds_from_start = timestamp - window_start
@@ -455,16 +589,43 @@ func add_historical_data_point(price: float, volume: int, timestamp: float):
 		"is_historical": true
 	}
 
-	# Add to price history for moving average (but don't affect current MA)
 	price_data.append(data_point)
 	volume_data.append(volume)
 	time_labels.append(data_point.time_label)
 
-	print("Added historical point: %.2f ISK at %s" % [price, data_point.time_label])
+	print("  ACCEPTED: Added historical point. Total: %d" % price_data.size())
 
 
 func finish_historical_data_load():
 	"""Called when historical data loading is complete"""
+	print("=== FINISHING HISTORICAL DATA LOAD ===")
+	print("Data before sorting: price=%d, volume=%d, time=%d" % [price_data.size(), volume_data.size(), time_labels.size()])
+
+	if price_data.size() == 0:
+		print("ERROR: No data points to sort!")
+		has_loaded_historical = true
+		is_loading_historical = false
+		queue_redraw()
+		return
+
+	# Debug data before sorting
+	var historical_count = 0
+	var realtime_count = 0
+	for point in price_data:
+		if point.get("is_historical", false):
+			historical_count += 1
+		else:
+			realtime_count += 1
+	print("Before sorting: %d historical, %d realtime" % [historical_count, realtime_count])
+
+	# Ensure all arrays are the same size
+	var min_size = min(price_data.size(), min(volume_data.size(), time_labels.size()))
+	if price_data.size() != volume_data.size() or price_data.size() != time_labels.size():
+		print("WARNING: Array size mismatch - trimming to %d" % min_size)
+		price_data = price_data.slice(0, min_size)
+		volume_data = volume_data.slice(0, min_size)
+		time_labels = time_labels.slice(0, min_size)
+
 	# Sort all data by timestamp
 	var combined_data = []
 	for i in range(price_data.size()):
@@ -485,9 +646,28 @@ func finish_historical_data_load():
 
 	has_loaded_historical = true
 	is_loading_historical = false
-	queue_redraw()
 
-	print("Historical data loaded: %d points spanning %.1f hours" % [price_data.size(), (price_data[-1].timestamp - price_data[0].timestamp) / 3600.0 if price_data.size() > 0 else 0])
+	print("=== HISTORICAL DATA FINALIZED ===")
+	print("Final data count: price=%d, volume=%d" % [price_data.size(), volume_data.size()])
+
+	# Debug final data
+	historical_count = 0
+	realtime_count = 0
+	var current_time = Time.get_unix_time_from_system()
+	for i in range(price_data.size()):
+		var point = price_data[i]
+		var hours_ago = (current_time - point.timestamp) / 3600.0
+		if point.get("is_historical", false):
+			historical_count += 1
+		else:
+			realtime_count += 1
+
+		# Debug first and last few points
+		if i < 3 or i >= price_data.size() - 3:
+			print("  Point %d: %.1fh ago, price=%.2f, vol=%d, historical=%s" % [i, hours_ago, point.price, volume_data[i], point.get("is_historical", false)])
+
+	print("Final: %d historical, %d realtime" % [historical_count, realtime_count])
+	queue_redraw()
 
 
 func start_new_day():
@@ -535,14 +715,22 @@ func update_price_levels():
 
 
 func clear_data():
+	print("=== CLEARING CHART DATA ===")
+	print("Clearing %d price points, %d volume points" % [price_data.size(), volume_data.size()])
+
 	price_data.clear()
 	volume_data.clear()
 	time_labels.clear()
 	price_history.clear()
 	support_levels.clear()
 	resistance_levels.clear()
+
+	# Reset historical data flags
+	has_loaded_historical = false
+	is_loading_historical = false
+
 	queue_redraw()
-	print("Chart data cleared - ready for new day")
+	print("Chart data cleared - ready for new item")
 
 
 func format_price_label(price: float) -> String:
@@ -582,11 +770,23 @@ func get_max_price() -> float:
 func get_max_volume() -> int:
 	if volume_data.is_empty():
 		return 0
-	var max_val = volume_data[0]
-	for vol in volume_data:
-		if vol > max_val:
-			max_val = vol
-	return max_val
+
+	# Use only historical volumes for consistent scaling
+	var historical_max = 0
+
+	for i in range(min(volume_data.size(), price_data.size())):
+		var vol = volume_data[i]
+		if price_data[i].get("is_historical", false):
+			if vol > historical_max:
+				historical_max = vol
+
+	# Fall back to all data if no historical data
+	if historical_max == 0:
+		for vol in volume_data:
+			if vol > historical_max:
+				historical_max = vol
+
+	return historical_max
 
 
 func set_chart_style(style: String):
@@ -648,15 +848,53 @@ func get_current_day_info() -> String:
 func cleanup_old_data():
 	"""Remove data points older than 24 hours"""
 	var current_time = Time.get_unix_time_from_system()
-	var cutoff_time = current_time - 86400.0  # 24 hours ago
+	var cutoff_time = current_time - 86400.0  # Exactly 24 hours ago
 
-	# Update day_start_timestamp to maintain rolling window
-	day_start_timestamp = cutoff_time
+	var removed_count = 0
 
-	# Remove old data
+	# Remove old data points from the beginning - keep price/volume/time in sync
 	while price_data.size() > 0 and price_data[0].timestamp < cutoff_time:
 		price_data.pop_front()
-		volume_data.pop_front()
-		time_labels.pop_front()
+		if volume_data.size() > 0:
+			volume_data.pop_front()
+		if time_labels.size() > 0:
+			time_labels.pop_front()
 		if price_history.size() > 0:
 			price_history.pop_front()
+		removed_count += 1
+
+	if removed_count > 0:
+		print("Cleaned up %d old data points" % removed_count)
+
+	# Ensure arrays stay in sync
+	var min_size = min(price_data.size(), volume_data.size())
+	if price_data.size() != volume_data.size():
+		print("WARNING: Data arrays out of sync - price:%d, volume:%d" % [price_data.size(), volume_data.size()])
+		# Trim to match
+		price_data = price_data.slice(0, min_size)
+		volume_data = volume_data.slice(0, min_size)
+		time_labels = time_labels.slice(0, min_size)
+
+
+func debug_chart_data():
+	print("=== DETAILED CHART DEBUG ===")
+	var current_time = Time.get_unix_time_from_system()
+	print("Current time: %s" % Time.get_datetime_string_from_unix_time(current_time))
+	print("Price data points: %d" % price_data.size())
+	print("Volume data points: %d" % volume_data.size())
+
+	if price_data.size() > 0:
+		print("All data points:")
+		for i in range(price_data.size()):
+			var point = price_data[i]
+			var hours_ago = (current_time - point.timestamp) / 3600.0
+			print(
+				(
+					"  Point %d: %.1fh ago, price=%.2f, vol=%d, historical=%s, time=%s"
+					% [i, hours_ago, point.price, volume_data[i], point.get("is_historical", false), Time.get_datetime_string_from_unix_time(point.timestamp)]
+				)
+			)
+
+	print("Has loaded historical: %s" % has_loaded_historical)
+	print("Is loading historical: %s" % is_loading_historical)
+	print("==========================")

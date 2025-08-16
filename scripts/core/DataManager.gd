@@ -11,11 +11,6 @@ const USER_AGENT = "EVE-Trader-Godot/1.0"
 
 const COMMON_ITEMS = {
 	34: "Tritanium",
-	35: "Pyerite",
-	36: "Mexallon",
-	37: "Isogen",
-	38: "Nocxium",
-	39: "Zydrine",
 	28606: "Orca",
 	11399: "Morphite",
 	33681: "Gecko",
@@ -473,7 +468,7 @@ func get_debug_market_data(region_id: int) -> void:
 	debug_region_id = region_id
 
 	# List of popular items to fetch
-	var debug_items = [34, 35, 36, 37, 38, 39, 40, 11399, 16275, 9848]  # 10 items
+	var debug_items = [34, 28606, 11399, 33681, 16681, 25595]  # 10 items
 	debug_items_pending = debug_items.duplicate()
 
 	print("Fetching ", debug_items.size(), " debug items...")

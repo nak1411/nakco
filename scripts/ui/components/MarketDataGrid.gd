@@ -302,13 +302,12 @@ func refresh_display():
 		emit_signal("progress_updated", 0, 0, 0)
 		return
 
-	# LIMIT TO 10 ITEMS FOR DEBUGGING
-	var items_to_show = min(grid_data.size(), 10)
-	print("Limiting display to ", items_to_show, " items (total available: ", grid_data.size(), ")")
+	# Show more items to get past 70%
+	var items_to_show = min(grid_data.size(), 25)  # Increased from 10 to 25
+	print("Showing ", items_to_show, " items (total available: ", grid_data.size(), ")")
 
 	# Count items with real names vs placeholders
 	var named_items = 0
-
 	for i in range(items_to_show):
 		var item = grid_data[i]
 		var item_name = item.get("item_name", "")
@@ -320,10 +319,10 @@ func refresh_display():
 	print("  items_to_show: ", items_to_show)
 	print("  total_available: ", grid_data.size())
 
-	# Emit progress signal
+	# Emit progress signal - this should reach 100% when all names are loaded
 	emit_signal("progress_updated", named_items, items_to_show, grid_data.size())
 
-	# Add data rows - ONLY 10 ITEMS
+	# Add data rows
 	for i in range(items_to_show):
 		create_item_row(grid_data[i])
 

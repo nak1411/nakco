@@ -29,20 +29,11 @@ func setup_panels():
 	# 2. Real-time Price Chart
 	create_real_time_chart()
 
-	# 3. Order Book Display
-	create_order_book_display()
-
-	# 4. Quick Trading Panel
-	create_quick_trading_panel()
-
-	# 5. Alert Setup
-	create_alert_panel()
-
 
 func create_item_info_header():
 	var header_panel = PanelContainer.new()
 	header_panel.name = "ItemInfoPanel"
-	header_panel.custom_minimum_size.y = 80
+	header_panel.custom_minimum_size.y = 50
 	add_child(header_panel)
 
 	var header_vbox = VBoxContainer.new()
@@ -88,7 +79,7 @@ func create_item_info_header():
 func create_real_time_chart():
 	var chart_panel = PanelContainer.new()
 	chart_panel.name = "ChartPanel"
-	chart_panel.custom_minimum_size.y = 200
+	chart_panel.custom_minimum_size.y = 300
 	add_child(chart_panel)
 
 	var chart_vbox = VBoxContainer.new()
@@ -119,140 +110,6 @@ func create_real_time_chart():
 	real_time_chart.historical_data_requested.connect(_on_historical_data_requested)
 
 
-func create_order_book_display():
-	var order_book_panel = PanelContainer.new()
-	order_book_panel.name = "OrderBookPanel"
-	order_book_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	add_child(order_book_panel)
-
-	var order_book_vbox = VBoxContainer.new()
-	order_book_panel.add_child(order_book_vbox)
-
-	var order_book_header = Label.new()
-	order_book_header.text = "Order Book"
-	order_book_header.add_theme_color_override("font_color", Color.CYAN)
-	order_book_vbox.add_child(order_book_header)
-
-	var order_book_scroll = ScrollContainer.new()
-	order_book_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	order_book_vbox.add_child(order_book_scroll)
-
-	order_book_list = VBoxContainer.new()
-	order_book_list.name = "OrderBookList"
-	order_book_scroll.add_child(order_book_list)
-
-
-func create_quick_trading_panel():
-	var trading_panel = PanelContainer.new()
-	trading_panel.name = "TradingPanel"
-	trading_panel.custom_minimum_size.y = 150
-	add_child(trading_panel)
-
-	var trading_vbox = VBoxContainer.new()
-	trading_panel.add_child(trading_vbox)
-
-	var trading_header = Label.new()
-	trading_header.text = "Quick Trade"
-	trading_header.add_theme_color_override("font_color", Color.CYAN)
-	trading_vbox.add_child(trading_header)
-
-	# Quantity input
-	var quantity_container = HBoxContainer.new()
-	trading_vbox.add_child(quantity_container)
-
-	var quantity_label = Label.new()
-	quantity_label.text = "Quantity:"
-	quantity_label.custom_minimum_size.x = 60
-	quantity_container.add_child(quantity_label)
-
-	var quantity_spinbox = SpinBox.new()
-	quantity_spinbox.name = "QuantitySpinBox"
-	quantity_spinbox.min_value = 1
-	quantity_spinbox.max_value = 999999999
-	quantity_spinbox.value = 1
-	quantity_spinbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	quantity_container.add_child(quantity_spinbox)
-
-	# Price input
-	var price_container = HBoxContainer.new()
-	trading_vbox.add_child(price_container)
-
-	var price_label = Label.new()
-	price_label.text = "Price:"
-	price_label.custom_minimum_size.x = 60
-	price_container.add_child(price_label)
-
-	var price_spinbox = SpinBox.new()
-	price_spinbox.name = "PriceSpinBox"
-	price_spinbox.min_value = 0.01
-	price_spinbox.max_value = 999999999999.0
-	price_spinbox.step = 0.01
-	price_spinbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	price_container.add_child(price_spinbox)
-
-	# Buy/Sell buttons
-	var button_container = HBoxContainer.new()
-	trading_vbox.add_child(button_container)
-
-	var buy_button = Button.new()
-	buy_button.name = "BuyButton"
-	buy_button.text = "Buy Order"
-	buy_button.add_theme_color_override("font_color", Color.GREEN)
-	buy_button.pressed.connect(_on_buy_button_pressed)
-	button_container.add_child(buy_button)
-
-	var sell_button = Button.new()
-	sell_button.name = "SellButton"
-	sell_button.text = "Sell Order"
-	sell_button.add_theme_color_override("font_color", Color.RED)
-	sell_button.pressed.connect(_on_sell_button_pressed)
-	button_container.add_child(sell_button)
-
-
-func create_alert_panel():
-	var alert_panel = PanelContainer.new()
-	alert_panel.name = "AlertPanel"
-	alert_panel.custom_minimum_size.y = 100
-	add_child(alert_panel)
-
-	var alert_vbox = VBoxContainer.new()
-	alert_panel.add_child(alert_vbox)
-
-	var alert_header = Label.new()
-	alert_header.text = "Price Alerts"
-	alert_header.add_theme_color_override("font_color", Color.CYAN)
-	alert_vbox.add_child(alert_header)
-
-	var alert_container = HBoxContainer.new()
-	alert_vbox.add_child(alert_container)
-
-	var alert_label = Label.new()
-	alert_label.text = "Target:"
-	alert_label.custom_minimum_size.x = 50
-	alert_container.add_child(alert_label)
-
-	var alert_price_input = SpinBox.new()
-	alert_price_input.name = "AlertPriceInput"
-	alert_price_input.min_value = 0.01
-	alert_price_input.max_value = 999999999999.0
-	alert_price_input.step = 0.01
-	alert_price_input.value = 100.0  # Default value instead of placeholder
-	alert_price_input.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	alert_container.add_child(alert_price_input)
-
-	var condition_selector = OptionButton.new()
-	condition_selector.name = "ConditionSelector"
-	condition_selector.add_item("Above")
-	condition_selector.add_item("Below")
-	condition_selector.selected = 0
-	alert_container.add_child(condition_selector)
-
-	var create_alert_button = Button.new()
-	create_alert_button.text = "Create"
-	create_alert_button.pressed.connect(_on_create_alert_pressed)
-	alert_container.add_child(create_alert_button)
-
-
 func create_order_book_header():
 	"""Create order book header"""
 	var header = HBoxContainer.new()
@@ -278,28 +135,24 @@ func create_order_book_header():
 
 
 func update_item_display(item_data: Dictionary):
-	print("TradingRightPanel: update_item_display called")
+	"""Called only for NEW item selection - this clears the chart"""
+	print("=== TRADING PANEL: NEW ITEM SELECTED ===")
+	print("New item: ", item_data.get("item_name", "Unknown"))
 
 	selected_item_data = item_data
 
-	# Clear chart for new item
+	# Only clear chart for genuinely NEW items
 	if real_time_chart:
 		real_time_chart.clear_data()
+		print("Chart cleared for new item selection")
 
-	# Update header info
+	# Update all displays for new item
 	update_item_header(item_data)
-
-	# Update trading defaults
 	update_trading_defaults(item_data)
-
-	# Update alert defaults
 	update_alert_defaults(item_data)
-
-	# Update order book
 	update_order_book(item_data)
 
-	# The chart will automatically request historical data when first real-time point is added
-	print("Item display updated, chart will load historical data automatically")
+	print("New item display setup complete")
 
 
 func update_price_labels_with_animation(item_data: Dictionary):
@@ -360,39 +213,55 @@ func update_with_realtime_data(realtime_data: Dictionary):
 	"""Update panel with fresh real-time data"""
 	print("TradingRightPanel: Received real-time data update")
 
-	# Update the basic display
-	update_item_display(realtime_data)
+	# DON'T call update_item_display - that clears the chart!
+	# Instead, just update the specific parts that need updating
 
-	# Update chart with new price point
+	# Update selected_item_data with new real-time info
+	selected_item_data.merge(realtime_data, true)
+
+	# Update header info with new prices (without clearing chart)
+	update_item_header(realtime_data)
+
+	# Update chart with new price point (without clearing)
 	update_realtime_chart_data(realtime_data)
 
 	# Update order book with fresh orders
 	update_order_book_realtime(realtime_data)
 
+	print("Real-time update complete - chart data preserved")
+
 
 func update_realtime_chart_data(data: Dictionary):
-	"""Add new data point to real-time chart"""
+	"""Add new data point to real-time chart WITHOUT clearing existing data"""
 	if not real_time_chart:
+		print("ERROR: No real_time_chart available")
 		return
 
 	var max_buy = data.get("max_buy", 0.0)
 	var min_sell = data.get("min_sell", 0.0)
-	var volume = data.get("volume", 0)
+	var total_buy_volume = data.get("total_buy_volume", 0)
+	var total_sell_volume = data.get("total_sell_volume", 0)
+	var total_volume = data.get("volume", total_buy_volume + total_sell_volume)
 
-	# Calculate market price (weighted average or mid-point)
+	# Calculate market price
 	var market_price = 0.0
 	if max_buy > 0 and min_sell > 0:
-		# Use mid-point of spread as market price
 		market_price = (max_buy + min_sell) / 2.0
 	elif max_buy > 0:
 		market_price = max_buy
 	elif min_sell > 0:
 		market_price = min_sell
 
+	# Ensure meaningful volume
+	if total_volume <= 0:
+		total_volume = max(total_buy_volume + total_sell_volume, 1)
+
 	if market_price > 0:
 		var time_label = Time.get_datetime_string_from_system().substr(11, 8)
-		real_time_chart.add_data_point(market_price, volume, time_label)
-		print("Added chart data point: market_price=%.2f volume=%d" % [market_price, volume])
+		print("Adding real-time chart point: price=%.2f, volume=%d (preserving existing data)" % [market_price, total_volume])
+		real_time_chart.add_data_point(market_price, total_volume, time_label)
+	else:
+		print("No valid market price for real-time update")
 
 
 func update_order_book_realtime(data: Dictionary):
@@ -424,39 +293,88 @@ func update_order_book_realtime(data: Dictionary):
 
 
 func update_item_header(item_data: Dictionary):
-	var item_name_label = get_node_or_null("ItemInfoPanel/VBoxContainer/ItemNameLabel")
-	if item_name_label:
+	print("=== UPDATING ITEM HEADER ===")
+	print("Item data keys: ", item_data.keys())
+	print("Item name: ", item_data.get("item_name", "N/A"))
+	print("Max buy: ", item_data.get("max_buy", "N/A"))
+	print("Min sell: ", item_data.get("min_sell", "N/A"))
+
+	# Find the item info panel - try different paths
+	var item_info_panel = get_node_or_null("ItemInfoPanel")
+	if not item_info_panel:
+		print("ItemInfoPanel not found, searching children...")
+		for child in get_children():
+			print("  Child: ", child.name, " (", child.get_class(), ")")
+			if child.name == "ItemInfoPanel":
+				item_info_panel = child
+				break
+
+	if not item_info_panel:
+		print("ERROR: ItemInfoPanel still not found!")
+		return
+
+	print("Found ItemInfoPanel: ", item_info_panel.name)
+
+	# Navigate to the VBoxContainer inside the PanelContainer
+	var vbox = item_info_panel.get_child(0)  # Should be VBoxContainer
+	if not vbox:
+		print("ERROR: No VBoxContainer found in ItemInfoPanel")
+		return
+
+	print("Found VBoxContainer with ", vbox.get_child_count(), " children")
+
+	# Update item name label (first child)
+	var item_name_label = vbox.get_child(0)
+	if item_name_label and item_name_label.has_method("set_text"):
 		var item_name = item_data.get("item_name", "Unknown Item")
 		var item_id = item_data.get("item_id", 0)
-		item_name_label.text = "%s (ID: %d)" % [item_name, item_id]
+		var new_text = "%s (ID: %d)" % [item_name, item_id]
+		item_name_label.text = new_text
+		print("✓ Updated item name to: ", new_text)
+	else:
+		print("ERROR: Item name label not found or invalid")
 
-	var buy_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/BuyPriceLabel")
-	if buy_price_label:
-		var max_buy = item_data.get("max_buy", 0)
-		buy_price_label.text = "Buy: %s ISK" % format_isk(max_buy)
-		buy_price_label.add_theme_color_override("font_color", Color.GREEN if max_buy > 0 else Color.GRAY)
+	# Update price container (second child should be HBoxContainer)
+	if vbox.get_child_count() > 1:
+		var price_container = vbox.get_child(1)
+		print("Price container has ", price_container.get_child_count(), " children")
 
-	var sell_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SellPriceLabel")
-	if sell_price_label:
-		var min_sell = item_data.get("min_sell", 0)
-		sell_price_label.text = "Sell: %s ISK" % format_isk(min_sell)
-		sell_price_label.add_theme_color_override("font_color", Color.RED if min_sell > 0 else Color.GRAY)
+		# Buy price (first child)
+		if price_container.get_child_count() > 0:
+			var buy_price_label = price_container.get_child(0)
+			if buy_price_label and buy_price_label.has_method("set_text"):
+				var max_buy = item_data.get("max_buy", 0.0)
+				buy_price_label.text = "Buy: %s" % format_isk(max_buy)
+				buy_price_label.add_theme_color_override("font_color", Color.GREEN if max_buy > 0 else Color.GRAY)
+				print("✓ Updated buy price to: ", buy_price_label.text)
 
-	var spread_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SpreadLabel")
-	if spread_label:
-		var spread = item_data.get("spread", 0)
-		var margin = item_data.get("margin", 0)
-		spread_label.text = "Spread: %s ISK (%.1f%%)" % [format_isk(spread), margin]
+		# Sell price (third child, skipping spacer)
+		if price_container.get_child_count() > 2:
+			var sell_price_label = price_container.get_child(2)
+			if sell_price_label and sell_price_label.has_method("set_text"):
+				var min_sell = item_data.get("min_sell", 0.0)
+				sell_price_label.text = "Sell: %s" % format_isk(min_sell)
+				sell_price_label.add_theme_color_override("font_color", Color.RED if min_sell > 0 else Color.GRAY)
+				print("✓ Updated sell price to: ", sell_price_label.text)
 
-		# Color code based on margin
-		if margin > 10:
-			spread_label.add_theme_color_override("font_color", Color.GREEN)
-		elif margin > 5:
-			spread_label.add_theme_color_override("font_color", Color.YELLOW)
-		elif margin > 0:
-			spread_label.add_theme_color_override("font_color", Color.WHITE)
-		else:
-			spread_label.add_theme_color_override("font_color", Color.GRAY)
+		# Spread (fifth child, skipping spacers)
+		if price_container.get_child_count() > 4:
+			var spread_label = price_container.get_child(4)
+			if spread_label and spread_label.has_method("set_text"):
+				var spread = item_data.get("spread", 0.0)
+				var margin = item_data.get("margin", 0.0)
+				spread_label.text = "Spread: %s (%.1f%%)" % [format_isk(spread), margin]
+
+				# Color code based on margin
+				if margin > 10:
+					spread_label.add_theme_color_override("font_color", Color.GREEN)
+				elif margin > 5:
+					spread_label.add_theme_color_override("font_color", Color.YELLOW)
+				else:
+					spread_label.add_theme_color_override("font_color", Color.WHITE)
+				print("✓ Updated spread to: ", spread_label.text)
+
+	print("=== HEADER UPDATE COMPLETE ===")
 
 
 func update_trading_defaults(item_data: Dictionary):
@@ -566,14 +484,24 @@ func handle_market_data_update(market_data: Dictionary):
 
 func _on_historical_data_requested():
 	"""Handle request for historical data"""
-	if not selected_item_data.has("item_id") or not data_manager:
-		real_time_chart.finish_historical_data_load()  # Finish even if no data
+	print("=== HISTORICAL DATA REQUESTED ===")
+
+	if not selected_item_data.has("item_id"):
+		print("No item selected, finishing without data")
+		if real_time_chart:
+			real_time_chart.finish_historical_data_load()
+		return
+
+	if not data_manager:
+		print("No data manager available, finishing without data")
+		if real_time_chart:
+			real_time_chart.finish_historical_data_load()
 		return
 
 	var item_id = selected_item_data.get("item_id", 0)
 	var region_id = selected_item_data.get("region_id", 10000002)
 
-	print("Requesting historical market data for item %d" % item_id)
+	print("Requesting historical market data for item %d in region %d" % [item_id, region_id])
 
 	# Request market history for the past day
 	data_manager.get_market_history(region_id, item_id)
@@ -581,75 +509,102 @@ func _on_historical_data_requested():
 
 func load_historical_chart_data(history_data: Dictionary):
 	"""Load historical market data into the chart"""
+	print("=== LOADING HISTORICAL CHART DATA ===")
+
 	if not real_time_chart:
+		print("ERROR: No real_time_chart available")
 		return
 
 	var history_entries = history_data.get("data", [])
 	var context = history_data.get("context", {})
 	var item_id = context.get("type_id", 0)
 
-	print("Loading historical data: %d entries for item %d" % [history_entries.size(), item_id])
+	print("History entries count: ", history_entries.size())
 
-	if typeof(history_entries) != TYPE_ARRAY:
-		print("Invalid history data format")
+	if typeof(history_entries) != TYPE_ARRAY or history_entries.size() == 0:
+		print("No valid historical data available")
 		real_time_chart.finish_historical_data_load()
 		return
 
-	# EVE history data is daily aggregates, we need to simulate intraday points
 	var current_time = Time.get_unix_time_from_system()
+	var window_start = current_time - 86400.0  # 24 hours ago
 	var points_added = 0
 
-	# Process last 7 days of history to get recent trend
-	var recent_entries = []
+	print("Current time: %s" % Time.get_datetime_string_from_unix_time(current_time))
+	print("Window start (24h ago): %s" % Time.get_datetime_string_from_unix_time(window_start))
+
+	# Find the most recent entry that has data
+	var most_recent_entry = null
+	var most_recent_timestamp = 0.0
+
 	for entry in history_entries:
 		var date_str = entry.get("date", "")
 		if date_str.is_empty():
 			continue
 
 		var entry_timestamp = parse_eve_date(date_str)
-		if entry_timestamp > (current_time - 604800):  # Last 7 days
-			recent_entries.append(entry)
+		if entry_timestamp > most_recent_timestamp:
+			most_recent_timestamp = entry_timestamp
+			most_recent_entry = entry
 
-	# Sort by date
-	recent_entries.sort_custom(func(a, b): return parse_eve_date(a.get("date", "")) < parse_eve_date(b.get("date", "")))
+	if not most_recent_entry:
+		print("No valid historical entries found")
+		real_time_chart.finish_historical_data_load()
+		return
 
-	# Add historical points (simulate hourly data from daily averages)
-	for entry in recent_entries:
-		var date_str = entry.get("date", "")
-		var avg_price = entry.get("average", 0.0)
-		var volume = entry.get("volume", 0)
-		var highest = entry.get("highest", avg_price)
-		var lowest = entry.get("lowest", avg_price)
+	print("Using most recent entry: %s" % most_recent_entry.get("date", ""))
 
-		if avg_price <= 0:
+	var avg_price = most_recent_entry.get("average", 0.0)
+	var daily_volume = most_recent_entry.get("volume", 0)
+	var highest = most_recent_entry.get("highest", avg_price)
+	var lowest = most_recent_entry.get("lowest", avg_price)
+
+	if avg_price <= 0:
+		print("Invalid price data in most recent entry")
+		real_time_chart.finish_historical_data_load()
+		return
+
+	if daily_volume <= 0:
+		daily_volume = 100000  # Default volume
+
+	print("Entry data: price=%.2f, volume=%d, range=%.2f-%.2f" % [avg_price, daily_volume, lowest, highest])
+
+	# Create historical data points by going backwards from now
+	# Create a point every hour for the last 24 hours
+	for hours_back in range(1, 25):  # 1 to 24 hours ago
+		var point_timestamp = current_time - (hours_back * 3600.0)
+
+		# Make sure it's within our window
+		if point_timestamp < window_start:
 			continue
 
-		var day_timestamp = parse_eve_date(date_str)
+		# Simulate price variation throughout the day
+		var time_factor = float(hours_back) / 24.0
+		var price_variation = (highest - lowest) * 0.3
+		var point_price = avg_price + (sin(time_factor * PI * 4) * price_variation)
+		point_price = clamp(point_price, lowest * 0.9, highest * 1.1)
 
-		# Create multiple data points throughout the day to simulate trading activity
-		for hour in range(24):
-			var hour_timestamp = day_timestamp + (hour * 3600)
+		# Simulate volume variation
+		var base_volume = daily_volume / 24.0
+		var volume_multiplier = 1.0
 
-			# Only add points within last 24 hours
-			if hour_timestamp < (current_time - 86400):
-				continue
-			if hour_timestamp > current_time:
-				break
+		# Simulate trading patterns based on hour of day
+		var hour_of_day = (24 - hours_back) % 24
+		if hour_of_day >= 8 and hour_of_day <= 20:  # Peak hours
+			volume_multiplier = 1.5
+		elif hour_of_day >= 22 or hour_of_day <= 6:  # Low hours
+			volume_multiplier = 0.5
 
-			# Simulate price variation within the day's range
-			var price_variation = (highest - lowest) * 0.5
-			var hour_price = avg_price + (sin(hour * 0.5) * price_variation * 0.3)
-			hour_price = clamp(hour_price, lowest, highest)
+		var point_volume = int(base_volume * volume_multiplier * (0.8 + randf() * 0.4))
+		point_volume = max(1000, point_volume)  # Minimum volume
 
-			# Simulate volume distribution (higher during peak hours)
-			var hour_volume = volume / 24.0
-			if hour >= 12 and hour <= 20:  # Peak trading hours
-				hour_volume *= 1.5
+		print("Creating historical point: %.1fh ago, price=%.2f, volume=%d" % [hours_back, point_price, point_volume])
 
-			real_time_chart.add_historical_data_point(hour_price, int(hour_volume), hour_timestamp)
-			points_added += 1
+		real_time_chart.add_historical_data_point(point_price, point_volume, point_timestamp)
+		points_added += 1
 
-	print("Added %d historical data points" % points_added)
+	print("=== HISTORICAL LOADING COMPLETE ===")
+	print("Total points added: %d" % points_added)
 	real_time_chart.finish_historical_data_load()
 
 
@@ -657,15 +612,23 @@ func parse_eve_date(date_str: String) -> float:
 	"""Parse EVE date format (YYYY-MM-DD) to unix timestamp"""
 	var parts = date_str.split("-")
 	if parts.size() != 3:
+		print("Invalid date format: %s" % date_str)
 		return 0.0
 
 	var year = int(parts[0])
 	var month = int(parts[1])
 	var day = int(parts[2])
 
-	var datetime = {"year": year, "month": month, "day": day, "hour": 12, "minute": 0, "second": 0}  # Noon
+	# Validate date components
+	if year < 2000 or year > 2030 or month < 1 or month > 12 or day < 1 or day > 31:
+		print("Invalid date components: %d-%d-%d" % [year, month, day])
+		return 0.0
 
-	return Time.get_unix_time_from_datetime_dict(datetime)
+	var datetime = {"year": year, "month": month, "day": day, "hour": 12, "minute": 0, "second": 0}  # Noon UTC
+
+	var timestamp = Time.get_unix_time_from_datetime_dict(datetime)
+	print("Parsed '%s' to timestamp %f (%s)" % [date_str, timestamp, Time.get_datetime_string_from_unix_time(timestamp)])
+	return timestamp
 
 
 func process_market_data_for_item(market_data: Dictionary, target_item_id: int) -> Dictionary:
