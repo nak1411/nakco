@@ -437,22 +437,20 @@ func _on_item_selected(item: Dictionary):
 
 func format_isk(value: float) -> String:
 	if value >= 1000000000:
-		return "%.1fB" % (value / 1000000000.0)
+		return "%.2fB" % (value / 1000000000.0)
 	if value >= 1000000:
-		return "%.1fM" % (value / 1000000.0)
+		return "%.2fM" % (value / 1000000.0)
 	if value >= 1000:
-		return "%.1fK" % (value / 1000.0)
-
-	return "%.0f" % value
+		return "%.2fK" % (value / 1000.0)
+	return "%.2f" % value
 
 
 func format_number(value: float) -> String:
 	if value >= 1000000:
-		return "%.1fM" % (value / 1000000.0)
+		return "%.2fM" % (value / 1000000.0)
 	if value >= 1000:
-		return "%.1fK" % (value / 1000.0)
-
-	return "%.0f" % value
+		return "%.2fK" % (value / 1000.0)
+	return "%.2f" % value
 
 
 func refresh_all_item_names():

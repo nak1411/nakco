@@ -268,8 +268,8 @@ func update_item_display(item_data: Dictionary):
 
 	selected_item_data = item_data
 
-	# Update header with real-time indicator
-	var item_name_label = get_node_or_null("ItemInfoPanel/VBoxContainer/ItemNameLabel")
+	# Update header - using the correct path based on actual structure
+	var item_name_label = get_node_or_null("ItemInfoPanel").get_child(0).get_node_or_null("ItemNameLabel")
 	if item_name_label:
 		var item_name = item_data.get("item_name", "Unknown Item")
 		var item_id = item_data.get("item_id", 0)
@@ -282,52 +282,78 @@ func update_item_display(item_data: Dictionary):
 		else:
 			item_name_label.add_theme_color_override("font_color", Color.CYAN)
 
+		print("Updated item name label to: ", item_name_label.text)
+	else:
+		print("ERROR: Could not find ItemNameLabel")
+
 	# Update prices with animation for real-time data
 	update_price_labels_with_animation(item_data)
 
-	# Rest of existing update_item_display code...
+	# Update trading defaults
 	update_trading_defaults(item_data)
+
+	# Update alert defaults
 	update_alert_defaults(item_data)
+
+	# Update order book
 	update_order_book(item_data)
+
+	# Update real-time chart
+	update_real_time_chart(item_data)
 
 
 func update_price_labels_with_animation(item_data: Dictionary):
 	"""Update price labels with smooth animation for real-time updates"""
-	var buy_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/BuyPriceLabel")
-	if buy_price_label:
-		var max_buy = item_data.get("max_buy", 0)
-		var new_text = "Buy: %s ISK" % format_isk(max_buy)
+	# Get the price container (HBoxContainer with the price labels)
+	var price_container = get_node_or_null("ItemInfoPanel").get_child(0).get_child(1)  # Second child is the HBoxContainer
 
-		if item_data.get("is_realtime", false) and buy_price_label.text != new_text:
-			# Flash animation for real-time updates
-			var original_color = Color.GREEN
-			buy_price_label.add_theme_color_override("font_color", Color.YELLOW)
+	if price_container:
+		var buy_price_label = price_container.get_node_or_null("BuyPriceLabel")
+		if buy_price_label:
+			var max_buy = item_data.get("max_buy", 0)
+			var new_text = "Buy: %s ISK" % format_isk(max_buy)
 
-			var tween = create_tween()
-			tween.tween_method(func(color): buy_price_label.add_theme_color_override("font_color", color), Color.YELLOW, original_color, 0.5)
+			if item_data.get("is_realtime", false) and buy_price_label.text != new_text:
+				# Flash animation for real-time updates
+				var original_color = Color.GREEN
+				buy_price_label.add_theme_color_override("font_color", Color.YELLOW)
 
-		buy_price_label.text = new_text
+				var tween = create_tween()
+				tween.tween_method(func(color): buy_price_label.add_theme_color_override("font_color", color), Color.YELLOW, original_color, 0.5)
 
-	var sell_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SellPriceLabel")
-	if sell_price_label:
-		var min_sell = item_data.get("min_sell", 0)
-		var new_text = "Sell: %s ISK" % format_isk(min_sell)
+			buy_price_label.text = new_text
+			print("Updated buy price label to: ", new_text)
+		else:
+			print("ERROR: Could not find BuyPriceLabel in price container")
 
-		if item_data.get("is_realtime", false) and sell_price_label.text != new_text:
-			# Flash animation for real-time updates
-			var original_color = Color.RED
-			sell_price_label.add_theme_color_override("font_color", Color.YELLOW)
+		var sell_price_label = price_container.get_node_or_null("SellPriceLabel")
+		if sell_price_label:
+			var min_sell = item_data.get("min_sell", 0)
+			var new_text = "Sell: %s ISK" % format_isk(min_sell)
 
-			var tween = create_tween()
-			tween.tween_method(func(color): sell_price_label.add_theme_color_override("font_color", color), Color.YELLOW, original_color, 0.5)
+			if item_data.get("is_realtime", false) and sell_price_label.text != new_text:
+				# Flash animation for real-time updates
+				var original_color = Color.RED
+				sell_price_label.add_theme_color_override("font_color", Color.YELLOW)
 
-		sell_price_label.text = new_text
+				var tween = create_tween()
+				tween.tween_method(func(color): sell_price_label.add_theme_color_override("font_color", color), Color.YELLOW, original_color, 0.5)
 
-	var spread_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SpreadLabel")
-	if spread_label:
-		var spread = item_data.get("spread", 0)
-		var margin = item_data.get("margin", 0)
-		spread_label.text = "Spread: %s ISK (%.1f%%)" % [format_isk(spread), margin]
+			sell_price_label.text = new_text
+			print("Updated sell price label to: ", new_text)
+		else:
+			print("ERROR: Could not find SellPriceLabel in price container")
+
+		var spread_label = price_container.get_node_or_null("SpreadLabel")
+		if spread_label:
+			var spread = item_data.get("spread", 0)
+			var margin = item_data.get("margin", 0)
+			spread_label.text = "Spread: %s ISK (%.1f%%)" % [format_isk(spread), margin]
+			print("Updated spread label to: ", spread_label.text)
+		else:
+			print("ERROR: Could not find SpreadLabel in price container")
+	else:
+		print("ERROR: Could not find price container")
 
 
 func update_with_realtime_data(realtime_data: Dictionary):
@@ -663,9 +689,15 @@ func _on_create_alert_pressed():
 
 func format_isk(value: float) -> String:
 	if value >= 1000000000:
-		return "%.1fB" % (value / 1000000000.0)
+		return "%.2fB" % (value / 1000000000.0)
 	if value >= 1000000:
-		return "%.1fM" % (value / 1000000.0)
+		return "%.2fM" % (value / 1000000.0)
 	if value >= 1000:
-		return "%.1fK" % (value / 1000.0)
-	return "%.0f" % value
+		return "%.2fK" % (value / 1000.0)
+	return "%.2f" % value
+
+
+func debug_node_structure(node: Node, indent: String = ""):
+	print(indent, node.name, " (", node.get_class(), ")")
+	for child in node.get_children():
+		debug_node_structure(child, indent + "  ")

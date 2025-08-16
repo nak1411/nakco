@@ -531,13 +531,28 @@ func _on_market_item_selected(item_id: int, item_data: Dictionary):
 	if data_manager:
 		data_manager.start_realtime_updates_for_item(current_region_id, item_id, item_data.get("item_name", "Unknown"))
 
-	# Update enhanced right panel with the EXISTING data
+	# Ensure the item data has all required fields for the trading panel
+	var enhanced_item_data = item_data.duplicate()
+	enhanced_item_data["region_id"] = current_region_id
+	enhanced_item_data["region_name"] = get_current_region_name()
+	enhanced_item_data["is_realtime"] = false  # Mark as initial selection, not real-time update
+
+	# Make sure we have proper buy/sell order arrays if they're missing
+	if not enhanced_item_data.has("buy_orders"):
+		enhanced_item_data["buy_orders"] = []
+	if not enhanced_item_data.has("sell_orders"):
+		enhanced_item_data["sell_orders"] = []
+
+	# Update enhanced right panel with the COMPLETE data
 	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
 	if trading_panel:
-		trading_panel.update_item_display(item_data)
+		trading_panel.update_item_display(enhanced_item_data)
+		print("Updated trading panel with enhanced item data")
+	else:
+		print("ERROR: Trading panel not found!")
 
 	# Update watchlist add button to show current selection
-	update_watchlist_add_button(item_data)
+	update_watchlist_add_button(enhanced_item_data)
 
 
 func update_watchlist_add_button(item_data: Dictionary):
@@ -1114,22 +1129,20 @@ func set_loading_state(loading: bool):
 
 func format_isk(value: float) -> String:
 	if value >= 1000000000:
-		return "%.1fB" % (value / 1000000000.0)
+		return "%.2fB" % (value / 1000000000.0)
 	if value >= 1000000:
-		return "%.1fM" % (value / 1000000.0)
+		return "%.2fM" % (value / 1000000.0)
 	if value >= 1000:
-		return "%.1fK" % (value / 1000.0)
-
-	return "%.0f" % value
+		return "%.2fK" % (value / 1000.0)
+	return "%.2f" % value
 
 
 func format_number(value: float) -> String:
 	if value >= 1000000:
-		return "%.1fM" % (value / 1000000.0)
+		return "%.2fM" % (value / 1000000.0)
 	if value >= 1000:
-		return "%.1fK" % (value / 1000.0)
-
-	return "%.0f" % value
+		return "%.2fK" % (value / 1000.0)
+	return "%.2f" % value
 
 
 func debug_data_structure(data, depth: int = 0):

@@ -220,10 +220,9 @@ clip_contents = true
 layout_mode = 2
 size_flags_horizontal = 3
 tab_alignment = 1
-current_tab = 2
+current_tab = 0
 
 [node name="MarketOverview" type="Control" parent="UIManager/MainContent/RightSplit/CenterPanel"]
-visible = false
 layout_mode = 2
 metadata/_tab_index = 0
 
@@ -333,6 +332,7 @@ layout_mode = 2
 size_flags_vertical = 3
 
 [node name="Portfolio" type="Control" parent="UIManager/MainContent/RightSplit/CenterPanel"]
+visible = false
 layout_mode = 2
 metadata/_tab_index = 2
 
