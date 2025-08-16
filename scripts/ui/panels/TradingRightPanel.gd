@@ -513,8 +513,8 @@ func _on_historical_data_requested():
 
 
 func load_historical_chart_data(history_data: Dictionary):
-	"""Load historical market data into the chart - REAL EVE DATA ONLY"""
-	print("=== LOADING REAL HISTORICAL CHART DATA ===")
+	"""Load historical market data into the chart as candlesticks - REAL EVE DATA ONLY"""
+	print("=== LOADING REAL HISTORICAL CHART DATA AS CANDLESTICKS ===")
 
 	if not real_time_chart:
 		print("ERROR: No real_time_chart available")
@@ -532,13 +532,13 @@ func load_historical_chart_data(history_data: Dictionary):
 		return
 
 	var current_time = Time.get_unix_time_from_system()
-	var max_window_start = current_time - 31536000.0  # 1 year ago (changed from 432000.0)
+	var max_window_start = current_time - 31536000.0  # 1 year ago
 	var points_added = 0
 
 	print("Current time: %s" % Time.get_datetime_string_from_unix_time(current_time))
 	print("Max window start (1 year ago): %s" % Time.get_datetime_string_from_unix_time(max_window_start))
 
-	# Process historical entries - ONE DATA POINT PER DAY (real EVE data)
+	# Process historical entries for both moving average and candlesticks
 	var valid_entries = []
 	for entry in history_entries:
 		var date_str = entry.get("date", "")
@@ -554,7 +554,7 @@ func load_historical_chart_data(history_data: Dictionary):
 
 	print("Found %d valid historical entries within 1 year" % valid_entries.size())
 
-	# Create ONLY ONE data point per day using REAL EVE data - NO GAP FILLING
+	# Create both moving average points AND candlestick data
 	for entry_info in valid_entries:
 		var entry = entry_info.data
 		var day_timestamp = entry_info.timestamp + 43200.0  # Noon of that day
@@ -574,16 +574,21 @@ func load_historical_chart_data(history_data: Dictionary):
 			continue
 
 		var days_ago = (current_time - day_timestamp) / 86400.0
-		print("  Adding REAL data point: %.1f days ago, price=%.2f, volume=%d" % [days_ago, real_avg_price, real_daily_volume])
-		print("    Date: %s, High: %.2f, Low: %.2f" % [entry.get("date", ""), real_highest, real_lowest])
+		print("  Adding REAL data: %.1f days ago, avg=%.2f, H=%.2f, L=%.2f, vol=%d" % [days_ago, real_avg_price, real_highest, real_lowest, real_daily_volume])
 
-		# Add the REAL daily data point
+		# Add the moving average data point
 		real_time_chart.add_historical_data_point(real_avg_price, real_daily_volume, day_timestamp)
+
+		# Add the candlestick data point (using available OHLC data from EVE)
+		# Note: EVE API doesn't provide open/close, so we'll use high/low/average creatively
+		var open_price = real_avg_price  # Use average as open (placeholder)
+		var close_price = real_avg_price  # Use average as close (placeholder)
+		real_time_chart.add_candlestick_data_point(open_price, real_highest, real_lowest, close_price, real_daily_volume, day_timestamp)
+
 		points_added += 1
 
-	# NO GAP FILLING AT ALL - let real-time data fill in naturally
-	print("=== REAL HISTORICAL DATA LOADING COMPLETE ===")
-	print("Total points added: %d (ONLY daily historical data)" % points_added)
+	print("=== HISTORICAL DATA LOADING COMPLETE ===")
+	print("Total points added: %d (daily historical + candlestick data)" % points_added)
 	real_time_chart.finish_historical_data_load()
 
 
