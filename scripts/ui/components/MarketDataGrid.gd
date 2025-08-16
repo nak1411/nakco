@@ -249,11 +249,14 @@ func refresh_display():
 		emit_signal("progress_updated", 0, 0, 0)
 		return
 
+	# LIMIT TO 10 ITEMS FOR DEBUGGING
+	var items_to_show = min(grid_data.size(), 10)
+	print("Limiting display to ", items_to_show, " items (total available: ", grid_data.size(), ")")
+
 	# Count items with real names vs placeholders
 	var named_items = 0
-	var total_items = min(grid_data.size(), 100)
 
-	for i in range(total_items):
+	for i in range(items_to_show):
 		var item = grid_data[i]
 		var item_name = item.get("item_name", "")
 		if not item_name.begins_with("Item ") and item_name != "":
@@ -261,51 +264,71 @@ func refresh_display():
 
 	print("=== EMITTING PROGRESS SIGNAL ===")
 	print("  named_items: ", named_items)
-	print("  total_items: ", total_items)
-	print("  grid_data.size(): ", grid_data.size())
+	print("  items_to_show: ", items_to_show)
+	print("  total_available: ", grid_data.size())
 
 	# Emit progress signal
-	emit_signal("progress_updated", named_items, total_items, grid_data.size())
+	emit_signal("progress_updated", named_items, items_to_show, grid_data.size())
 
-	# Add data rows
-	for i in range(total_items):
+	# Add data rows - ONLY 10 ITEMS
+	for i in range(items_to_show):
 		create_item_row(grid_data[i])
 
-	print("Display updated with ", total_items, " items (", named_items, " named)")
+	print("Display updated with ", items_to_show, " items (", named_items, " named)")
 
 
 func create_item_row(item: Dictionary):
+	# Create the clickable button background
+	var row_button = Button.new()
+	row_button.flat = true
+	row_button.text = ""  # Empty text
+	row_button.custom_minimum_size.y = 30
+	row_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	# Connect the click event
+	row_button.pressed.connect(func(): _on_item_selected(item))
+
+	# Create container for labels
 	var row_container = HBoxContainer.new()
 	row_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row_container.custom_minimum_size.y = 30
 
-	# Create individual labels for better formatting
+	# KEY FIX: Make labels ignore mouse input
+	row_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	# Create individual labels
 	var name_label = Label.new()
 	name_label.text = item.get("item_name", "Unknown")
 	name_label.custom_minimum_size.x = 200
 	name_label.add_theme_color_override("font_color", Color.WHITE)
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE  # KEY FIX
 	row_container.add_child(name_label)
 
 	var buy_label = Label.new()
 	buy_label.text = format_isk(item.get("max_buy", 0)) if item.get("has_buy", false) else "No buy orders"
 	buy_label.custom_minimum_size.x = 100
 	buy_label.add_theme_color_override("font_color", Color.LIGHT_GREEN if item.get("has_buy", false) else Color.GRAY)
+	buy_label.mouse_filter = Control.MOUSE_FILTER_IGNORE  # KEY FIX
 	row_container.add_child(buy_label)
 
 	var sell_label = Label.new()
 	sell_label.text = format_isk(item.get("min_sell", 0)) if item.get("has_sell", false) else "No sell orders"
 	sell_label.custom_minimum_size.x = 100
 	sell_label.add_theme_color_override("font_color", Color.LIGHT_CORAL if item.get("has_sell", false) else Color.GRAY)
+	sell_label.mouse_filter = Control.MOUSE_FILTER_IGNORE  # KEY FIX
 	row_container.add_child(sell_label)
 
 	var spread_label = Label.new()
 	spread_label.text = format_isk(item.get("spread", 0)) if item.get("has_buy", false) and item.get("has_sell", false) else "N/A"
 	spread_label.custom_minimum_size.x = 80
+	spread_label.mouse_filter = Control.MOUSE_FILTER_IGNORE  # KEY FIX
 	row_container.add_child(spread_label)
 
 	var margin_label = Label.new()
 	var margin = item.get("margin", 0)
 	margin_label.text = "%.1f%%" % margin if item.get("has_buy", false) and item.get("has_sell", false) else "N/A"
 	margin_label.custom_minimum_size.x = 80
+	margin_label.mouse_filter = Control.MOUSE_FILTER_IGNORE  # KEY FIX
 	if margin > 10:
 		margin_label.add_theme_color_override("font_color", Color.LIGHT_GREEN)
 	elif margin > 5:
@@ -320,34 +343,43 @@ func create_item_row(item: Dictionary):
 	volume_label.text = format_number(item.get("volume", 0))
 	volume_label.custom_minimum_size.x = 80
 	volume_label.add_theme_color_override("font_color", Color.LIGHT_BLUE)
+	volume_label.mouse_filter = Control.MOUSE_FILTER_IGNORE  # KEY FIX
 	row_container.add_child(volume_label)
 
-	# Make the whole row clickable
-	var row_button = Button.new()
-	row_button.flat = true
-	row_button.text = ""  # Empty text since we have labels
-	row_button.custom_minimum_size.y = 25
-	row_button.pressed.connect(_on_item_selected.bind(item))
+	# Create a container that stacks the button and labels
+	var final_container = Control.new()
+	final_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	final_container.custom_minimum_size.y = 30
 
-	# Container for the row
-	var clickable_row = Control.new()
-	clickable_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	clickable_row.custom_minimum_size.y = 25
-
-	# Add button as background
-	clickable_row.add_child(row_button)
+	# Add button first (background)
+	final_container.add_child(row_button)
 	row_button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	# Add labels on top
-	clickable_row.add_child(row_container)
+	final_container.add_child(row_container)
 	row_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
-	data_container.add_child(clickable_row)
+	# Add hover effect to the button
+	row_button.mouse_entered.connect(func(): final_container.modulate = Color(1.2, 1.2, 1.2, 1.0))  # Brighten on hover
+	row_button.mouse_exited.connect(func(): final_container.modulate = Color.WHITE)  # Normal color
+
+	data_container.add_child(final_container)
 
 
 func _on_item_selected(item: Dictionary):
-	print("Item selected: ", item.get("item_name", "Unknown"))
-	emit_signal("item_selected", item.get("item_id", 0), item)
+	var item_id = item.get("item_id", 0)
+	var item_name = item.get("item_name", "Unknown")
+
+	print("MarketGrid: Item selected - ", item_name, " (ID: ", item_id, ")")
+	print("Item data keys: ", item.keys())
+
+	# Add region information to the item data
+	var enhanced_item_data = item.duplicate()
+	enhanced_item_data["region_id"] = current_region_id
+	enhanced_item_data["region_name"] = current_region_name
+
+	# Emit the selection signal
+	emit_signal("item_selected", item_id, enhanced_item_data)
 
 
 func format_isk(value: float) -> String:

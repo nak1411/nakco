@@ -2,6 +2,9 @@
 class_name Main
 extends Control
 
+const MarketDataGrid = preload("res://scripts/ui/components/MarketDataGrid.gd")
+const TradingRightPanel = preload("res://scripts/ui/panels/TradingRightPanel.gd")
+
 # Constants
 const VERSION = "1.0.0"
 const APP_NAME = "EVE Trader"
@@ -165,11 +168,15 @@ func setup_signals():
 	# Tab changed signal
 	center_panel.tab_changed.connect(_on_tab_changed)
 
+	print("All signals connected successfully")
+
 
 func setup_right_panel():
 	# Remove existing right panel content
 	for child in right_panel.get_children():
 		child.queue_free()
+
+	print("Setting up right panel...")
 
 	# Create enhanced trading panel
 	var trading_panel = TradingRightPanel.new()
@@ -177,9 +184,13 @@ func setup_right_panel():
 	trading_panel.data_manager = data_manager
 	right_panel.add_child(trading_panel)
 
+	print("Trading panel created and added to right panel")
+
 	# Connect signals
-	trading_panel.order_placed.connect(_on_trade_order_placed)
-	trading_panel.alert_created.connect(_on_trade_alert_created)
+	if trading_panel.has_signal("order_placed"):
+		trading_panel.order_placed.connect(_on_trade_order_placed)
+	if trading_panel.has_signal("alert_created"):
+		trading_panel.alert_created.connect(_on_trade_alert_created)
 
 	return trading_panel
 
@@ -200,17 +211,20 @@ func populate_region_selector():
 
 
 func setup_market_grid():
+	print("Setting up market grid...")
+
 	# Get the MarketOverview tab content
 	var market_overview = center_panel.get_node("MarketOverview")
 
-	# Remove the existing placeholder grid
+	# Remove the existing placeholder grid completely
 	var existing_grid = market_overview.get_node_or_null("MarketGrid")
 	if existing_grid:
 		existing_grid.queue_free()
+		await existing_grid.tree_exited  # Wait for it to be removed
 
 	# Create and add our custom market grid
 	market_grid = MarketDataGrid.new()
-	market_grid.name = "MarketGrid"
+	market_grid.name = "CustomMarketGrid"
 	market_grid.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 	# Pass reference to data manager
@@ -221,11 +235,11 @@ func setup_market_grid():
 
 	market_overview.add_child(market_grid)
 
-	# Connect signals
+	# Connect signals AFTER adding to tree
 	market_grid.item_selected.connect(_on_market_item_selected)
 	market_grid.progress_updated.connect(_on_market_progress_updated)
 
-	print("Market grid setup complete")
+	print("Market grid setup complete - signals connected")
 
 
 func setup_status_bar_with_progress():
@@ -386,13 +400,16 @@ func _on_search_submitted(text: String):
 
 
 func _on_data_updated(data_type: String, data: Dictionary):
-	print("=== MAIN DATA UPDATE ===")
-	print("Type: ", data_type)
-	print("========================")
+	# print("=== MAIN DATA UPDATE ===")
+	# print("Type: ", data_type)
+	# print("========================")
 
 	match data_type:
 		"market_orders":
 			update_market_display(data)
+			# If this is data for a specific selected item, update right panel
+			if selected_item_id > 0:
+				update_right_panel_with_market_data(data)
 		"market_history":
 			update_charts(data)
 		"item_search":
@@ -401,6 +418,7 @@ func _on_data_updated(data_type: String, data: Dictionary):
 			update_item_details(data)
 		"item_name_updated":
 			update_item_name_in_display(data)
+			update_search_results_names(data)
 
 	# Update status
 	last_update.text = "Last update: " + Time.get_datetime_string_from_system()
@@ -447,6 +465,82 @@ func _on_market_item_selected(item_id: int, item_data: Dictionary):
 	if trading_panel:
 		trading_panel.update_item_display(item_data)
 
+	# Update watchlist add button to show current selection
+	update_watchlist_add_button(item_data)
+
+
+func update_watchlist_add_button(item_data: Dictionary):
+	var add_button = $UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistHeader/AddToWatchlistButton
+	if add_button:
+		var item_name = item_data.get("item_name", "Unknown")
+		add_button.tooltip_text = "Add %s to watchlist" % item_name
+
+		# Connect if not already connected
+		if not add_button.pressed.is_connected(_on_add_to_watchlist_pressed):
+			add_button.pressed.connect(_on_add_to_watchlist_pressed)
+
+
+func _on_add_to_watchlist_pressed():
+	if selected_item_id <= 0:
+		show_error_dialog("No Selection", "Please select an item first")
+		return
+
+	var item_name = "Item %d" % selected_item_id
+	if data_manager:
+		item_name = data_manager.get_item_name(selected_item_id)
+
+	# Add to database
+	if database_manager:
+		var success = database_manager.add_watchlist_item(selected_item_id, item_name, current_region_id)
+
+		if success:
+			refresh_watchlist_display()
+			show_system_alert({"message": "Added %s to watchlist" % item_name})
+		else:
+			show_error_dialog("Error", "Failed to add item to watchlist")
+
+
+func refresh_watchlist_display():
+	if not database_manager:
+		return
+
+	var watchlist_container = $UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistContainer/WatchlistItems
+
+	# Clear existing items
+	for child in watchlist_container.get_children():
+		child.queue_free()
+
+	# Load from database
+	var watchlist = database_manager.get_watchlist()
+
+	for item in watchlist:
+		create_watchlist_item_display(item, watchlist_container)
+
+
+func create_watchlist_item_display(item: Dictionary, container: VBoxContainer):
+	var item_container = HBoxContainer.new()
+	item_container.custom_minimum_size.y = 25
+
+	var name_label = Label.new()
+	name_label.text = item.get("item_name", "Unknown")
+	name_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_label.add_theme_color_override("font_color", Color.WHITE)
+	item_container.add_child(name_label)
+
+	var select_button = Button.new()
+	select_button.text = "View"
+	select_button.custom_minimum_size.x = 40
+	var item_id = item.get("item_id", 0)
+	select_button.pressed.connect(_on_watchlist_item_selected.bind(item_id))
+	item_container.add_child(select_button)
+
+	container.add_child(item_container)
+
+
+func _on_watchlist_item_selected(item_id: int):
+	# Same as search item selected
+	_on_search_item_selected(item_id)
+
 
 func _on_market_progress_updated(named_items: int, total_items: int, total_available: int):
 	var region_name = get_current_region_name()
@@ -474,8 +568,12 @@ func refresh_market_data():
 
 	set_loading_state(true)
 
-	# Get market data for current region
-	data_manager.get_market_orders(current_region_id)
+	# FOR DEBUGGING: Use debug method that only fetches popular items
+	if data_manager.has_method("get_debug_market_data"):
+		data_manager.get_debug_market_data(current_region_id)
+	else:
+		# Fallback to normal method
+		data_manager.get_market_orders(current_region_id)
 
 	# Re-enable refresh button after delay
 	await get_tree().create_timer(2.0).timeout
@@ -539,7 +637,7 @@ func update_item_name_in_display(data: Dictionary):
 	var type_id = data.get("type_id", 0)
 	var name = data.get("name", "Unknown")
 
-	print("Updating item name: ", type_id, " -> ", name)
+	# print("Updating item name: ", type_id, " -> ", name)
 
 	if market_grid:
 		market_grid.update_item_name(type_id, name)
@@ -551,19 +649,28 @@ func update_charts(_data: Dictionary):
 
 
 func update_search_results(data: Dictionary):
+	var search_results_container = get_search_results_container()
+
 	# Clear previous results
-	for child in get_search_results_container().get_children():
+	for child in search_results_container.get_children():
 		child.queue_free()
 
-	# Handle search results
 	var search_data = data.get("data", {})
 
 	if search_data.has("inventory_type"):
 		var items = search_data.inventory_type
-		for item_id in items:
+		print("Found ", items.size(), " search results")
+
+		# Limit to first 15 results for performance
+		for i in range(min(15, items.size())):
+			var item_id = items[i]
 			add_search_result_item(item_id)
 	else:
-		print("No inventory_type in search results: ", search_data.keys())
+		# Show "no results" message
+		var no_results = Label.new()
+		no_results.text = "No items found"
+		no_results.add_theme_color_override("font_color", Color.YELLOW)
+		search_results_container.add_child(no_results)
 
 
 func update_item_details_panel(item_data: Dictionary):
@@ -646,6 +753,24 @@ func update_progress_indicator(region_name: String, named_items: int, total_item
 	last_update.text = "Updated: %s | Showing %d of %d items" % [timestamp, total_items, total_available]
 
 
+func update_right_panel_with_market_data(market_data: Dictionary):
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel and trading_panel.has_method("handle_market_data_update"):
+		trading_panel.handle_market_data_update(market_data)
+
+
+func update_search_results_names(data: Dictionary):
+	# Update search result names when item names are loaded
+	var type_id = data.get("type_id", 0)
+	var name = data.get("name", "Unknown")
+
+	var search_results = get_search_results_container()
+	for child in search_results.get_children():
+		var name_label = child.get_node_or_null("HBoxContainer/NameLabel")
+		if name_label and name_label.text.contains("Item %d" % type_id):
+			name_label.text = name
+
+
 func get_trading_hub_info(region_name: String) -> String:
 	match region_name:
 		"The Forge (Jita)":
@@ -667,11 +792,39 @@ func get_search_results_container() -> VBoxContainer:
 
 
 func add_search_result_item(item_id: int):
-	var button = Button.new()
-	button.text = "Item ID: %d" % item_id
-	button.alignment = HORIZONTAL_ALIGNMENT_LEFT
-	button.pressed.connect(_on_search_result_selected.bind(item_id))
-	get_search_results_container().add_child(button)
+	var search_results_container = get_search_results_container()
+
+	# Create a simple clickable button
+	var item_button = Button.new()
+	item_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	item_button.custom_minimum_size.y = 30
+
+	# Get item name
+	var item_name = "Loading..."
+	if data_manager:
+		item_name = data_manager.get_item_name(item_id)
+
+	item_button.text = "%s (ID: %d)" % [item_name, item_id]
+
+	# Connect the button to selection
+	item_button.pressed.connect(func(): _on_search_item_selected(item_id))
+
+	search_results_container.add_child(item_button)
+
+
+func _on_search_item_selected(item_id: int):
+	print("Selected item from search: ", item_id)
+	selected_item_id = item_id
+
+	# Get detailed market data for this specific item
+	if data_manager:
+		# Get item info
+		data_manager.get_item_info(item_id)
+		# Get market orders for this item
+		data_manager.get_market_orders(current_region_id, item_id)
+
+	# Update right panel immediately with basic info
+	update_right_panel_for_item(item_id)
 
 
 func _on_search_result_selected(item_id: int):
@@ -687,6 +840,32 @@ func _on_search_result_selected(item_id: int):
 func update_item_details(data: Dictionary):
 	# Update item information panel
 	print("Updating item details with: ", data.keys())
+
+
+func update_right_panel_for_item(item_id: int):
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if not trading_panel:
+		print("No trading panel found")
+		return
+
+	print("Updating right panel for item: ", item_id)
+
+	# Create basic item data structure
+	var basic_item_data = {
+		"item_id": item_id,
+		"item_name": data_manager.get_item_name(item_id) if data_manager else "Item %d" % item_id,
+		"max_buy": 0.0,
+		"min_sell": 0.0,
+		"spread": 0.0,
+		"margin": 0.0,
+		"volume": 0,
+		"buy_orders": [],
+		"sell_orders": [],
+		"region_id": current_region_id,
+		"region_name": get_current_region_name()
+	}
+
+	trading_panel.update_item_display(basic_item_data)
 
 
 # Dialog Management

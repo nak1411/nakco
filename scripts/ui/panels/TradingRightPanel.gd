@@ -6,6 +6,7 @@ signal order_placed(order_data: Dictionary)
 signal alert_created(alert_data: Dictionary)
 
 var selected_item_data: Dictionary = {}
+var current_market_data: Dictionary = {}
 var real_time_chart: RealtimeChart
 var order_book_list: VBoxContainer
 var quick_trade_panel: VBoxContainer
@@ -240,44 +241,138 @@ func create_alert_panel():
 
 
 func update_item_display(item_data: Dictionary):
+	print("TradingRightPanel: update_item_display called with: ", item_data.keys())
+
 	selected_item_data = item_data
 
 	# Update header
-	var item_name_label = get_node("ItemInfoPanel/VBoxContainer/ItemNameLabel")
+	var item_name_label = get_node_or_null("ItemInfoPanel/VBoxContainer/ItemNameLabel")
 	if item_name_label:
-		item_name_label.text = item_data.get("item_name", "Unknown Item")
+		var item_name = item_data.get("item_name", "Unknown Item")
+		var item_id = item_data.get("item_id", 0)
+		item_name_label.text = "%s (ID: %d)" % [item_name, item_id]
+		print("Updated item name label to: ", item_name_label.text)
+	else:
+		print("Could not find ItemNameLabel")
 
-	var buy_price_label = get_node("ItemInfoPanel/VBoxContainer/HBoxContainer/BuyPriceLabel")
+	var buy_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/BuyPriceLabel")
 	if buy_price_label:
-		buy_price_label.text = "Buy: %s ISK" % format_isk(item_data.get("max_buy", 0))
+		var max_buy = item_data.get("max_buy", 0)
+		buy_price_label.text = "Buy: %s ISK" % format_isk(max_buy)
+		print("Updated buy price to: ", buy_price_label.text)
 
-	var sell_price_label = get_node("ItemInfoPanel/VBoxContainer/HBoxContainer/SellPriceLabel")
+	var sell_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SellPriceLabel")
 	if sell_price_label:
-		sell_price_label.text = "Sell: %s ISK" % format_isk(item_data.get("min_sell", 0))
+		var min_sell = item_data.get("min_sell", 0)
+		sell_price_label.text = "Sell: %s ISK" % format_isk(min_sell)
+		print("Updated sell price to: ", sell_price_label.text)
 
-	var spread_label = get_node("ItemInfoPanel/VBoxContainer/HBoxContainer/SpreadLabel")
+	var spread_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SpreadLabel")
 	if spread_label:
-		spread_label.text = "Spread: %s ISK" % format_isk(item_data.get("spread", 0))
+		var spread = item_data.get("spread", 0)
+		var margin = item_data.get("margin", 0)
+		spread_label.text = "Spread: %s ISK (%.1f%%)" % [format_isk(spread), margin]
+		print("Updated spread to: ", spread_label.text)
 
 	# Update trading panel with current prices
-	var price_spinbox = get_node("TradingPanel/VBoxContainer/HBoxContainer2/PriceSpinBox")
+	var price_spinbox = get_node_or_null("TradingPanel/VBoxContainer/HBoxContainer2/PriceSpinBox")
 	if price_spinbox:
 		# Set default price to current best buy price
-		price_spinbox.value = item_data.get("max_buy", 100.0)
+		var suggested_price = item_data.get("max_buy", 100.0)
+		if suggested_price > 0:
+			price_spinbox.value = suggested_price
 
-	var alert_price_input = get_node("AlertPanel/VBoxContainer/HBoxContainer/AlertPriceInput")
+	var alert_price_input = get_node_or_null("AlertPanel/VBoxContainer/HBoxContainer/AlertPriceInput")
 	if alert_price_input:
 		# Set default alert price to current sell price
-		alert_price_input.value = item_data.get("min_sell", 100.0)
+		var current_price = item_data.get("min_sell", item_data.get("max_buy", 100.0))
+		if current_price > 0:
+			alert_price_input.value = current_price
 
 	# Update chart
 	if real_time_chart:
-		var price = item_data.get("max_buy", 0)
+		var price = item_data.get("max_buy", item_data.get("min_sell", 0))
 		var volume = item_data.get("volume", 0)
-		real_time_chart.add_data_point(price, volume, Time.get_datetime_string_from_system())
+		if price > 0:
+			real_time_chart.add_data_point(price, volume, Time.get_datetime_string_from_system())
 
 	# Update order book
 	update_order_book(item_data)
+
+	print("TradingRightPanel: Item display update complete")
+
+
+func update_item_header(item_data: Dictionary):
+	var item_name_label = get_node_or_null("ItemInfoPanel/VBoxContainer/ItemNameLabel")
+	if item_name_label:
+		var item_name = item_data.get("item_name", "Unknown Item")
+		var item_id = item_data.get("item_id", 0)
+		item_name_label.text = "%s (ID: %d)" % [item_name, item_id]
+
+	var buy_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/BuyPriceLabel")
+	if buy_price_label:
+		var max_buy = item_data.get("max_buy", 0)
+		buy_price_label.text = "Buy: %s ISK" % format_isk(max_buy)
+		buy_price_label.add_theme_color_override("font_color", Color.GREEN if max_buy > 0 else Color.GRAY)
+
+	var sell_price_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SellPriceLabel")
+	if sell_price_label:
+		var min_sell = item_data.get("min_sell", 0)
+		sell_price_label.text = "Sell: %s ISK" % format_isk(min_sell)
+		sell_price_label.add_theme_color_override("font_color", Color.RED if min_sell > 0 else Color.GRAY)
+
+	var spread_label = get_node_or_null("ItemInfoPanel/VBoxContainer/HBoxContainer/SpreadLabel")
+	if spread_label:
+		var spread = item_data.get("spread", 0)
+		var margin = item_data.get("margin", 0)
+		spread_label.text = "Spread: %s ISK (%.1f%%)" % [format_isk(spread), margin]
+
+		# Color code based on margin
+		if margin > 10:
+			spread_label.add_theme_color_override("font_color", Color.GREEN)
+		elif margin > 5:
+			spread_label.add_theme_color_override("font_color", Color.YELLOW)
+		elif margin > 0:
+			spread_label.add_theme_color_override("font_color", Color.WHITE)
+		else:
+			spread_label.add_theme_color_override("font_color", Color.GRAY)
+
+
+func update_trading_defaults(item_data: Dictionary):
+	var price_spinbox = get_node_or_null("TradingPanel/VBoxContainer/HBoxContainer2/PriceSpinBox")
+	if price_spinbox:
+		var suggested_price = item_data.get("max_buy", 100.0)
+		if suggested_price > 0:
+			price_spinbox.value = suggested_price
+
+	var quantity_spinbox = get_node_or_null("TradingPanel/VBoxContainer/HBoxContainer/QuantitySpinBox")
+	if quantity_spinbox:
+		# Set a reasonable default quantity based on item volume
+		var volume = item_data.get("volume", 0)
+		if volume > 1000:
+			quantity_spinbox.value = 10
+		elif volume > 100:
+			quantity_spinbox.value = 5
+		else:
+			quantity_spinbox.value = 1
+
+
+func update_alert_defaults(item_data: Dictionary):
+	var alert_price_input = get_node_or_null("AlertPanel/VBoxContainer/HBoxContainer/AlertPriceInput")
+	if alert_price_input:
+		var current_price = item_data.get("min_sell", item_data.get("max_buy", 100.0))
+		if current_price > 0:
+			alert_price_input.value = current_price
+
+
+func update_real_time_chart(item_data: Dictionary):
+	if real_time_chart:
+		var price = item_data.get("max_buy", item_data.get("min_sell", 0))
+		var volume = item_data.get("volume", 0)
+
+		if price > 0:
+			var timestamp = Time.get_datetime_string_from_system().substr(11, 8)
+			real_time_chart.add_data_point(price, volume, timestamp)
 
 
 func update_order_book(item_data: Dictionary):
@@ -335,6 +430,61 @@ func update_order_book(item_data: Dictionary):
 
 	for i in range(min(5, sell_orders.size())):
 		create_order_row(sell_orders[i], false)
+
+
+func handle_market_data_update(market_data: Dictionary):
+	if not selected_item_data.has("item_id"):
+		return
+
+	var item_id = selected_item_data.get("item_id", 0)
+	var updated_item_data = process_market_data_for_item(market_data, item_id)
+
+	if not updated_item_data.is_empty():
+		update_item_display(updated_item_data)
+
+
+func process_market_data_for_item(market_data: Dictionary, target_item_id: int) -> Dictionary:
+	var orders = market_data.get("data", [])
+	var buy_orders = []
+	var sell_orders = []
+
+	for order in orders:
+		if order.get("type_id", 0) != target_item_id:
+			continue
+
+		if order.get("is_buy_order", false):
+			buy_orders.append(order)
+		else:
+			sell_orders.append(order)
+
+	if buy_orders.is_empty() and sell_orders.is_empty():
+		return {}
+
+	# Sort orders
+	buy_orders.sort_custom(func(a, b): return a.get("price", 0) > b.get("price", 0))
+	sell_orders.sort_custom(func(a, b): return a.get("price", 0) < b.get("price", 0))
+
+	# Calculate metrics
+	var max_buy = buy_orders[0].get("price", 0) if not buy_orders.is_empty() else 0
+	var min_sell = sell_orders[0].get("price", 0) if not sell_orders.is_empty() else 0
+	var spread = min_sell - max_buy if max_buy > 0 and min_sell > 0 else 0
+	var margin = (spread / max_buy) * 100.0 if max_buy > 0 else 0
+
+	var total_volume = 0
+	for order in buy_orders + sell_orders:
+		total_volume += order.get("volume_remain", 0)
+
+	return {
+		"item_id": target_item_id,
+		"item_name": selected_item_data.get("item_name", "Unknown"),
+		"max_buy": max_buy,
+		"min_sell": min_sell,
+		"spread": spread,
+		"margin": margin,
+		"volume": total_volume,
+		"buy_orders": buy_orders.slice(0, 10),  # Top 10 orders
+		"sell_orders": sell_orders.slice(0, 10)
+	}
 
 
 func create_order_row(order: Dictionary, is_buy: bool):

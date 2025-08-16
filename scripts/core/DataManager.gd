@@ -404,3 +404,36 @@ func request_item_names_batch_single(type_ids: Array):
 	}
 
 	queue_request(request_data)
+
+
+func get_debug_market_data(region_id: int) -> void:
+	print("Getting debug market data for popular items only...")
+
+	# List of popular items to fetch
+	var debug_items = [34, 35, 36, 37, 38, 39, 40, 11399]  # Minerals
+
+	for item_id in debug_items:
+		var cache_key = "orders_%d_%d" % [region_id, item_id]
+
+		if is_cached(cache_key):
+			var cached_data = get_cached_data(cache_key)
+			emit_signal("data_updated", "market_orders", cached_data)
+			continue
+
+		var url = ESI_BASE_URL + "/markets/%d/orders/?type_id=%d" % [region_id, item_id]
+
+		var request_context = {
+			"url": url,
+			"method": HTTPClient.METHOD_GET,
+			"cache_key": cache_key,
+			"data_type": "market_orders",
+			"region_id": region_id,
+			"type_id": item_id,
+			"region_name": get_region_name_by_id(region_id),
+			"debug_mode": true
+		}
+
+		queue_request(request_context)
+
+		# Add small delay between requests
+		await get_tree().create_timer(0.1).timeout
