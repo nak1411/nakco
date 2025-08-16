@@ -1,0 +1,402 @@
+# scripts/ui/components/MarketDataGrid.gd
+class_name MarketDataGrid
+extends Control
+
+signal item_selected(item_id: int, item_data: Dictionary)
+signal progress_updated(named_items: int, total_items: int, total_available: int)
+
+var data_manager: DataManager
+
+var grid_data: Array = []
+var unique_item_ids: Array = []
+var sort_column: String = ""
+var sort_ascending: bool = true
+
+var scroll_container: ScrollContainer
+var data_container: VBoxContainer
+var header_row: HBoxContainer
+
+var pending_name_updates = false
+var name_update_timer: Timer
+
+var current_region_id: int = 0
+var current_region_name: String = "Unknown Region"
+
+
+func _ready():
+	setup_grid()
+	setup_name_update_timer()
+
+
+func setup_grid():
+	# Set up the main layout
+	var main_vbox = VBoxContainer.new()
+	main_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	add_child(main_vbox)
+
+	# Create header
+	create_header(main_vbox)
+
+	# Create scrollable data area
+	scroll_container = ScrollContainer.new()
+	scroll_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	main_vbox.add_child(scroll_container)
+
+	data_container = VBoxContainer.new()
+	data_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll_container.add_child(data_container)
+
+	print("MarketDataGrid setup complete")
+
+
+func create_header(parent: VBoxContainer):
+	header_row = HBoxContainer.new()
+	header_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(header_row)
+
+	var headers = [
+		{"text": "Item Name", "width": 200},
+		{"text": "Buy Price", "width": 100},
+		{"text": "Sell Price", "width": 100},
+		{"text": "Spread", "width": 80},
+		{"text": "Margin %", "width": 80},
+		{"text": "Volume", "width": 80}
+	]
+
+	for header in headers:
+		var label = Label.new()
+		label.text = header.text
+		label.custom_minimum_size.x = header.width
+		label.add_theme_color_override("font_color", Color.CYAN)
+		header_row.add_child(label)
+
+
+func setup_name_update_timer():
+	name_update_timer = Timer.new()
+	name_update_timer.wait_time = 2.0  # Update UI every 2 seconds
+	name_update_timer.timeout.connect(_process_pending_name_updates)
+	add_child(name_update_timer)
+	name_update_timer.start()
+
+
+func update_market_data(data_dict: Dictionary):
+	print("MarketDataGrid: Updating with data...")
+
+	grid_data = []
+
+	# Extract the actual market orders array
+	var market_orders = data_dict.get("data", [])
+
+	if typeof(market_orders) != TYPE_ARRAY:
+		print("Warning: Expected market orders to be an array, got: ", typeof(market_orders))
+		return
+
+	print("Processing ", market_orders.size(), " market orders")
+
+	# Group orders by item_id
+	var items_data = {}
+	var unique_item_ids = []
+
+	for order in market_orders:
+		if typeof(order) != TYPE_DICTIONARY:
+			continue
+
+		# Safe type conversion
+		var item_id = 0
+		var type_id_raw = order.get("type_id", 0)
+		if typeof(type_id_raw) == TYPE_INT:
+			item_id = type_id_raw
+		elif typeof(type_id_raw) == TYPE_FLOAT:
+			item_id = int(type_id_raw)
+		else:
+			continue  # Skip invalid orders
+
+		var price = 0.0
+		var price_raw = order.get("price", 0.0)
+		if typeof(price_raw) == TYPE_FLOAT:
+			price = price_raw
+		elif typeof(price_raw) == TYPE_INT:
+			price = float(price_raw)
+
+		var volume = 0
+		var volume_raw = order.get("volume_remain", 0)
+		if typeof(volume_raw) == TYPE_INT:
+			volume = volume_raw
+		elif typeof(volume_raw) == TYPE_FLOAT:
+			volume = int(volume_raw)
+
+		var is_buy = bool(order.get("is_buy_order", false))
+
+		# Track unique item IDs for name lookup
+		var found = false
+		for existing_id in unique_item_ids:
+			if existing_id == item_id:
+				found = true
+				break
+		if not found:
+			unique_item_ids.append(item_id)
+
+		if not items_data.has(item_id):
+			# Get the item name from data manager if available
+			var item_name = "Item %d" % item_id
+			if data_manager:
+				item_name = data_manager.get_item_name(item_id)
+
+			items_data[item_id] = {
+				"item_id": item_id,
+				"item_name": item_name,
+				"buy_orders": [],
+				"sell_orders": [],
+				"total_buy_volume": 0,
+				"total_sell_volume": 0,
+				"max_buy": 0.0,
+				"min_sell": 999999999.0,
+				"spread": 0.0,
+				"margin": 0.0,
+				"volume": 0,
+				"has_buy": false,
+				"has_sell": false
+			}
+
+		var item = items_data[item_id]
+
+		if is_buy:
+			item.buy_orders.append({"price": price, "volume": volume})
+			item.total_buy_volume += volume
+			item.has_buy = true
+			if price > item.max_buy:
+				item.max_buy = price
+		else:
+			item.sell_orders.append({"price": price, "volume": volume})
+			item.total_sell_volume += volume
+			item.has_sell = true
+			if price < item.min_sell:
+				item.min_sell = price
+
+	print("Found ", items_data.size(), " unique items")
+
+	# Request item names in batch instead of individually
+	if data_manager and unique_item_ids.size() > 0:
+		print("Requesting batch names for ", unique_item_ids.size(), " items")
+		data_manager.request_item_names_batch(unique_item_ids)
+
+	# Process all items
+	for item_id in items_data:
+		var item = items_data[item_id]
+
+		# Calculate total volume
+		item.volume = item.total_buy_volume + item.total_sell_volume
+
+		# Calculate spread and margin only if we have both buy and sell
+		if item.has_buy and item.has_sell and item.max_buy > 0 and item.min_sell < 999999999.0:
+			item.spread = item.min_sell - item.max_buy
+			item.margin = (item.spread / item.max_buy) * 100.0 if item.max_buy > 0 else 0.0
+		else:
+			if not item.has_sell:
+				item.min_sell = 0.0
+			if not item.has_buy:
+				item.max_buy = 0.0
+			item.spread = 0.0
+			item.margin = 0.0
+
+		# Add ALL items with any orders
+		if item.volume > 0:
+			grid_data.append(item)
+
+	print("Added ", grid_data.size(), " items to display")
+
+	# Sort by volume (most active first)
+	grid_data.sort_custom(func(a, b): return a.volume > b.volume)
+
+	refresh_display()
+
+
+func update_item_name(type_id: int, new_name: String):
+	var updated = false
+
+	# Update the item in grid_data
+	for item in grid_data:
+		if item.get("item_id") == type_id:
+			item.item_name = new_name
+			updated = true
+
+	# Refresh display if we updated anything
+	if updated:
+		refresh_display()
+
+
+func _process_pending_name_updates():
+	if pending_name_updates:
+		refresh_display()
+		pending_name_updates = false
+
+
+func refresh_display():
+	print("MarketDataGrid: Refreshing display with ", grid_data.size(), " items...")
+
+	# Clear existing rows
+	for child in data_container.get_children():
+		child.queue_free()
+
+	if grid_data.size() == 0:
+		var no_data_label = Label.new()
+		no_data_label.text = "No market data available. Click Refresh to load data."
+		no_data_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		no_data_label.add_theme_color_override("font_color", Color.YELLOW)
+		data_container.add_child(no_data_label)
+		emit_signal("progress_updated", 0, 0, 0)
+		return
+
+	# Count items with real names vs placeholders
+	var named_items = 0
+	var total_items = min(grid_data.size(), 100)
+
+	for i in range(total_items):
+		var item = grid_data[i]
+		var item_name = item.get("item_name", "")
+		if not item_name.begins_with("Item ") and item_name != "":
+			named_items += 1
+
+	# Emit progress signal instead of creating UI elements
+	emit_signal("progress_updated", named_items, total_items, grid_data.size())
+
+	# Just add the clean data rows
+	for i in range(total_items):
+		create_item_row(grid_data[i])
+
+	print("Display updated with ", total_items, " items (", named_items, " named)")
+
+
+func create_item_row(item: Dictionary):
+	var row_container = HBoxContainer.new()
+	row_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	# Create individual labels for better formatting
+	var name_label = Label.new()
+	name_label.text = item.get("item_name", "Unknown")
+	name_label.custom_minimum_size.x = 200
+	name_label.add_theme_color_override("font_color", Color.WHITE)
+	row_container.add_child(name_label)
+
+	var buy_label = Label.new()
+	buy_label.text = format_isk(item.get("max_buy", 0)) if item.get("has_buy", false) else "No buy orders"
+	buy_label.custom_minimum_size.x = 100
+	buy_label.add_theme_color_override("font_color", Color.LIGHT_GREEN if item.get("has_buy", false) else Color.GRAY)
+	row_container.add_child(buy_label)
+
+	var sell_label = Label.new()
+	sell_label.text = format_isk(item.get("min_sell", 0)) if item.get("has_sell", false) else "No sell orders"
+	sell_label.custom_minimum_size.x = 100
+	sell_label.add_theme_color_override("font_color", Color.LIGHT_CORAL if item.get("has_sell", false) else Color.GRAY)
+	row_container.add_child(sell_label)
+
+	var spread_label = Label.new()
+	spread_label.text = format_isk(item.get("spread", 0)) if item.get("has_buy", false) and item.get("has_sell", false) else "N/A"
+	spread_label.custom_minimum_size.x = 80
+	row_container.add_child(spread_label)
+
+	var margin_label = Label.new()
+	var margin = item.get("margin", 0)
+	margin_label.text = "%.1f%%" % margin if item.get("has_buy", false) and item.get("has_sell", false) else "N/A"
+	margin_label.custom_minimum_size.x = 80
+	if margin > 10:
+		margin_label.add_theme_color_override("font_color", Color.LIGHT_GREEN)
+	elif margin > 5:
+		margin_label.add_theme_color_override("font_color", Color.YELLOW)
+	elif margin > 0:
+		margin_label.add_theme_color_override("font_color", Color.WHITE)
+	else:
+		margin_label.add_theme_color_override("font_color", Color.LIGHT_CORAL)
+	row_container.add_child(margin_label)
+
+	var volume_label = Label.new()
+	volume_label.text = format_number(item.get("volume", 0))
+	volume_label.custom_minimum_size.x = 80
+	volume_label.add_theme_color_override("font_color", Color.LIGHT_BLUE)
+	row_container.add_child(volume_label)
+
+	# Make the whole row clickable
+	var row_button = Button.new()
+	row_button.flat = true
+	row_button.text = ""  # Empty text since we have labels
+	row_button.custom_minimum_size.y = 25
+	row_button.pressed.connect(_on_item_selected.bind(item))
+
+	# Container for the row
+	var clickable_row = Control.new()
+	clickable_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clickable_row.custom_minimum_size.y = 25
+
+	# Add button as background
+	clickable_row.add_child(row_button)
+	row_button.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	# Add labels on top
+	clickable_row.add_child(row_container)
+	row_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	data_container.add_child(clickable_row)
+
+
+func _on_item_selected(item: Dictionary):
+	print("Item selected: ", item.get("item_name", "Unknown"))
+	emit_signal("item_selected", item.get("item_id", 0), item)
+
+
+func format_isk(value: float) -> String:
+	if value >= 1000000000:
+		return "%.1fB" % (value / 1000000000.0)
+	if value >= 1000000:
+		return "%.1fM" % (value / 1000000.0)
+	if value >= 1000:
+		return "%.1fK" % (value / 1000.0)
+
+	return "%.0f" % value
+
+
+func format_number(value: float) -> String:
+	if value >= 1000000:
+		return "%.1fM" % (value / 1000000.0)
+	if value >= 1000:
+		return "%.1fK" % (value / 1000.0)
+
+	return "%.0f" % value
+
+
+func refresh_all_item_names():
+	if data_manager:
+		for item in grid_data:
+			var type_id = item.get("item_id", 0)
+			var new_name = data_manager.get_item_name(type_id)
+			if new_name != item.get("item_name", "") and not new_name.begins_with("Item "):
+				item.item_name = new_name
+
+		# Don't refresh immediately - batch the updates
+		pending_name_updates = true
+
+
+func set_region_info(region_id: int, region_name: String):
+	current_region_id = region_id
+	current_region_name = region_name
+	print("MarketDataGrid: Set region to ", region_name, " (", region_id, ")")
+
+
+func get_current_region_name() -> String:
+	# You'll need to pass this from Main or store it
+	return "Current Region"  # Placeholder for now
+
+
+func get_trading_hub_info(region_name: String) -> String:
+	match region_name:
+		"The Forge (Jita)":
+			return " - Caldari Trade Hub"
+		"Domain (Amarr)":
+			return " - Amarr Trade Hub"
+		"Sinq Laison (Dodixie)":
+			return " - Gallente Trade Hub"
+		"Metropolis (Rens)":
+			return " - Minmatar Trade Hub"
+		"Heimatar (Hek)":
+			return " - Secondary Minmatar Hub"
+		_:
+			return ""

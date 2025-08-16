@@ -16,6 +16,7 @@ var data_manager: DataManager
 var config_manager: ConfigManager
 var notification_manager: NotificationManager
 var database_manager: DatabaseManager
+var market_grid: MarketDataGrid
 
 # UI Components
 @onready var ui_manager: Control = $UIManager
@@ -130,6 +131,9 @@ func setup_ui():
 	main_content.split_offset = 300  # Left panel width
 	left_panel.split_offset = 200  # Search vs watchlist
 
+	# Create market grid
+	setup_market_grid()
+
 
 func setup_signals():
 	# Toolbar signals
@@ -169,6 +173,103 @@ func populate_region_selector():
 
 	# Select Jita by default
 	region_selector.selected = 0
+
+
+func setup_market_grid():
+	# Get the MarketOverview tab content
+	var market_overview = center_panel.get_node("MarketOverview")
+
+	# Remove the existing placeholder grid
+	var existing_grid = market_overview.get_node_or_null("MarketGrid")
+	if existing_grid:
+		existing_grid.queue_free()
+
+	# Create and add our custom market grid
+	market_grid = MarketDataGrid.new()
+	market_grid.name = "MarketGrid"
+	market_grid.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+	# Pass reference to data manager
+	market_grid.data_manager = data_manager
+
+	# Set initial region info
+	update_market_grid_region_info()
+
+	market_overview.add_child(market_grid)
+
+	# Connect signals
+	market_grid.item_selected.connect(_on_market_item_selected)
+	market_grid.progress_updated.connect(_on_market_progress_updated)
+
+	print("Market grid setup complete")
+
+
+func setup_progress_indicator():
+	# Get the right panel
+	var right_panel = main_content.get_node("RightPanel")
+
+	# Create progress container at the top of right panel
+	var progress_container = VBoxContainer.new()
+	progress_container.name = "ProgressContainer"
+
+	# Insert at the beginning of right panel (before OrderBookPanel)
+	right_panel.add_child(progress_container)
+	right_panel.move_child(progress_container, 0)
+
+	# Title
+	var progress_title = Label.new()
+	progress_title.name = "ProgressTitle"
+	progress_title.text = "Market Status"
+	progress_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress_title.add_theme_color_override("font_color", Color.CYAN)
+	progress_title.add_theme_font_size_override("font_size", 14)
+	progress_container.add_child(progress_title)
+
+	# Region info
+	var region_label = Label.new()
+	region_label.name = "RegionLabel"
+	region_label.text = "No region selected"
+	region_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	region_label.add_theme_color_override("font_color", Color.WHITE)
+	progress_container.add_child(region_label)
+
+	# Progress info
+	var progress_label = Label.new()
+	progress_label.name = "ProgressLabel"
+	progress_label.text = "Ready to load data"
+	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress_label.add_theme_color_override("font_color", Color.YELLOW)
+	progress_container.add_child(progress_label)
+
+	# Progress bar background
+	var progress_bg = ColorRect.new()
+	progress_bg.name = "ProgressBG"
+	progress_bg.color = Color.DARK_GRAY
+	progress_bg.custom_minimum_size = Vector2(280, 16)
+	progress_container.add_child(progress_bg)
+
+	# Progress bar fill
+	var progress_fill = ColorRect.new()
+	progress_fill.name = "ProgressFill"
+	progress_fill.color = Color.YELLOW
+	progress_fill.custom_minimum_size = Vector2(0, 16)
+	progress_bg.add_child(progress_fill)
+
+	# Stats
+	var stats_label = Label.new()
+	stats_label.name = "StatsLabel"
+	stats_label.text = ""
+	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	stats_label.add_theme_color_override("font_color", Color.LIGHT_BLUE)
+	stats_label.add_theme_font_size_override("font_size", 10)
+	progress_container.add_child(stats_label)
+
+	# Separator
+	var separator = HSeparator.new()
+	separator.custom_minimum_size.y = 10
+	progress_container.add_child(separator)
+
+	print("Progress indicator setup in right panel")
 
 
 func apply_theme():
@@ -259,6 +360,11 @@ func _on_settings_pressed():
 func _on_region_changed(index: int):
 	current_region_id = region_selector.get_item_metadata(index)
 	print("Changed to region: ", region_selector.get_item_text(index))
+
+	# Update the market grid region info
+	update_market_grid_region_info()
+
+	# Refresh market data
 	refresh_market_data()
 
 
@@ -280,6 +386,10 @@ func _on_search_submitted(text: String):
 
 
 func _on_data_updated(data_type: String, data: Dictionary):
+	print("=== MAIN DATA UPDATE ===")
+	print("Type: ", data_type)
+	print("========================")
+
 	match data_type:
 		"market_orders":
 			update_market_display(data)
@@ -289,6 +399,8 @@ func _on_data_updated(data_type: String, data: Dictionary):
 			update_search_results(data)
 		"item_info":
 			update_item_details(data)
+		"item_name_updated":
+			update_item_name_in_display(data)
 
 	# Update status
 	last_update.text = "Last update: " + Time.get_datetime_string_from_system()
@@ -326,21 +438,32 @@ func _on_tab_changed(tab_index: int):
 			refresh_analytics_data()
 
 
+func _on_market_item_selected(item_id: int, item_data: Dictionary):
+	selected_item_id = item_id
+	print("Main: Selected market item: ", item_data.get("item_name", "Unknown"))
+
+	# Update right panel with item details
+	update_item_details_panel(item_data)
+
+
+func _on_market_progress_updated(named_items: int, total_items: int, total_available: int):
+	var region_name = get_current_region_name()
+	update_progress_indicator(region_name, named_items, total_items, total_available)
+
+
 # Data Management
 func refresh_market_data():
 	if is_loading or not data_manager:
 		return
 
-	is_loading = true
-	refresh_button.disabled = true
+	set_loading_state(true)
 
 	# Get market data for current region
 	data_manager.get_market_orders(current_region_id)
 
 	# Re-enable refresh button after delay
 	await get_tree().create_timer(2.0).timeout
-	refresh_button.disabled = false
-	is_loading = false
+	set_loading_state(false)
 
 
 func search_items_debounced(search_text: String):
@@ -371,9 +494,39 @@ func refresh_analytics_data():
 
 
 # UI Updates
-func update_market_display(_data: Dictionary):
-	# Update the market overview panel
-	print("Updating market display with: ", _data.keys())
+func update_market_display(data: Dictionary):
+	print("Main: Updating market display...")
+	print("Data structure: ", data.keys())
+
+	if data.has("data"):
+		print("Market orders count: ", data.data.size())
+
+	if market_grid:
+		# Make sure region info is current before updating data
+		update_market_grid_region_info()
+		market_grid.update_market_data(data)
+		print("Market grid updated successfully")
+	else:
+		print("ERROR: market_grid is null!")
+
+
+func update_market_grid_region_info():
+	if market_grid:
+		var region_name = get_current_region_name()
+		market_grid.set_region_info(current_region_id, region_name)
+
+		# Also update the progress indicator
+		update_progress_indicator(region_name, 0, 0, 0)
+
+
+func update_item_name_in_display(data: Dictionary):
+	var type_id = data.get("type_id", 0)
+	var name = data.get("name", "Unknown")
+
+	print("Updating item name: ", type_id, " -> ", name)
+
+	if market_grid:
+		market_grid.update_item_name(type_id, name)
 
 
 func update_charts(_data: Dictionary):
@@ -386,11 +539,83 @@ func update_search_results(data: Dictionary):
 	for child in get_search_results_container().get_children():
 		child.queue_free()
 
-	# Add new results
-	if data.has("data") and data.data.has("inventory_type"):
-		var items = data.data.inventory_type
+	# Handle search results
+	var search_data = data.get("data", {})
+
+	if search_data.has("inventory_type"):
+		var items = search_data.inventory_type
 		for item_id in items:
 			add_search_result_item(item_id)
+	else:
+		print("No inventory_type in search results: ", search_data.keys())
+
+
+func update_item_details_panel(item_data: Dictionary):
+	var details_content = right_panel.get_node("TradeDetailsPanel/TradeDetailsContainer/TradeDetailsContent")
+	var info_label = details_content.get_node("ItemInfoLabel")
+
+	var details_text = (
+		"""Item: %s (ID: %d)
+Best Buy: %s ISK
+Best Sell: %s ISK
+Spread: %s ISK
+Margin: %.2f%%
+Volume: %s
+
+Click to get detailed orders for this item."""
+		% [
+			item_data.get("item_name", "Unknown"),
+			item_data.get("item_id", 0),
+			format_isk(item_data.get("max_buy", 0)),
+			format_isk(item_data.get("min_sell", 0)),
+			format_isk(item_data.get("spread", 0)),
+			item_data.get("margin", 0),
+			format_number(item_data.get("volume", 0))
+		]
+	)
+
+	info_label.text = details_text
+
+
+func update_progress_indicator(region_name: String, named_items: int, total_items: int, total_available: int):
+	var percentage = (named_items * 100) / total_items if total_items > 0 else 0
+
+	# Update existing status bar elements
+	connection_status.text = "Connected - %s" % region_name
+
+	if total_items > 0:
+		api_status.text = "Loading names: %d/%d (%d%%)" % [named_items, total_items, percentage]
+
+		# Color code the API status
+		if percentage == 100:
+			api_status.add_theme_color_override("font_color", Color.GREEN)
+		elif percentage > 50:
+			api_status.add_theme_color_override("font_color", Color.YELLOW)
+		else:
+			api_status.add_theme_color_override("font_color", Color.ORANGE)
+	else:
+		api_status.text = "API: Ready"
+		api_status.add_theme_color_override("font_color", Color.WHITE)
+
+	# Update last update with more info
+	var timestamp = Time.get_datetime_string_from_system().substr(11, 8)
+	last_update.text = "Updated: %s | Showing %d of %d items" % [timestamp, total_items, total_available]
+
+
+func get_trading_hub_info(region_name: String) -> String:
+	match region_name:
+		"The Forge (Jita)":
+			return "\n🔥 Major Trade Hub"
+		"Domain (Amarr)":
+			return "\n⭐ Major Trade Hub"
+		"Sinq Laison (Dodixie)":
+			return "\n💫 Major Trade Hub"
+		"Metropolis (Rens)":
+			return "\n🌟 Major Trade Hub"
+		"Heimatar (Hek)":
+			return "\n✨ Secondary Hub"
+		_:
+			return ""
 
 
 func get_search_results_container() -> VBoxContainer:
@@ -454,14 +679,54 @@ func _exit_tree():
 func get_current_region_name() -> String:
 	if region_selector.selected >= 0:
 		return region_selector.get_item_text(region_selector.selected)
-	return "Unknown"
+	return "Unknown Region"
 
 
 func set_loading_state(loading: bool):
 	is_loading = loading
 	refresh_button.disabled = loading
-	# Could add a loading spinner here
+
+	if loading:
+		api_status.text = "API: Loading market data..."
+		api_status.add_theme_color_override("font_color", Color.CYAN)
+		connection_status.text = "Loading..."
+	else:
+		connection_status.text = "Connected"
 
 
-func format_number(value: float, decimals: int = 2) -> String:
-	return "%.{0}f".format([decimals]) % value
+func format_isk(value: float) -> String:
+	if value >= 1000000000:
+		return "%.1fB" % (value / 1000000000.0)
+	if value >= 1000000:
+		return "%.1fM" % (value / 1000000.0)
+	if value >= 1000:
+		return "%.1fK" % (value / 1000.0)
+
+	return "%.0f" % value
+
+
+func format_number(value: float) -> String:
+	if value >= 1000000:
+		return "%.1fM" % (value / 1000000.0)
+	if value >= 1000:
+		return "%.1fK" % (value / 1000.0)
+
+	return "%.0f" % value
+
+
+func debug_data_structure(data, depth: int = 0):
+	var indent = "  ".repeat(depth)
+
+	match typeof(data):
+		TYPE_ARRAY:
+			print(indent, "Array[", data.size(), "]:")
+			if data.size() > 0:
+				print(indent, "  First item type: ", typeof(data[0]))
+				if data.size() > 0 and typeof(data[0]) == TYPE_DICTIONARY:
+					print(indent, "  First item keys: ", data[0].keys())
+		TYPE_DICTIONARY:
+			print(indent, "Dictionary keys: ", data.keys())
+			for key in data.keys():
+				print(indent, "  ", key, ": ", typeof(data[key]))
+		_:
+			print(indent, "Type: ", typeof(data), " Value: ", str(data).substr(0, 100))
