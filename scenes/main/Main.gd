@@ -59,6 +59,8 @@ func _ready():
 	setup_signals()
 	load_initial_data()
 
+	test_status_bar()
+
 
 func setup_managers():
 	# Initialize core managers
@@ -134,6 +136,8 @@ func setup_ui():
 	# Create market grid
 	setup_market_grid()
 
+	setup_status_bar_with_progress()
+
 
 func setup_signals():
 	# Toolbar signals
@@ -204,72 +208,48 @@ func setup_market_grid():
 	print("Market grid setup complete")
 
 
-func setup_progress_indicator():
-	# Get the right panel
-	var right_panel = main_content.get_node("RightPanel")
+func setup_status_bar_with_progress():
+	# The status bar already exists, let's add a progress bar to it
+	# Find the spacer (Spacer2) and insert progress bar before version
+	var spacer = status_bar.get_node("Spacer2")
+	var version_label = status_bar.get_node("Version")
 
-	# Create progress container at the top of right panel
-	var progress_container = VBoxContainer.new()
+	# Create progress bar container
+	var progress_container = HBoxContainer.new()
 	progress_container.name = "ProgressContainer"
+	status_bar.add_child(progress_container)
+	status_bar.move_child(progress_container, status_bar.get_child_count() - 2)  # Before version
 
-	# Insert at the beginning of right panel (before OrderBookPanel)
-	right_panel.add_child(progress_container)
-	right_panel.move_child(progress_container, 0)
+	# Progress label
+	var progress_text = Label.new()
+	progress_text.name = "ProgressText"
+	progress_text.text = "Ready"
+	progress_text.add_theme_font_size_override("font_size", 10)
+	progress_container.add_child(progress_text)
 
-	# Title
-	var progress_title = Label.new()
-	progress_title.name = "ProgressTitle"
-	progress_title.text = "Market Status"
-	progress_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	progress_title.add_theme_color_override("font_color", Color.CYAN)
-	progress_title.add_theme_font_size_override("font_size", 14)
-	progress_container.add_child(progress_title)
-
-	# Region info
-	var region_label = Label.new()
-	region_label.name = "RegionLabel"
-	region_label.text = "No region selected"
-	region_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	region_label.add_theme_color_override("font_color", Color.WHITE)
-	progress_container.add_child(region_label)
-
-	# Progress info
-	var progress_label = Label.new()
-	progress_label.name = "ProgressLabel"
-	progress_label.text = "Ready to load data"
-	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	progress_label.add_theme_color_override("font_color", Color.YELLOW)
-	progress_container.add_child(progress_label)
+	# Separator
+	var separator = VSeparator.new()
+	progress_container.add_child(separator)
 
 	# Progress bar background
 	var progress_bg = ColorRect.new()
 	progress_bg.name = "ProgressBG"
-	progress_bg.color = Color.DARK_GRAY
-	progress_bg.custom_minimum_size = Vector2(280, 16)
+	progress_bg.color = Color(0.2, 0.2, 0.2, 1)  # Dark gray
+	progress_bg.custom_minimum_size = Vector2(100, 12)
 	progress_container.add_child(progress_bg)
 
 	# Progress bar fill
 	var progress_fill = ColorRect.new()
 	progress_fill.name = "ProgressFill"
 	progress_fill.color = Color.YELLOW
-	progress_fill.custom_minimum_size = Vector2(0, 16)
+	progress_fill.custom_minimum_size = Vector2(0, 18)
+	progress_fill.position = Vector2(0, 1)
+	progress_fill.anchors_preset = Control.PRESET_LEFT_WIDE
 	progress_bg.add_child(progress_fill)
 
-	# Stats
-	var stats_label = Label.new()
-	stats_label.name = "StatsLabel"
-	stats_label.text = ""
-	stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	stats_label.add_theme_color_override("font_color", Color.LIGHT_BLUE)
-	stats_label.add_theme_font_size_override("font_size", 10)
-	progress_container.add_child(stats_label)
-
-	# Separator
-	var separator = HSeparator.new()
-	separator.custom_minimum_size.y = 10
-	progress_container.add_child(separator)
-
-	print("Progress indicator setup in right panel")
+	# Another separator
+	var separator2 = VSeparator.new()
+	progress_container.add_child(separator2)
 
 
 func apply_theme():
@@ -580,7 +560,7 @@ Click to get detailed orders for this item."""
 func update_progress_indicator(region_name: String, named_items: int, total_items: int, total_available: int):
 	var percentage = (named_items * 100) / total_items if total_items > 0 else 0
 
-	# Update existing status bar elements
+	# Update existing status bar text elements
 	connection_status.text = "Connected - %s" % region_name
 
 	if total_items > 0:
@@ -596,6 +576,34 @@ func update_progress_indicator(region_name: String, named_items: int, total_item
 	else:
 		api_status.text = "API: Ready"
 		api_status.add_theme_color_override("font_color", Color.WHITE)
+
+	# Update progress bar
+	var progress_container = status_bar.get_node_or_null("ProgressContainer")
+	if progress_container:
+		var progress_text = progress_container.get_node("ProgressText")
+		var progress_fill = progress_container.get_node("ProgressBG/ProgressFill")
+		var progress_bg = progress_container.get_node("ProgressBG")
+
+		# Update progress text
+		if total_items > 0:
+			progress_text.text = "%d%%" % percentage
+		else:
+			progress_text.text = "Ready"
+
+		# Update progress bar width
+		var bar_width = (progress_bg.custom_minimum_size.x * percentage) / 100
+		progress_fill.custom_minimum_size.x = max(0, bar_width)
+
+		# Update progress bar color
+		if percentage == 100:
+			progress_fill.color = Color.GREEN
+			progress_text.add_theme_color_override("font_color", Color.GREEN)
+		elif percentage > 50:
+			progress_fill.color = Color.YELLOW
+			progress_text.add_theme_color_override("font_color", Color.YELLOW)
+		else:
+			progress_fill.color = Color.ORANGE
+			progress_text.add_theme_color_override("font_color", Color.ORANGE)
 
 	# Update last update with more info
 	var timestamp = Time.get_datetime_string_from_system().substr(11, 8)
@@ -730,3 +738,24 @@ func debug_data_structure(data, depth: int = 0):
 				print(indent, "  ", key, ": ", typeof(data[key]))
 		_:
 			print(indent, "Type: ", typeof(data), " Value: ", str(data).substr(0, 100))
+
+
+func test_status_bar():
+	print("=== TESTING STATUS BAR ===")
+
+	if connection_status:
+		connection_status.text = "TEST CONNECTION"
+		connection_status.add_theme_color_override("font_color", Color.RED)
+		print("Set connection status to TEST")
+
+	if api_status:
+		api_status.text = "TEST API STATUS"
+		api_status.add_theme_color_override("font_color", Color.YELLOW)
+		print("Set API status to TEST")
+
+	if last_update:
+		last_update.text = "TEST LAST UPDATE"
+		last_update.add_theme_color_override("font_color", Color.CYAN)
+		print("Set last update to TEST")
+
+	print("========================")

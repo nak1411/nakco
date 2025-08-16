@@ -244,6 +244,8 @@ func refresh_display():
 		no_data_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		no_data_label.add_theme_color_override("font_color", Color.YELLOW)
 		data_container.add_child(no_data_label)
+
+		print("=== EMITTING PROGRESS SIGNAL (NO DATA) ===")
 		emit_signal("progress_updated", 0, 0, 0)
 		return
 
@@ -257,10 +259,15 @@ func refresh_display():
 		if not item_name.begins_with("Item ") and item_name != "":
 			named_items += 1
 
-	# Emit progress signal instead of creating UI elements
+	print("=== EMITTING PROGRESS SIGNAL ===")
+	print("  named_items: ", named_items)
+	print("  total_items: ", total_items)
+	print("  grid_data.size(): ", grid_data.size())
+
+	# Emit progress signal
 	emit_signal("progress_updated", named_items, total_items, grid_data.size())
 
-	# Just add the clean data rows
+	# Add data rows
 	for i in range(total_items):
 		create_item_row(grid_data[i])
 
