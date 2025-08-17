@@ -818,9 +818,14 @@ func draw_price_line():
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
 
-	print("Chart dimensions: height %.1f, y_offset %.1f" % [chart_height, chart_y_offset])
+	# Define chart boundaries for clipping
+	var chart_top = chart_y_offset
+	var chart_bottom = chart_y_offset + chart_height
 
-	# Draw candlesticks first
+	print("Chart dimensions: height %.1f, y_offset %.1f" % [chart_height, chart_y_offset])
+	print("Chart bounds: top %.1f, bottom %.1f" % [chart_top, chart_bottom])
+
+	# Draw candlesticks first (with clipping)
 	if show_candlesticks and visible_candles.size() > 0:
 		print("Drawing %d candlesticks" % visible_candles.size())
 		draw_candlesticks_simple(visible_candles, window_start, window_end, min_price, price_range, chart_height, chart_y_offset)
@@ -835,6 +840,7 @@ func draw_price_line():
 		var price_progress = (point_data.price - min_price) / price_range
 		var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
+		# DON'T clamp here - keep original positions for proper line math
 		points.append(Vector2(x, y))
 
 		if i < 3:  # Debug first few points
@@ -842,46 +848,152 @@ func draw_price_line():
 
 	print("Generated %d drawing points" % points.size())
 
-	# Draw lines between points
+	# Draw lines between points with proper clipping
 	for i in range(points.size() - 1):
 		var current_point_data = visible_points[i]
 		var next_point_data = visible_points[i + 1]
 		var time_diff = next_point_data.timestamp - current_point_data.timestamp
 
 		if time_diff <= 86400.0 * 2:  # Within 2 days
-			var current_is_historical = current_point_data.get("is_historical", false)
-			var next_is_historical = next_point_data.get("is_historical", false)
+			var p1 = points[i]
+			var p2 = points[i + 1]
 
-			var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
-			var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
-			draw_line(points[i], points[i + 1], line_color, line_width, true)
+			# Clip line to chart bounds using proper line clipping
+			var clipped_line = clip_line_to_rect(p1, p2, Rect2(Vector2(0, chart_top), Vector2(size.x, chart_height)))
 
-			if i < 3:  # Debug first few lines
-				print("Drew line %d: from (%.1f,%.1f) to (%.1f,%.1f) color %s" % [i, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, line_color])
+			if clipped_line.has("start") and clipped_line.has("end"):
+				var current_is_historical = current_point_data.get("is_historical", false)
+				var next_is_historical = next_point_data.get("is_historical", false)
 
-	# Draw data points
+				var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
+				var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
+				draw_line(clipped_line.start, clipped_line.end, line_color, line_width, true)
+
+				if i < 3:  # Debug first few lines
+					print("Drew clipped line %d: from (%.1f,%.1f) to (%.1f,%.1f)" % [i, clipped_line.start.x, clipped_line.start.y, clipped_line.end.x, clipped_line.end.y])
+
+	# Draw data points with clipping
 	for i in range(points.size()):
 		var point_data = visible_points[i]
-		var is_historical = point_data.get("is_historical", false)
-		var volume = point_data.get("volume", 0)
+		var point = points[i]
 
-		var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
-		var circle_radius = 3.0
+		# Only draw points within chart bounds
+		if point.y >= chart_top and point.y <= chart_bottom:
+			var is_historical = point_data.get("is_historical", false)
+			var volume = point_data.get("volume", 0)
 
-		if volume > 0:
-			draw_circle(points[i], circle_radius + 1.0, Color.WHITE, true)
-			draw_circle(points[i], circle_radius, circle_color, true)
+			var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
+			var circle_radius = 3.0
 
-		if i < 3:  # Debug first few circles
-			print("Drew circle %d at (%.1f,%.1f) color %s" % [i, points[i].x, points[i].y, circle_color])
+			if volume > 0:
+				draw_circle(point, circle_radius + 1.0, Color.WHITE, true)
+				draw_circle(point, circle_radius, circle_color, true)
+
+			if i < 3:  # Debug first few circles
+				print("Drew circle %d at (%.1f,%.1f) color %s" % [i, point.x, point.y, circle_color])
+
+
+func clip_line_to_rect(p1: Vector2, p2: Vector2, rect: Rect2) -> Dictionary:
+	"""Clip a line to a rectangle using Cohen-Sutherland algorithm"""
+	var x1 = p1.x
+	var y1 = p1.y
+	var x2 = p2.x
+	var y2 = p2.y
+
+	var xmin = rect.position.x
+	var ymin = rect.position.y
+	var xmax = rect.position.x + rect.size.x
+	var ymax = rect.position.y + rect.size.y
+
+	# Compute outcodes
+	var outcode1 = compute_outcode(x1, y1, xmin, ymin, xmax, ymax)
+	var outcode2 = compute_outcode(x2, y2, xmin, ymin, xmax, ymax)
+
+	# Safety counter to prevent infinite loops
+	var max_iterations = 10
+	var iteration_count = 0
+
+	while iteration_count < max_iterations:
+		iteration_count += 1
+
+		if (outcode1 | outcode2) == 0:
+			# Both points inside
+			return {"start": Vector2(x1, y1), "end": Vector2(x2, y2)}
+		elif (outcode1 & outcode2) != 0:
+			# Both points outside on same side
+			return {}  # Return empty dictionary
+		else:
+			# At least one point outside
+			var outcode_out = outcode1 if outcode1 != 0 else outcode2
+			var x: float
+			var y: float
+
+			# Avoid division by zero
+			if outcode_out & 8:  # Top
+				if abs(y2 - y1) > 0.001:
+					x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1)
+					y = ymax
+				else:
+					return {}
+			elif outcode_out & 4:  # Bottom
+				if abs(y2 - y1) > 0.001:
+					x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1)
+					y = ymin
+				else:
+					return {}
+			elif outcode_out & 2:  # Right
+				if abs(x2 - x1) > 0.001:
+					y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1)
+					x = xmax
+				else:
+					return {}
+			else:  # Left
+				if abs(x2 - x1) > 0.001:
+					y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1)
+					x = xmin
+				else:
+					return {}
+
+			if outcode_out == outcode1:
+				x1 = x
+				y1 = y
+				outcode1 = compute_outcode(x1, y1, xmin, ymin, xmax, ymax)
+			else:
+				x2 = x
+				y2 = y
+				outcode2 = compute_outcode(x2, y2, xmin, ymin, xmax, ymax)
+
+	# If we've reached max iterations, return empty dictionary as fallback
+	print("Warning: Line clipping reached max iterations, returning empty result")
+	return {}
+
+
+func compute_outcode(x: float, y: float, xmin: float, ymin: float, xmax: float, ymax: float) -> int:
+	"""Compute outcode for Cohen-Sutherland line clipping"""
+	var code = 0
+	if x < xmin:
+		code |= 1  # Left
+	elif x > xmax:
+		code |= 2  # Right
+	if y < ymin:
+		code |= 4  # Bottom
+	elif y > ymax:
+		code |= 8  # Top
+	return code
 
 
 # Add this new function after draw_price_line
 func draw_candlesticks_simple(visible_candles: Array, window_start: float, window_end: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
-	"""Draw candlesticks with simple positioning"""
+	"""Draw candlesticks with simple positioning and clipping"""
 	var scale_factors = get_zoom_scale_factor()
 	var scaled_candle_width = candle_width * scale_factors.volume_scale
 	var scaled_wick_width = max(2.0, wick_width * scale_factors.volume_scale)
+
+	# Define chart boundaries for clipping
+	var chart_top = chart_y_offset
+	var chart_bottom = chart_y_offset + chart_height
+
+	print("Candlestick clipping bounds: top %.1f, bottom %.1f" % [chart_top, chart_bottom])
 
 	for i in range(visible_candles.size()):
 		var candle = visible_candles[i]
@@ -905,51 +1017,76 @@ func draw_candlesticks_simple(visible_candles: Array, window_start: float, windo
 		var low_y = chart_y_offset + chart_height - ((low_price - min_price) / price_range * chart_height)
 		var close_y = chart_y_offset + chart_height - ((close_price - min_price) / price_range * chart_height)
 
-		# Determine colors (same logic as before)
-		var candle_color: Color
-		var wick_trend_color: Color
-		var previous_close = 0.0
+		# Clamp Y coordinates to chart bounds
+		open_y = clamp(open_y, chart_top, chart_bottom)
+		high_y = clamp(high_y, chart_top, chart_bottom)
+		low_y = clamp(low_y, chart_top, chart_bottom)
+		close_y = clamp(close_y, chart_top, chart_bottom)
 
-		if i > 0:
-			previous_close = visible_candles[i - 1].get("close", 0.0)
+		# Check if candlestick is within visible bounds before drawing
+		var min_candle_y = min(high_y, min(open_y, min(close_y, low_y)))
+		var max_candle_y = max(high_y, max(open_y, max(close_y, low_y)))
 
-		var day_change = close_price - previous_close if previous_close > 0 else 0.0
+		# Only draw if candlestick intersects with chart bounds
+		if max_candle_y >= chart_top and min_candle_y <= chart_bottom:
+			# Determine colors (same logic as before)
+			var candle_color: Color
+			var wick_trend_color: Color
+			var previous_close = 0.0
 
-		# Body color (open vs close)
-		var price_diff = close_price - open_price
-		if price_diff > 0.01:
-			candle_color = Color(0.1, 0.8, 0.1, 0.9)
-		elif price_diff < -0.01:
-			candle_color = Color(0.8, 0.1, 0.1, 0.9)
-		else:
-			candle_color = Color(0.6, 0.6, 0.6, 0.9)
+			if i > 0:
+				previous_close = visible_candles[i - 1].get("close", 0.0)
 
-		# Wick color (day-to-day movement)
-		if day_change > 0.01:
-			wick_trend_color = Color(0.0, 0.9, 0.0, 1.0)  # Green wicks
-		elif day_change < -0.01:
-			wick_trend_color = Color(0.9, 0.0, 0.0, 1.0)  # Red wicks
-		else:
-			wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)  # Gray wicks
+			var day_change = close_price - previous_close if previous_close > 0 else 0.0
 
-		# Draw the candlestick
-		var body_top = min(open_y, close_y)
-		var body_bottom = max(open_y, close_y)
-		var body_height = max(body_bottom - body_top, 3.0)
+			# Body color (open vs close)
+			var price_diff = close_price - open_price
+			if price_diff > 0.01:
+				candle_color = Color(0.1, 0.8, 0.1, 0.9)
+			elif price_diff < -0.01:
+				candle_color = Color(0.8, 0.1, 0.1, 0.9)
+			else:
+				candle_color = Color(0.6, 0.6, 0.6, 0.9)
 
-		# Draw body
-		var body_rect = Rect2(x - scaled_candle_width / 2, body_top, scaled_candle_width, body_height)
-		draw_rect(body_rect, candle_color, true)
+			# Wick color (day-to-day movement)
+			if day_change > 0.01:
+				wick_trend_color = Color(0.0, 0.9, 0.0, 1.0)  # Green wicks
+			elif day_change < -0.01:
+				wick_trend_color = Color(0.9, 0.0, 0.0, 1.0)  # Red wicks
+			else:
+				wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)  # Gray wicks
 
-		# Draw wicks
-		if high_y < body_top:
-			draw_line(Vector2(x, high_y), Vector2(x, body_top), wick_trend_color, scaled_wick_width, false)
-		if low_y > body_bottom:
-			draw_line(Vector2(x, body_bottom), Vector2(x, low_y), wick_trend_color, scaled_wick_width, false)
+			# Draw the candlestick body
+			var body_top = min(open_y, close_y)
+			var body_bottom = max(open_y, close_y)
+			var body_height = max(body_bottom - body_top, 3.0)
 
-		# Draw border
-		var border_color = wick_trend_color.darkened(0.3)
-		draw_rect(body_rect, border_color, false, 1.0)
+			# Ensure body is within chart bounds
+			if body_top >= chart_top and body_bottom <= chart_bottom:
+				var body_rect = Rect2(x - scaled_candle_width / 2, body_top, scaled_candle_width, body_height)
+				draw_rect(body_rect, candle_color, true)
+
+				# Draw border
+				var border_color = wick_trend_color.darkened(0.3)
+				draw_rect(body_rect, border_color, false, 1.0)
+
+			# Draw wicks with clipping
+			# Upper wick (only if high extends above body and is within bounds)
+			if high_y < body_top and high_y >= chart_top:
+				var wick_start_y = max(high_y, chart_top)
+				var wick_end_y = min(body_top, chart_bottom)
+				if wick_start_y < wick_end_y:
+					draw_line(Vector2(x, wick_start_y), Vector2(x, wick_end_y), wick_trend_color, scaled_wick_width, false)
+
+			# Lower wick (only if low extends below body and is within bounds)
+			if low_y > body_bottom and low_y <= chart_bottom:
+				var wick_start_y = max(body_bottom, chart_top)
+				var wick_end_y = min(low_y, chart_bottom)
+				if wick_start_y < wick_end_y:
+					draw_line(Vector2(x, wick_start_y), Vector2(x, wick_end_y), wick_trend_color, scaled_wick_width, false)
+
+		if i < 3:  # Debug first few candlesticks
+			print("Candlestick %d: OHLC(%.2f,%.2f,%.2f,%.2f) -> Y(%.1f,%.1f,%.1f,%.1f) clamped" % [i, open_price, high_price, low_price, close_price, open_y, high_y, low_y, close_y])
 
 
 # Modify draw_volume_bars to maintain consistent bar width
@@ -1308,18 +1445,17 @@ func format_price_label_for_axis(price: float) -> String:
 	"""Format price labels specifically for Y-axis (more compact than tooltips)"""
 	if price >= 1000000000:
 		return "%.1fB" % (price / 1000000000.0)
-	elif price >= 1000000:
+	if price >= 1000000:
 		return "%.1fM" % (price / 1000000.0)
-	elif price >= 1000:
+	if price >= 1000:
 		return "%.1fK" % (price / 1000.0)
-	elif price >= 100:
+	if price >= 100:
 		return "%.0f" % price
-	elif price >= 10:
+	if price >= 10:
 		return "%.1f" % price
-	elif price >= 1:
+	if price >= 1:
 		return "%.2f" % price
-	else:
-		return "%.3f" % price
+	return "%.3f" % price
 
 
 func format_eve_time_label(timestamp: float, format_type: String) -> String:
@@ -1350,9 +1486,9 @@ func format_eve_time_label(timestamp: float, format_type: String) -> String:
 				return "Today"
 			if days_ago < 2:
 				return "Yesterday"
-			else:
-				# Show month/day for recent dates
-				return "%d/%d" % [datetime.month, datetime.day]
+
+			# Show month/day for recent dates
+			return "%d/%d" % [datetime.month, datetime.day]
 
 		"multi_day":
 			# Show date for multi-day intervals
@@ -1366,8 +1502,8 @@ func format_eve_time_label(timestamp: float, format_type: String) -> String:
 				return "This Week"
 			if weeks_ago == 1:
 				return "Last Week"
-			else:
-				return "-%dw" % weeks_ago
+
+			return "-%dw" % weeks_ago
 
 		"monthly":
 			# Show month/year
