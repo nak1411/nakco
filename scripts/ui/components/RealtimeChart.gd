@@ -64,6 +64,23 @@ var chart_center_time: float = 0.0  # The time at the center of the current view
 var chart_center_price: float = 0.0  # The price at the center of the current view
 var chart_price_range: float = 0.0  # The current price range being displayed
 
+var show_support_resistance: bool = false  # Toggle for S/R lines
+var show_spread_analysis: bool = true  # Toggle for spread analysis
+
+# Spread analysis data
+var current_buy_price: float = 0.0
+var current_sell_price: float = 0.0
+var spread_history: Array[Dictionary] = []
+var max_spread_history: int = 100
+var is_hovering_spread_zone: bool = false
+var spread_tooltip_position: Vector2 = Vector2.ZERO
+
+# Spread visualization colors
+var profitable_spread_color: Color = Color.GREEN
+var marginal_spread_color: Color = Color.YELLOW
+var poor_spread_color: Color = Color.RED
+var spread_line_color: Color = Color.CYAN
+
 
 func _ready():
 	custom_minimum_size = Vector2(400, 200)
@@ -111,6 +128,9 @@ func _gui_input(event):
 			handle_simple_drag(event)
 		else:
 			check_point_hover(mouse_position)
+			# ADD THIS LINE - check for spread zone hover
+			if show_spread_analysis:
+				check_spread_zone_hover(mouse_position)
 
 		get_viewport().set_input_as_handled()
 		if show_crosshair:
@@ -220,7 +240,11 @@ func handle_simple_drag(event: InputEventMouseMotion):
 	# Reset drag start for smooth continuous dragging
 	drag_start_position = event.position
 
-	queue_redraw()  # This will redraw Y-axis labels with new price center
+	# Update support/resistance levels immediately when panning (if enabled)
+	if show_support_resistance:
+		update_price_levels()
+
+	queue_redraw()  # This will redraw everything including spread analysis with new bounds
 
 
 func zoom_in_at_mouse(mouse_pos: Vector2):
@@ -231,7 +255,12 @@ func zoom_in_at_mouse(mouse_pos: Vector2):
 	if zoom_level != old_zoom:
 		# Adjust chart center to zoom toward mouse position
 		adjust_center_for_zoom(mouse_pos, old_zoom, zoom_level)
-		queue_redraw()  # This will redraw grid with new zoom level
+
+		# Update support/resistance levels immediately when zooming (if enabled)
+		if show_support_resistance:
+			update_price_levels()
+
+		queue_redraw()  # This will redraw everything including spread analysis with new bounds
 		print("Zoomed in to %.1fx at mouse position" % zoom_level)
 
 
@@ -243,7 +272,12 @@ func zoom_out_at_mouse(mouse_pos: Vector2):
 	if zoom_level != old_zoom:
 		# Adjust chart center to zoom from mouse position
 		adjust_center_for_zoom(mouse_pos, old_zoom, zoom_level)
-		queue_redraw()  # This will redraw grid with new zoom level
+
+		# Update support/resistance levels immediately when zooming (if enabled)
+		if show_support_resistance:
+			update_price_levels()
+
+		queue_redraw()  # This will redraw everything including spread analysis with new bounds
 		print("Zoomed out to %.1fx from mouse position" % zoom_level)
 
 
@@ -439,7 +473,15 @@ func _draw():
 	draw_grid()
 	draw_price_line()
 	draw_volume_bars()
-	draw_price_levels()
+
+	# Only draw S/R lines if enabled
+	if show_support_resistance:
+		draw_price_levels()
+
+	# Draw spread analysis if enabled
+	if show_spread_analysis:
+		draw_spread_analysis()
+
 	draw_zoom_indicator()
 	draw_drag_indicator()
 
@@ -1248,18 +1290,18 @@ func draw_volume_bars():
 
 
 func draw_price_levels():
-	"""Draw exactly one support line and one resistance line"""
+	"""Draw exactly one support line and one resistance line using current chart bounds"""
 	if price_data.is_empty():
 		return
 
-	# Get the visible price range
-	var price_info = get_visible_price_range()
-	if price_info.count == 0:
-		return
+	# Use the same bounds calculation as draw_price_line() for perfect alignment
+	var bounds = get_current_window_bounds()
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
+	var price_range = max_price - min_price
 
-	var min_price = price_info.min_price
-	var max_price = price_info.max_price
-	var price_range = price_info.range
+	if price_range <= 0:
+		return
 
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
@@ -1274,7 +1316,7 @@ func draw_price_levels():
 			var y = chart_y_offset + chart_height - (price_ratio * chart_height)
 
 			# Draw support line
-			draw_line(Vector2(0, y), Vector2(size.x, y), Color.GREEN, 1.0, false)
+			draw_line(Vector2(0, y), Vector2(size.x, y), Color.GREEN, 2.0, false)
 
 			# Draw support label
 			var font = ThemeDB.fallback_font
@@ -1300,7 +1342,7 @@ func draw_price_levels():
 			var y = chart_y_offset + chart_height - (price_ratio * chart_height)
 
 			# Draw resistance line
-			draw_line(Vector2(0, y), Vector2(size.x, y), Color.RED, 1.0, false)
+			draw_line(Vector2(0, y), Vector2(size.x, y), Color.RED, 2.0, false)
 
 			# Draw resistance label
 			var font = ThemeDB.fallback_font
@@ -1316,7 +1358,327 @@ func draw_price_levels():
 			draw_rect(bg_rect, Color(0.5, 0, 0, 0.3))
 			draw_string(font, Vector2(label_x, label_y), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
-	print("Drew %d support lines, %d resistance lines" % [1 if support_levels.size() > 0 else 0, 1 if resistance_levels.size() > 0 else 0])
+	print(
+		(
+			"Drew S/R lines at Y positions: S=%.1f, R=%.1f"
+			% [
+				chart_y_offset + chart_height - ((support_levels[0] - min_price) / price_range * chart_height) if support_levels.size() > 0 else 0,
+				chart_y_offset + chart_height - ((resistance_levels[0] - min_price) / price_range * chart_height) if resistance_levels.size() > 0 else 0
+			]
+		)
+	)
+
+
+func update_spread_data(buy_price: float, sell_price: float):
+	"""Update current spread data for analysis"""
+	current_buy_price = buy_price
+	current_sell_price = sell_price
+
+	var current_time = Time.get_unix_time_from_system()
+	var spread = sell_price - buy_price
+	# CORRECTED MARGIN CALCULATION:
+	var margin_percentage = (spread / sell_price) * 100.0 if sell_price > 0 else 0.0
+
+	var spread_data = {"timestamp": current_time, "buy_price": buy_price, "sell_price": sell_price, "spread": spread, "margin_pct": margin_percentage}
+
+	spread_history.append(spread_data)
+
+	# Keep rolling window
+	if spread_history.size() > max_spread_history:
+		spread_history.pop_front()
+
+	print("Updated spread: %.2f ISK (%.2f%% margin)" % [spread, margin_percentage])
+
+
+func update_spread_data_realistic(buy_orders: Array, sell_orders: Array):
+	"""Update spread data using more realistic prices (not extreme outliers)"""
+	if buy_orders.size() < 2 or sell_orders.size() < 2:
+		# Fall back to best prices if not enough orders
+		var best_buy = buy_orders[0].get("price", 0.0) if buy_orders.size() > 0 else 0.0
+		var best_sell = sell_orders[0].get("price", 0.0) if sell_orders.size() > 0 else 0.0
+		update_spread_data(best_buy, best_sell)
+		return
+
+	# Use 2nd best prices to avoid outliers, or volume-weighted average of top 3
+	var realistic_buy = buy_orders[1].get("price", 0.0)  # 2nd highest buy
+	var realistic_sell = sell_orders[1].get("price", 0.0)  # 2nd lowest sell
+
+	# Or calculate volume-weighted average of top 3 orders:
+	var total_buy_volume = 0
+	var weighted_buy_price = 0.0
+	for i in range(min(3, buy_orders.size())):
+		var volume = buy_orders[i].get("volume", 0)
+		var price = buy_orders[i].get("price", 0.0)
+		total_buy_volume += volume
+		weighted_buy_price += price * volume
+
+	var total_sell_volume = 0
+	var weighted_sell_price = 0.0
+	for i in range(min(3, sell_orders.size())):
+		var volume = sell_orders[i].get("volume", 0)
+		var price = sell_orders[i].get("price", 0.0)
+		total_sell_volume += volume
+		weighted_sell_price += price * volume
+
+	if total_buy_volume > 0:
+		realistic_buy = weighted_buy_price / total_buy_volume
+	if total_sell_volume > 0:
+		realistic_sell = weighted_sell_price / total_sell_volume
+
+	update_spread_data(realistic_buy, realistic_sell)
+	print("Using realistic prices: buy=%.2f, sell=%.2f (volume-weighted top 3)" % [realistic_buy, realistic_sell])
+
+
+func draw_spread_analysis():
+	"""Draw spread analysis visualization on the chart using proper zoom/pan bounds"""
+	print("Drawing spread analysis: buy=%.2f, sell=%.2f" % [current_buy_price, current_sell_price])
+
+	if current_buy_price <= 0 or current_sell_price <= 0:
+		print("No spread data available yet")
+		return
+
+	# Use the EXACT SAME bounds calculation as draw_price_line() and grid lines
+	var bounds = get_current_window_bounds()
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
+	var price_range = max_price - min_price
+
+	if price_range <= 0:
+		print("Invalid price range for spread analysis")
+		return
+
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
+
+	print("Spread analysis bounds: price %.2f-%.2f, range %.2f" % [min_price, max_price, price_range])
+	print("Buy price %.2f in range: %s" % [current_buy_price, current_buy_price >= min_price and current_buy_price <= max_price])
+	print("Sell price %.2f in range: %s" % [current_sell_price, current_sell_price >= min_price and current_sell_price <= max_price])
+
+	# Draw buy and sell price lines ONLY if they're within the visible price range
+	var buy_y = -1.0
+	var sell_y = -1.0
+
+	if current_buy_price >= min_price and current_buy_price <= max_price:
+		var buy_ratio = (current_buy_price - min_price) / price_range
+		buy_y = chart_y_offset + chart_height - (buy_ratio * chart_height)
+
+		print("Drawing buy line at Y=%.1f (ratio=%.3f)" % [buy_y, buy_ratio])
+
+		# Buy line (green, dashed)
+		draw_custom_dashed_line(Vector2(0, buy_y), Vector2(size.x, buy_y), Color.GREEN, 2.0, 15.0)
+		draw_spread_label("BUY: %s ISK" % format_price_label(current_buy_price), Vector2(size.x - 150, buy_y - 15), Color.GREEN)
+
+	if current_sell_price >= min_price and current_sell_price <= max_price:
+		var sell_ratio = (current_sell_price - min_price) / price_range
+		sell_y = chart_y_offset + chart_height - (sell_ratio * chart_height)
+
+		print("Drawing sell line at Y=%.1f (ratio=%.3f)" % [sell_y, sell_ratio])
+
+		# Sell line (red, dashed)
+		draw_custom_dashed_line(Vector2(0, sell_y), Vector2(size.x, sell_y), Color.RED, 2.0, 15.0)
+		draw_spread_label("SELL: %s ISK" % format_price_label(current_sell_price), Vector2(size.x - 150, sell_y + 25), Color.RED)
+
+	# Draw spread zone if both prices are visible
+	if buy_y > 0 and sell_y > 0:
+		var spread = current_sell_price - current_buy_price
+		var margin_pct = (spread / current_sell_price) * 100.0
+
+		print("Drawing spread zone between Y=%.1f and Y=%.1f" % [min(buy_y, sell_y), max(buy_y, sell_y)])
+
+		var zone_color = get_spread_color(margin_pct)
+		zone_color.a = 0.15  # Make it semi-transparent
+
+		var zone_rect = Rect2(Vector2(0, min(buy_y, sell_y)), Vector2(size.x, abs(sell_y - buy_y)))
+		draw_rect(zone_rect, zone_color)
+
+		# Store spread zone info for hover detection
+		store_spread_zone_info(zone_rect, spread, margin_pct)
+
+		# Draw spread tooltip ONLY when hovering over the spread zone
+		if is_hovering_spread_zone:
+			draw_spread_hover_tooltip(spread, margin_pct)
+
+
+func store_spread_zone_info(_zone_rect: Rect2, _spread: float, _margin_pct: float):
+	"""Store spread zone information for hover detection"""
+	# This will be used by the mouse hover detection
+	# Info is stored in the variables already
+
+
+func check_spread_zone_hover(mouse_pos: Vector2):
+	"""Check if mouse is hovering over the spread zone"""
+	if current_buy_price <= 0 or current_sell_price <= 0:
+		is_hovering_spread_zone = false
+		return
+
+	# Use same bounds calculation as drawing
+	var bounds = get_current_window_bounds()
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
+	var price_range = max_price - min_price
+
+	if price_range <= 0:
+		is_hovering_spread_zone = false
+		return
+
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
+
+	# Calculate buy and sell Y positions
+	var buy_in_range = current_buy_price >= min_price and current_buy_price <= max_price
+	var sell_in_range = current_sell_price >= min_price and current_sell_price <= max_price
+
+	if not (buy_in_range and sell_in_range):
+		is_hovering_spread_zone = false
+		return
+
+	var buy_ratio = (current_buy_price - min_price) / price_range
+	var sell_ratio = (current_sell_price - min_price) / price_range
+	var buy_y = chart_y_offset + chart_height - (buy_ratio * chart_height)
+	var sell_y = chart_y_offset + chart_height - (sell_ratio * chart_height)
+
+	# Check if mouse is within the spread zone
+	var zone_top = min(buy_y, sell_y)
+	var zone_bottom = max(buy_y, sell_y)
+	var zone_rect = Rect2(Vector2(0, zone_top), Vector2(size.x, zone_bottom - zone_top))
+
+	var was_hovering = is_hovering_spread_zone
+	is_hovering_spread_zone = zone_rect.has_point(mouse_pos)
+
+	if is_hovering_spread_zone:
+		spread_tooltip_position = mouse_pos
+
+	# Redraw if hover state changed
+	if was_hovering != is_hovering_spread_zone:
+		queue_redraw()
+
+
+func draw_spread_hover_tooltip(spread: float, margin_pct: float):
+	"""Draw spread information tooltip near mouse cursor when hovering spread zone"""
+	var font = ThemeDB.fallback_font
+	var font_size = 12
+
+	var lines = [
+		"SPREAD ANALYSIS",
+		"Spread: %s ISK" % format_price_label(spread),
+		"Margin: %.2f%%" % margin_pct,
+		get_spread_quality_text(margin_pct),
+		"",
+		"Buy: %s ISK" % format_price_label(current_buy_price),
+		"Sell: %s ISK" % format_price_label(current_sell_price)
+	]
+
+	var max_width = 0.0
+	var line_height = 16
+
+	# Calculate tooltip dimensions
+	for line in lines:
+		if line.length() > 0:  # Skip empty lines for width calculation
+			var text_size = font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+			max_width = max(max_width, text_size.x)
+
+	var padding = Vector2(12, 8)
+	var tooltip_width = max_width + padding.x * 2
+	var tooltip_height = lines.size() * line_height + padding.y * 2
+
+	# Position tooltip near mouse, but keep it on screen
+	var tooltip_pos = spread_tooltip_position + Vector2(15, -tooltip_height / 2)
+
+	# Keep tooltip within screen bounds
+	if tooltip_pos.x + tooltip_width > size.x:
+		tooltip_pos.x = spread_tooltip_position.x - tooltip_width - 15
+	if tooltip_pos.y < 0:
+		tooltip_pos.y = 5
+	if tooltip_pos.y + tooltip_height > size.y:
+		tooltip_pos.y = size.y - tooltip_height - 5
+
+	# Background with spread quality color border
+	var bg_color = Color(0.05, 0.08, 0.12, 0.95)
+	var border_color = get_spread_color(margin_pct)
+
+	draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), bg_color)
+	draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), border_color, false, 2.0)
+
+	# Draw text lines
+	for i in range(lines.size()):
+		var line = lines[i]
+		if line.length() == 0:  # Skip empty lines
+			continue
+
+		var text_pos = tooltip_pos + Vector2(padding.x, padding.y + (i + 1) * line_height)
+		var text_color = Color.WHITE
+
+		# Color code different lines
+		if i == 0:  # Header
+			text_color = Color.CYAN
+		elif line.contains("Margin:"):
+			text_color = get_spread_color(margin_pct)
+		elif line.contains("EXCELLENT") or line.contains("DECENT") or line.contains("MARGINAL") or line.contains("POOR"):
+			text_color = get_spread_color(margin_pct)
+		elif line.contains("Buy:"):
+			text_color = Color.GREEN
+		elif line.contains("Sell:"):
+			text_color = Color.RED
+
+		draw_string(font, text_pos, line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
+
+func draw_custom_dashed_line(from: Vector2, to: Vector2, color: Color, width: float, dash_length: float):
+	"""Draw a dashed line"""
+	var direction = (to - from).normalized()
+	var total_length = from.distance_to(to)
+	var current_pos = from
+	var distance_traveled = 0.0
+	var drawing = true
+
+	while distance_traveled < total_length:
+		var segment_length = min(dash_length, total_length - distance_traveled)
+		var segment_end = current_pos + direction * segment_length
+
+		if drawing:
+			draw_line(current_pos, segment_end, color, width)
+
+		current_pos = segment_end
+		distance_traveled += segment_length
+		drawing = not drawing
+
+
+func draw_spread_label(text: String, position: Vector2, color: Color):
+	"""Draw a label for buy/sell prices"""
+	var font = ThemeDB.fallback_font
+	var font_size = 10
+	var text_size = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var padding = Vector2(6, 3)
+
+	# Background
+	var bg_rect = Rect2(position - padding, text_size + padding * 2)
+	draw_rect(bg_rect, Color(0, 0, 0, 0.7))
+	draw_rect(bg_rect, color, false, 1.0)
+
+	# Text
+	draw_string(font, position + Vector2(0, text_size.y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+
+
+func get_spread_color(margin_pct: float) -> Color:
+	"""Get color based on spread quality"""
+	if margin_pct >= 5.0:
+		return profitable_spread_color  # Green - excellent
+	elif margin_pct >= 2.0:
+		return marginal_spread_color  # Yellow - decent
+	else:
+		return poor_spread_color  # Red - poor
+
+
+func get_spread_quality_text(margin_pct: float) -> String:
+	"""Get text description of spread quality"""
+	if margin_pct >= 5.0:
+		return "EXCELLENT"
+	elif margin_pct >= 2.0:
+		return "DECENT"
+	elif margin_pct >= 1.0:
+		return "MARGINAL"
+	else:
+		return "POOR"
 
 
 func draw_y_axis_labels():
@@ -1917,7 +2279,7 @@ func add_data_point(price: float, volume: int, time_label: String = ""):
 	# Update support/resistance levels with new data
 	update_price_levels()
 
-	if price_data.size() % 10 == 0:  # Update every 10 data points
+	if show_support_resistance and price_data.size() % 5 == 0:
 		update_price_levels()
 
 	if price_data.size() == 1:  # First data point
@@ -2082,41 +2444,269 @@ func calculate_moving_average() -> float:
 
 
 func update_price_levels():
-	"""Calculate exactly one support and one resistance level from visible data"""
-	var current_time = Time.get_unix_time_from_system()
-	var time_window = get_current_time_window()
-	var window_start = current_time - time_window
+	"""Calculate dynamic support and resistance levels from currently visible data using advanced algorithms"""
+	# Use the exact same bounds calculation as draw_price_line() for consistency
+	var bounds = get_current_window_bounds()
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
+	var price_range = max_price - min_price
 
 	# ALWAYS clear previous levels first
 	support_levels.clear()
 	resistance_levels.clear()
 
-	# Get visible prices only
-	var visible_prices = []
-	for point in price_data:
-		if point.timestamp >= window_start:
-			visible_prices.append(point.price)
+	# Get visible data points only (same filtering as draw_price_line)
+	var visible_points = []
+	var visible_candles = []
 
-	if visible_prices.size() < 5:
-		print("Not enough visible data points (%d) for support/resistance calculation" % visible_prices.size())
+	for point in price_data:
+		if point.timestamp >= window_start and point.timestamp <= window_end:
+			visible_points.append(point)
+
+	for candle in candlestick_data:
+		if candle.timestamp >= window_start and candle.timestamp <= window_end:
+			visible_candles.append(candle)
+
+	if visible_points.size() < 5:  # Reduced minimum for faster updates
+		print("Not enough visible data points (%d) for support/resistance calculation" % visible_points.size())
 		return
 
-	# Sort prices
-	visible_prices.sort()
+	# Sort by timestamp
+	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
-	# Simple method: Use quartiles for support and resistance
-	var q1_index = visible_prices.size() / 4  # 25th percentile = support
-	var q3_index = (visible_prices.size() * 3) / 4  # 75th percentile = resistance
+	# Quick method for real-time updates: Use recent high/low with volume weighting
+	var all_prices = []
+	var volume_weighted_prices = {}
 
-	# Add exactly ONE support level
-	if q1_index < visible_prices.size():
-		support_levels.append(visible_prices[q1_index])
+	# Collect all visible prices with volume data
+	for point in visible_points:
+		all_prices.append(point.price)
+		var volume = point.get("volume", 1)
+		var price_key = int(point.price / 5.0) * 5.0  # Group into 5 ISK buckets for volume weighting
+		if not volume_weighted_prices.has(price_key):
+			volume_weighted_prices[price_key] = 0
+		volume_weighted_prices[price_key] += volume
 
-	# Add exactly ONE resistance level
-	if q3_index < visible_prices.size():
-		resistance_levels.append(visible_prices[q3_index])
+	# Add candlestick data
+	for candle in visible_candles:
+		var high = candle.get("high", 0.0)
+		var low = candle.get("low", 0.0)
+		var volume = candle.get("volume", 1)
 
-	print("Set support: %.2f, resistance: %.2f" % [support_levels[0] if support_levels.size() > 0 else 0.0, resistance_levels[0] if resistance_levels.size() > 0 else 0.0])
+		if high > 0:
+			all_prices.append(high)
+			var price_key = int(high / 5.0) * 5.0
+			if not volume_weighted_prices.has(price_key):
+				volume_weighted_prices[price_key] = 0
+			volume_weighted_prices[price_key] += volume
+
+		if low > 0:
+			all_prices.append(low)
+			var price_key = int(low / 5.0) * 5.0
+			if not volume_weighted_prices.has(price_key):
+				volume_weighted_prices[price_key] = 0
+			volume_weighted_prices[price_key] += volume
+
+	if all_prices.size() == 0:
+		return
+
+	all_prices.sort()
+
+	# Find support and resistance using percentiles with volume bias
+	var support_candidates = []
+	var resistance_candidates = []
+
+	# Get 10th and 90th percentiles as base levels
+	var percentile_10_idx = int(all_prices.size() * 0.1)
+	var percentile_90_idx = int(all_prices.size() * 0.9)
+
+	support_candidates.append(all_prices[percentile_10_idx])
+	resistance_candidates.append(all_prices[percentile_90_idx])
+
+	# Add volume-weighted significant levels
+	var total_volume = 0
+	for volume in volume_weighted_prices.values():
+		total_volume += volume
+
+	if total_volume > 0:
+		for price_key in volume_weighted_prices.keys():
+			var volume = volume_weighted_prices[price_key]
+			var volume_percentage = float(volume) / total_volume
+
+			if volume_percentage > 0.1:  # Significant volume (10%+)
+				if price_key < (min_price + max_price) / 2.0:  # Lower half = support candidate
+					support_candidates.append(price_key)
+				else:  # Upper half = resistance candidate
+					resistance_candidates.append(price_key)
+
+	# Select best levels
+	if support_candidates.size() > 0:
+		support_candidates.sort()
+		# Choose support that's in the lower third of visible range
+		var lower_third = min_price + (price_range * 0.33)
+		var best_support = 0.0
+
+		for candidate in support_candidates:
+			if candidate >= min_price and candidate <= lower_third:
+				best_support = max(best_support, candidate)  # Highest support in lower third
+
+		if best_support == 0.0:
+			best_support = support_candidates[-1]  # Fallback to highest support
+
+		support_levels.append(best_support)
+
+	if resistance_candidates.size() > 0:
+		resistance_candidates.sort()
+		resistance_candidates.reverse()  # Highest first
+		# Choose resistance that's in the upper third of visible range
+		var upper_third = max_price - (price_range * 0.33)
+		var best_resistance = 0.0
+
+		for candidate in resistance_candidates:
+			if candidate <= max_price and candidate >= upper_third:
+				best_resistance = min(best_resistance if best_resistance > 0 else 999999.0, candidate)  # Lowest resistance in upper third
+
+		if best_resistance == 0.0 or best_resistance > 999000.0:
+			best_resistance = resistance_candidates[-1]  # Fallback to lowest resistance
+
+		resistance_levels.append(best_resistance)
+
+	print(
+		(
+			"Updated S/R levels: Support=%.2f, Resistance=%.2f (visible range: %.2f-%.2f)"
+			% [support_levels[0] if support_levels.size() > 0 else 0.0, resistance_levels[0] if resistance_levels.size() > 0 else 0.0, min_price, max_price]
+		)
+	)
+
+
+func find_pivot_highs(points: Array, lookback: int) -> Array:
+	"""Find pivot high points (local maxima) in the price data"""
+	var pivot_highs: Array[float] = []
+
+	for i in range(lookback, points.size() - lookback):
+		var current_price = points[i].price
+		var is_pivot_high = true
+
+		# Check if current point is higher than lookback points on both sides
+		for j in range(i - lookback, i + lookback + 1):
+			if j != i and points[j].price >= current_price:
+				is_pivot_high = false
+				break
+
+		if is_pivot_high:
+			pivot_highs.append(current_price)
+
+	return pivot_highs
+
+
+func find_pivot_lows(points: Array, lookback: int) -> Array:
+	"""Find pivot low points (local minima) in the price data"""
+	var pivot_lows: Array[float] = []
+
+	for i in range(lookback, points.size() - lookback):
+		var current_price = points[i].price
+		var is_pivot_low = true
+
+		# Check if current point is lower than lookback points on both sides
+		for j in range(i - lookback, i + lookback + 1):
+			if j != i and points[j].price <= current_price:
+				is_pivot_low = false
+				break
+
+		if is_pivot_low:
+			pivot_lows.append(current_price)
+
+	return pivot_lows
+
+
+func find_volume_weighted_levels(points: Array, candles: Array) -> Dictionary:
+	"""Find support/resistance based on volume concentration"""
+	var price_volume_map = {}
+	var total_volume = 0
+
+	# Aggregate volume at different price levels
+	for point in points:
+		var volume = point.get("volume", 0)
+		if volume > 0:
+			var price_bucket = int(point.price / 10.0) * 10.0  # Group into 10 ISK buckets
+			if not price_volume_map.has(price_bucket):
+				price_volume_map[price_bucket] = 0
+			price_volume_map[price_bucket] += volume
+			total_volume += volume
+
+	# Add candlestick volume data
+	for candle in candles:
+		var volume = candle.get("volume", 0)
+		if volume > 0:
+			var avg_price = (candle.get("high", 0) + candle.get("low", 0)) / 2.0
+			var price_bucket = int(avg_price / 10.0) * 10.0
+			if not price_volume_map.has(price_bucket):
+				price_volume_map[price_bucket] = 0
+			price_volume_map[price_bucket] += volume
+			total_volume += volume
+
+	if total_volume == 0:
+		return {}
+
+	# Find price levels with highest volume concentration
+	var volume_levels = []
+	for price in price_volume_map.keys():
+		var volume = price_volume_map[price]
+		var volume_percentage = float(volume) / total_volume
+		if volume_percentage > 0.15:  # More than 15% of total volume
+			volume_levels.append({"price": price, "volume_pct": volume_percentage})
+
+	if volume_levels.size() == 0:
+		return {}
+
+	# Sort by volume percentage
+	volume_levels.sort_custom(func(a, b): return a.volume_pct > b.volume_pct)
+
+	var result = {}
+	if volume_levels.size() >= 1:
+		result["resistance"] = volume_levels[0].price
+	if volume_levels.size() >= 2:
+		result["support"] = volume_levels[1].price
+
+	return result
+
+
+func find_recent_extremes(points: Array, candles: Array) -> Dictionary:
+	"""Find recent high and low prices from visible data"""
+	var result = {}
+
+	if points.size() == 0 and candles.size() == 0:
+		return result
+
+	var all_highs = []
+	var all_lows = []
+
+	# Collect highs and lows from price points
+	for point in points:
+		all_highs.append(point.price)
+		all_lows.append(point.price)
+
+	# Collect highs and lows from candlesticks
+	for candle in candles:
+		var high = candle.get("high", 0.0)
+		var low = candle.get("low", 0.0)
+		if high > 0:
+			all_highs.append(high)
+		if low > 0:
+			all_lows.append(low)
+
+	if all_highs.size() > 0:
+		all_highs.sort()
+		result["high"] = all_highs[-1]  # Highest price
+
+	if all_lows.size() > 0:
+		all_lows.sort()
+		result["low"] = all_lows[0]  # Lowest price
+
+	return result
 
 
 func clear_data():
@@ -2480,3 +3070,17 @@ func _make_custom_tooltip(_for_text: String) -> Control:
 func _get_tooltip(_at_position: Vector2) -> String:
 	# Return empty string to disable built-in tooltips
 	return ""
+
+
+func toggle_support_resistance():
+	"""Toggle S/R lines on/off"""
+	show_support_resistance = not show_support_resistance
+	print("Support/Resistance lines: %s" % ("ON" if show_support_resistance else "OFF"))
+	queue_redraw()
+
+
+func toggle_spread_analysis():
+	"""Toggle spread analysis on/off"""
+	show_spread_analysis = not show_spread_analysis
+	print("Spread analysis: %s" % ("ON" if show_spread_analysis else "OFF"))
+	queue_redraw()

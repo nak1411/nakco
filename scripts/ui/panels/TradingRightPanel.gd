@@ -149,6 +149,13 @@ func update_item_display(item_data: Dictionary):
 	# Only clear chart for genuinely NEW items
 	if real_time_chart:
 		real_time_chart.clear_data()
+
+		# Set initial spread data if available
+		var max_buy = item_data.get("max_buy", 0.0)
+		var min_sell = item_data.get("min_sell", 0.0)
+		if max_buy > 0 and min_sell > 0:
+			real_time_chart.update_spread_data(max_buy, min_sell)
+
 		print("Chart cleared for new item selection")
 
 	# Update all displays for new item
@@ -247,8 +254,10 @@ func update_realtime_chart_data(data: Dictionary):
 	var total_buy_volume = data.get("total_buy_volume", 0)
 	var total_sell_volume = data.get("total_sell_volume", 0)
 	var total_volume = data.get("volume", total_buy_volume + total_sell_volume)
+	var buy_orders = data.get("buy_orders", [])
+	var sell_orders = data.get("sell_orders", [])
 
-	# Calculate market price
+	# Calculate market price for the chart line
 	var market_price = 0.0
 	if max_buy > 0 and min_sell > 0:
 		market_price = (max_buy + min_sell) / 2.0
@@ -265,8 +274,92 @@ func update_realtime_chart_data(data: Dictionary):
 		var time_label = Time.get_datetime_string_from_system().substr(11, 8)
 		print("Adding real-time chart point: price=%.2f, volume=%d (preserving existing data)" % [market_price, total_volume])
 		real_time_chart.add_data_point(market_price, total_volume, time_label)
+
+		# UPDATE SPREAD DATA - USE REALISTIC PRICING TO AVOID OUTLIERS
+		if buy_orders.size() > 0 and sell_orders.size() > 0:
+			print("Using realistic spread calculation with %d buy orders and %d sell orders" % [buy_orders.size(), sell_orders.size()])
+			update_realistic_spread_data(buy_orders, sell_orders)
+		elif max_buy > 0 and min_sell > 0:
+			print("Fallback to basic spread: buy=%.2f, sell=%.2f" % [max_buy, min_sell])
+			real_time_chart.update_spread_data(max_buy, min_sell)
+		else:
+			print("No valid spread data available")
 	else:
 		print("No valid market price for real-time update")
+
+
+func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
+	"""Calculate realistic spread using volume-weighted average of top orders to avoid outliers"""
+	if not real_time_chart:
+		return
+
+	# Sort orders to ensure we have best prices first
+	var sorted_buy_orders = buy_orders.duplicate()
+	var sorted_sell_orders = sell_orders.duplicate()
+	sorted_buy_orders.sort_custom(func(a, b): return a.get("price", 0) > b.get("price", 0))  # Highest first
+	sorted_sell_orders.sort_custom(func(a, b): return a.get("price", 0) < b.get("price", 0))  # Lowest first
+
+	var realistic_buy_price = 0.0
+	var realistic_sell_price = 0.0
+
+	# Strategy 1: Use volume-weighted average of top 3 orders (more realistic for actual trading)
+	if sorted_buy_orders.size() >= 3 and sorted_sell_orders.size() >= 3:
+		print("Using volume-weighted top 3 orders strategy")
+
+		# Calculate volume-weighted buy price from top 3 buy orders
+		var total_buy_volume = 0
+		var weighted_buy_total = 0.0
+		for i in range(min(3, sorted_buy_orders.size())):
+			var order = sorted_buy_orders[i]
+			var volume = order.get("volume", 0)
+			var price = order.get("price", 0.0)
+			total_buy_volume += volume
+			weighted_buy_total += price * volume
+			print("  Buy order %d: %.2f ISK x %d = %.2f weighted" % [i + 1, price, volume, price * volume])
+
+		if total_buy_volume > 0:
+			realistic_buy_price = weighted_buy_total / total_buy_volume
+
+		# Calculate volume-weighted sell price from top 3 sell orders
+		var total_sell_volume = 0
+		var weighted_sell_total = 0.0
+		for i in range(min(3, sorted_sell_orders.size())):
+			var order = sorted_sell_orders[i]
+			var volume = order.get("volume", 0)
+			var price = order.get("price", 0.0)
+			total_sell_volume += volume
+			weighted_sell_total += price * volume
+			print("  Sell order %d: %.2f ISK x %d = %.2f weighted" % [i + 1, price, volume, price * volume])
+
+		if total_sell_volume > 0:
+			realistic_sell_price = weighted_sell_total / total_sell_volume
+
+		print("Volume-weighted prices: buy=%.2f, sell=%.2f" % [realistic_buy_price, realistic_sell_price])
+
+	# Strategy 2: Use 2nd best prices to avoid single outliers
+	elif sorted_buy_orders.size() >= 2 and sorted_sell_orders.size() >= 2:
+		print("Using 2nd best prices strategy (avoiding outliers)")
+		realistic_buy_price = sorted_buy_orders[1].get("price", 0.0)  # 2nd highest buy
+		realistic_sell_price = sorted_sell_orders[1].get("price", 0.0)  # 2nd lowest sell
+		print("2nd best prices: buy=%.2f, sell=%.2f" % [realistic_buy_price, realistic_sell_price])
+
+	# Strategy 3: Fallback to best prices if insufficient orders
+	else:
+		print("Using best prices fallback strategy")
+		realistic_buy_price = sorted_buy_orders[0].get("price", 0.0) if sorted_buy_orders.size() > 0 else 0.0
+		realistic_sell_price = sorted_sell_orders[0].get("price", 0.0) if sorted_sell_orders.size() > 0 else 0.0
+		print("Best prices: buy=%.2f, sell=%.2f" % [realistic_buy_price, realistic_sell_price])
+
+	# Update the chart with realistic spread data
+	if realistic_buy_price > 0 and realistic_sell_price > 0:
+		real_time_chart.update_spread_data(realistic_buy_price, realistic_sell_price)
+
+		# Calculate and log the realistic spread info
+		var spread = realistic_sell_price - realistic_buy_price
+		var margin = (spread / realistic_sell_price) * 100.0
+		print("Realistic spread: %.2f ISK (%.2f%% margin)" % [spread, margin])
+	else:
+		print("Could not calculate realistic spread - invalid prices")
 
 
 func update_order_book_realtime(data: Dictionary):
@@ -641,7 +734,7 @@ func process_market_data_for_item(market_data: Dictionary, target_item_id: int) 
 	var max_buy = buy_orders[0].get("price", 0) if not buy_orders.is_empty() else 0
 	var min_sell = sell_orders[0].get("price", 0) if not sell_orders.is_empty() else 0
 	var spread = min_sell - max_buy if max_buy > 0 and min_sell > 0 else 0
-	var margin = (spread / max_buy) * 100.0 if max_buy > 0 else 0
+	var margin = (spread / min_sell) * 100.0 if max_buy > 0 else 0
 
 	var total_volume = 0
 	for order in buy_orders + sell_orders:
