@@ -58,6 +58,12 @@ var tooltip_position: Vector2 = Vector2.ZERO
 var point_hover_radius: float = 8.0  # Radius for hover detection
 var point_visual_radius: float = 4.0  # Visual radius of points
 
+var is_dragging: bool = false
+var drag_start_position: Vector2 = Vector2.ZERO
+var chart_center_time: float = 0.0  # The time at the center of the current view
+var chart_center_price: float = 0.0  # The price at the center of the current view
+var chart_price_range: float = 0.0  # The current price range being displayed
+
 
 func _ready():
 	custom_minimum_size = Vector2(400, 200)
@@ -66,11 +72,17 @@ func _ready():
 
 	# DISABLE built-in tooltip system
 	mouse_filter = Control.MOUSE_FILTER_PASS
-	tooltip_text = ""  # Clear any default tooltip
+	tooltip_text = ""
 
 	chart_font = ThemeDB.fallback_font
 
-	# Initialize day start time
+	# Initialize chart center to current time
+	chart_center_time = Time.get_unix_time_from_system()
+
+	# Set default price range (will be updated when data loads)
+	chart_center_price = 1000.0  # Default center price
+	chart_price_range = 500.0  # Default range
+
 	set_day_start_time()
 
 
@@ -85,34 +97,176 @@ func _on_mouse_exited():
 	queue_redraw()
 
 
+func _input(event):
+	if event is InputEventKey and event.pressed:
+		if event.keycode == KEY_HOME or event.keycode == KEY_H:
+			get_viewport().set_input_as_handled()
+
+
 func _gui_input(event):
 	if event is InputEventMouseMotion:
 		mouse_position = event.position
 
-		# Check for point hovering first (priority over crosshair)
-		check_point_hover(mouse_position)
+		if is_dragging:
+			handle_simple_drag(event)
+		else:
+			check_point_hover(mouse_position)
 
-		# Always accept the event to prevent default tooltip behavior
 		get_viewport().set_input_as_handled()
-
 		if show_crosshair:
 			queue_redraw()
 
-	# Prevent any other input from triggering tooltips
 	if event is InputEventMouseButton:
-		# Handle zoom with mouse wheel
-		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
-			zoom_in(event.position)
+		if event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed:
+				start_simple_drag(event.position)
+			else:
+				stop_simple_drag()
+		elif event.button_index == MOUSE_BUTTON_MIDDLE and event.pressed:
+			reset_to_current()
+			get_viewport().set_input_as_handled()
+		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			zoom_in_at_mouse(event.position)
 			get_viewport().set_input_as_handled()
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			zoom_out(event.position)
+			zoom_out_at_mouse(event.position)
 			get_viewport().set_input_as_handled()
 		else:
 			get_viewport().set_input_as_handled()
 
 
+func start_simple_drag(position: Vector2):
+	"""Start simple dragging"""
+	is_dragging = true
+	drag_start_position = position
+	print("Started dragging")
+
+
+func stop_simple_drag():
+	"""Stop dragging"""
+	is_dragging = false
+	print("Stopped dragging")
+
+
+func initialize_price_center():
+	"""Initialize the price center based on current data"""
+	print("Initializing price center...")
+
+	# First try to get current visible price range
+	var price_info = get_visible_price_range()
+	print("Price info from get_visible_price_range: ", price_info)
+
+	if price_info.count > 0 and price_info.range > 0:
+		chart_center_price = (price_info.min_price + price_info.max_price) / 2.0
+		chart_price_range = price_info.range * 1.2  # Add 20% padding
+		print("Set price center to %.2f, range %.2f (from data)" % [chart_center_price, chart_price_range])
+	else:
+		# Fallback: scan all available data
+		var all_prices = []
+
+		for point in price_data:
+			if point.price > 0:
+				all_prices.append(point.price)
+
+		for candle in candlestick_data:
+			var high = candle.get("high", 0.0)
+			var low = candle.get("low", 0.0)
+			if high > 0:
+				all_prices.append(high)
+			if low > 0:
+				all_prices.append(low)
+
+		if all_prices.size() > 0:
+			var min_price = all_prices[0]
+			var max_price = all_prices[0]
+			for price in all_prices:
+				if price < min_price:
+					min_price = price
+				if price > max_price:
+					max_price = price
+
+			chart_center_price = (min_price + max_price) / 2.0
+			chart_price_range = (max_price - min_price) * 1.2  # Add 20% padding
+			print("Set price center to %.2f, range %.2f (from all data)" % [chart_center_price, chart_price_range])
+		else:
+			# Ultimate fallback
+			chart_center_price = 1000.0
+			chart_price_range = 500.0
+			print("Using fallback price center/range")
+
+
+func handle_simple_drag(event: InputEventMouseMotion):
+	"""Handle simple chart panning"""
+	var drag_delta = event.position - drag_start_position
+
+	# Calculate how much to move based on current zoom level
+	var time_window = get_current_time_window()
+	var time_per_pixel = time_window / size.x
+	var price_per_pixel = chart_price_range / (size.y * 0.6)  # Chart area is 60% of height
+
+	# Move chart center (opposite direction of drag for natural feel)
+	var time_delta = drag_delta.x * time_per_pixel
+	var price_delta = drag_delta.y * price_per_pixel
+
+	chart_center_time -= time_delta  # Drag right = go back in time
+	chart_center_price += price_delta  # Drag up = see higher prices
+
+	# Clamp to reasonable limits
+	var current_time = Time.get_unix_time_from_system()
+	var max_history = get_max_historical_time()
+
+	chart_center_time = clamp(chart_center_time, max_history + time_window / 2, current_time)
+
+	# Reset drag start for smooth continuous dragging
+	drag_start_position = event.position
+
+	queue_redraw()
+
+
+func zoom_in_at_mouse(mouse_pos: Vector2):
+	"""Zoom in toward the mouse position"""
+	var old_zoom = zoom_level
+	zoom_level = min(zoom_level * zoom_sensitivity, max_zoom)
+
+	if zoom_level != old_zoom:
+		# Adjust chart center to zoom toward mouse position
+		adjust_center_for_zoom(mouse_pos, old_zoom, zoom_level)
+		queue_redraw()
+		print("Zoomed in to %.1fx at mouse position" % zoom_level)
+
+
+func zoom_out_at_mouse(mouse_pos: Vector2):
+	"""Zoom out from the mouse position"""
+	var old_zoom = zoom_level
+	zoom_level = max(zoom_level / zoom_sensitivity, min_zoom)
+
+	if zoom_level != old_zoom:
+		# Adjust chart center to zoom from mouse position
+		adjust_center_for_zoom(mouse_pos, old_zoom, zoom_level)
+		queue_redraw()
+		print("Zoomed out to %.1fx from mouse position" % zoom_level)
+
+
+func adjust_center_for_zoom(mouse_pos: Vector2, old_zoom: float, new_zoom: float):
+	"""Adjust chart center so zoom appears to happen at mouse position"""
+	# Calculate what time/price the mouse was pointing at before zoom
+	var mouse_time = get_time_at_pixel(mouse_pos.x)
+	var mouse_price = get_price_at_pixel(mouse_pos.y)
+
+	# Calculate zoom factor
+	var zoom_factor = new_zoom / old_zoom
+
+	# Adjust time center
+	var time_offset = mouse_time - chart_center_time
+	chart_center_time = mouse_time - (time_offset / zoom_factor)
+
+	# Adjust price center
+	var price_offset = mouse_price - chart_center_price
+	chart_center_price = mouse_price - (price_offset / zoom_factor)
+
+
 func check_point_hover(mouse_pos: Vector2):
-	"""Check if mouse is hovering over any data point, volume bar, or candlestick"""
+	"""Check if mouse is hovering over any data point, volume bar, or candlestick (simple drag system)"""
 	var old_hovered_index = hovered_point_index
 	var old_hovered_volume = hovered_volume_index
 	hovered_point_index = -1
@@ -126,14 +280,15 @@ func check_point_hover(mouse_pos: Vector2):
 
 	# Get zoom scaling for consistent hover detection
 	var scale_factors = get_zoom_scale_factor()
-	var scaled_hover_radius = max(point_hover_radius * scale_factors.point_scale, 6.0)  # Scale hover radius with zoom, minimum 6px
-	var scaled_candle_width = candle_width * scale_factors.volume_scale
+	var scaled_hover_radius = max(point_hover_radius * scale_factors.point_scale, 6.0)
 
-	# Use current zoom window
-	var current_time = Time.get_unix_time_from_system()
-	var time_window = get_current_time_window()
-	var window_start = current_time - time_window
-	var window_end = current_time
+	# Use new window bounds system
+	var bounds = get_current_window_bounds()
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
+	var price_range = max_price - min_price
 
 	# Get visible points and candlesticks
 	var visible_points = []
@@ -152,225 +307,122 @@ func check_point_hover(mouse_pos: Vector2):
 			queue_redraw()
 		return
 
-	# Sort and get actual data time range
+	# Sort data
 	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
-
-	var data_start_time = window_start
-	var data_end_time = window_end
-	var data_time_span = time_window
-
-	if visible_points.size() > 0:
-		data_start_time = visible_points[0].timestamp
-		data_end_time = visible_points[-1].timestamp
-		data_time_span = data_end_time - data_start_time
-
-		# Use the exact same logic as draw_price_line
-		if data_time_span < 60.0:
-			data_start_time = window_start
-			data_end_time = window_end
-			data_time_span = time_window
-
-	# Get visible price range
-	var price_info = get_visible_price_range()
-	var min_price = price_info.min_price
-	var max_price = price_info.max_price
-	var price_range = price_info.range
-
-	if price_range == 0:
-		price_range = max_price * 0.1
-		min_price = max_price - price_range / 2
-		max_price = max_price + price_range / 2
 
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
 
-	# # Check for candlestick hover first (highest priority)
-	# if visible_candles.size() > 0:
-	# 	for i in range(visible_candles.size()):
-	# 		var candle = visible_candles[i]
-	# 		var timestamp = candle.timestamp
+	# Moving average point hover detection
+	var closest_distance = scaled_hover_radius + 1
+	var closest_index = -1
 
-	# 		var time_progress = (timestamp - data_start_time) / data_time_span
-	# 		var x = time_progress * size.x
+	for i in range(visible_points.size()):
+		var point = visible_points[i]
+		var timestamp = point.timestamp
 
-	# 		var high_price = candle.get("high", 0.0)
-	# 		var low_price = candle.get("low", 0.0)
-	# 		var high_y = chart_y_offset + chart_height - ((high_price - min_price) / price_range * chart_height)
-	# 		var low_y = chart_y_offset + chart_height - ((low_price - min_price) / price_range * chart_height)
+		var time_progress = (timestamp - window_start) / (window_end - window_start)
+		var x = time_progress * size.x
 
-	# 		# Scale candlestick hover area with zoom
-	# 		var hover_width = max(scaled_candle_width * 1.5, 15.0)  # At least 15px, scales with zoom
-	# 		var candle_rect = Rect2(x - hover_width / 2, high_y, hover_width, low_y - high_y + 4)  # Add 4px vertical padding
+		var normalized_price = (point.price - min_price) / price_range
+		var y = chart_y_offset + chart_height * (1.0 - normalized_price)
 
-	# 		if candle_rect.has_point(mouse_pos):
-	# 			hovered_candlestick_index = i
-	# 			tooltip_position = mouse_pos
+		var point_pos = Vector2(x, y)
+		var distance = mouse_pos.distance_to(point_pos)
 
-	# 			var hours_ago = (current_time - timestamp) / 3600.0
-	# 			var time_text = format_time_ago(hours_ago)
+		if distance <= scaled_hover_radius and distance < closest_distance:
+			closest_distance = distance
+			closest_index = i
 
-	# 			var open_price = candle.get("open", 0.0)
-	# 			var close_price = candle.get("close", 0.0)
-	# 			var volume = candle.get("volume", 0)
+	if closest_index != -1:
+		hovered_point_index = closest_index
+		tooltip_position = mouse_pos
 
-	# 			# Calculate daily change
-	# 			var daily_change = close_price - open_price
-	# 			var daily_change_percent = (daily_change / open_price) * 100.0 if open_price > 0 else 0.0
-	# 			var change_sign = "+" if daily_change >= 0 else ""
+		# Use the visible point directly (not price_data array)
+		var point = visible_points[closest_index]
+		var current_time = Time.get_unix_time_from_system()
+		var hours_ago = (current_time - point.timestamp) / 3600.0
+		var time_text = format_time_ago(hours_ago)
 
-	# 			# Determine trend
-	# 			var trend_text = "Bullish" if daily_change > 0 else ("Bearish" if daily_change < 0 else "Neutral")
-	# 			var trend_color = "🟢" if daily_change > 0 else ("🔴" if daily_change < 0 else "⚪")
-
-	# 			tooltip_text = (
-	# 				"Daily Candlestick %s\n" % trend_color
-	# 				+ "Open: %s ISK\n" % format_price_label(open_price)
-	# 				+ "High: %s ISK\n" % format_price_label(high_price)
-	# 				+ "Low: %s ISK\n" % format_price_label(low_price)
-	# 				+ "Close: %s ISK\n" % format_price_label(close_price)
-	# 				+ "Range: %s ISK (%.1f%%)\n" % [format_price_label(high_price - low_price), ((high_price - low_price) / low_price) * 100.0 if low_price > 0 else 0.0]
-	# 				+ "Change: %s%s ISK (%.1f%%)\n" % [change_sign, format_price_label(abs(daily_change)), abs(daily_change_percent)]
-	# 				+ "Volume: %s\n" % format_number(volume)
-	# 				+ "Trend: %s\n" % trend_text
-	# 				+ "Time: %s" % time_text
-	# 			)
-	# 			break
-
-	# Volume bar hover check (second priority) - only if no candlestick hovered
-	if hovered_volume_index == -1:
-		var base_bar_width = 30.0 * scale_factors.volume_scale  # Use scaled bar width for hover detection
-		var volume_height_scale = size.y * 0.3
-
-		var historical_max = 0
-		var all_max = 0
+		# Find volume for this point by matching timestamp
+		var volume = 0
 		for i in range(min(volume_data.size(), price_data.size())):
-			var timestamp = price_data[i].timestamp
-			if timestamp >= window_start and timestamp <= window_end:
-				var volume = volume_data[i]
-				var is_historical = price_data[i].get("is_historical", false)
-
-				if volume > all_max:
-					all_max = volume
-				if is_historical and volume > historical_max:
-					historical_max = volume
-
-		var scaling_max = historical_max if historical_max > 0 else all_max
-		var volume_cap = scaling_max * 3
-
-		for i in range(min(volume_data.size(), price_data.size())):
-			var point = price_data[i]
-			var timestamp = point.timestamp
-
-			if timestamp < window_start or timestamp > window_end:
-				continue
-
-			var time_progress = (timestamp - data_start_time) / data_time_span
-			var x = time_progress * size.x
-			var volume = volume_data[i]
-			var is_historical = point.get("is_historical", false)
-
-			var display_volume = volume
-			if not is_historical and volume > volume_cap:
-				display_volume = volume_cap
-
-			var normalized_volume = float(display_volume) / scaling_max
-			var bar_height = normalized_volume * volume_height_scale
-
-			if bar_height < 1.0:
-				bar_height = 1.0
-
-			var max_bar_height = size.y * 0.15
-			if bar_height > max_bar_height:
-				bar_height = max_bar_height
-
-			var bar_y = size.y - bar_height
-			# Use scaled bar width for hover detection
-			var bar_rect = Rect2(x - base_bar_width / 2, bar_y, base_bar_width, bar_height)
-
-			if bar_rect.has_point(mouse_pos):
-				hovered_volume_index = i
-				tooltip_position = mouse_pos
-
-				var hours_ago = (current_time - timestamp) / 3600.0
-				var time_text = format_time_ago(hours_ago)
-				var data_type = "Historical" if is_historical else "Real-time"
-				var price = point.get("price", 0.0)
-
-				# Additional volume context
-				var volume_intensity = "Low"
-				if normalized_volume > 0.8:
-					volume_intensity = "Very High"
-				elif normalized_volume > 0.6:
-					volume_intensity = "High"
-				elif normalized_volume > 0.4:
-					volume_intensity = "Medium"
-				elif normalized_volume > 0.2:
-					volume_intensity = "Low"
-				else:
-					volume_intensity = "Very Low"
-
-				tooltip_text = (
-					"%s Volume Data\n" % data_type
-					+ "Volume: %s\n" % format_number(volume)
-					+ "Intensity: %s\n" % volume_intensity
-					+ "Price: %s ISK\n" % format_price_label(price)
-					+ "Time: %s" % time_text
-				)
+			if abs(price_data[i].timestamp - point.timestamp) < 1.0:
+				volume = volume_data[i]
 				break
 
-	# Moving average point hover (lowest priority) - only if nothing else hovered
-	# Use SCALED hover radius here for consistent detection
-	if hovered_volume_index == -1:
-		var closest_distance = scaled_hover_radius + 1  # Use scaled radius
-		var closest_index = -1
+		var raw_price = point.get("raw_price", point.price)
 
-		for i in range(visible_points.size()):
-			var point = visible_points[i]
-			var timestamp = point.timestamp
+		# Find corresponding candlestick data for high/low values
+		var high_low_text = ""
+		for candle in candlestick_data:
+			if abs(candle.timestamp - point.timestamp) < 86400:
+				var high_price = candle.get("high", 0.0)
+				var low_price = candle.get("low", 0.0)
+				if high_price > 0 and low_price > 0:
+					high_low_text = "High: %s ISK\nLow: %s ISK\n" % [format_price_label(high_price), format_price_label(low_price)]
+				break
 
-			var time_progress = (timestamp - data_start_time) / data_time_span
-			var x = time_progress * size.x
+		# Calculate trend using visible points
+		var trend_text = "Unknown"
+		var trend_emoji = "⚪"
 
-			var normalized_price = (point.price - min_price) / price_range
-			var y = chart_y_offset + chart_height * (1.0 - normalized_price)
+		if closest_index >= 4 and visible_points.size() >= 5:
+			var recent_prices = []
+			for j in range(max(0, closest_index - 4), closest_index + 1):
+				recent_prices.append(visible_points[j].price)
 
-			var point_pos = Vector2(x, y)
-			var distance = mouse_pos.distance_to(point_pos)
+			var price_changes = []
+			for j in range(1, recent_prices.size()):
+				price_changes.append(recent_prices[j] - recent_prices[j - 1])
 
-			# Use scaled hover radius for detection
-			if distance <= scaled_hover_radius and distance < closest_distance:
-				closest_distance = distance
-				closest_index = i
+			var avg_change = 0.0
+			for change in price_changes:
+				avg_change += change
+			avg_change = avg_change / price_changes.size()
 
-		if closest_index != -1:
-			hovered_point_index = closest_index
-			tooltip_position = mouse_pos
+			var positive_changes = 0
+			var negative_changes = 0
+			for change in price_changes:
+				if change > 0:
+					positive_changes += 1
+				elif change < 0:
+					negative_changes += 1
 
-			var point = visible_points[closest_index]
-			var hours_ago = (current_time - point.timestamp) / 3600.0
-			var time_text = format_time_ago(hours_ago)
-			var volume = volume_data[closest_index] if closest_index < volume_data.size() else 0
-			var raw_price = point.get("raw_price", point.price)
+			var trend_consistency = float(max(positive_changes, negative_changes)) / price_changes.size()
 
-			# Find corresponding candlestick data for high/low values
-			var high_low_text = ""
-			for candle in candlestick_data:
-				# Check if this candlestick is close in time to the current data point
-				if abs(candle.timestamp - point.timestamp) < 86400:  # Within 24 hours
-					var high_price = candle.get("high", 0.0)
-					var low_price = candle.get("low", 0.0)
-					if high_price > 0 and low_price > 0:
-						high_low_text = "High: %s ISK\nLow: %s ISK\n" % [format_price_label(high_price), format_price_label(low_price)]
-					break
+			var trend_strength = ""
+			if trend_consistency >= 0.8:
+				trend_strength = "Strong "
+			elif trend_consistency >= 0.6:
+				trend_strength = "Moderate "
+			else:
+				trend_strength = "Weak "
 
-			tooltip_text = (
-				"MA Price: %s ISK\n" % format_price_label(point.price)
-				+ "Raw Price: %s ISK\n" % format_price_label(raw_price)
-				+ high_low_text  # Add high/low info here
-				+ "Volume: %s\n" % format_number(volume)
-				+ "Time: %s" % time_text
-			)
+			if avg_change > 0.01 and trend_consistency >= 0.6:
+				trend_text = "%sRising" % trend_strength
+				trend_emoji = "📈"
+			elif avg_change < -0.01 and trend_consistency >= 0.6:
+				trend_text = "%sFalling" % trend_strength
+				trend_emoji = "📉"
+			else:
+				trend_text = "Sideways"
+				trend_emoji = "➡️"
+
+		elif closest_index > 0:
+			var prev_price = visible_points[closest_index - 1].price
+			if point.price > prev_price:
+				trend_text = "Rising"
+				trend_emoji = "📈"
+			elif point.price < prev_price:
+				trend_text = "Falling"
+				trend_emoji = "📉"
+			else:
+				trend_text = "Stable"
+				trend_emoji = "➡️"
+
+		tooltip_text = ("Price: %s ISK\n" % format_price_label(point.price) + high_low_text + "Volume: %s\n" % format_number(volume) + "Trend: %s\n" % trend_text + "Time: %s" % time_text)
 
 	# Redraw if hover state changed
 	if old_hovered_index != hovered_point_index or old_hovered_volume != hovered_volume_index:
@@ -385,13 +437,40 @@ func _draw():
 	draw_price_line()
 	draw_volume_bars()
 	draw_price_levels()
-	draw_zoom_indicator()  # Add this line
+	draw_zoom_indicator()
+	draw_drag_indicator()
 
 	# Only draw one type of tooltip at a time
 	if hovered_point_index != -1:
-		draw_tooltip()  # Priority: data point tooltip
+		draw_tooltip()
 	elif show_crosshair:
 		draw_crosshair()
+
+
+func draw_drag_indicator():
+	"""Show current chart position"""
+	var font = ThemeDB.fallback_font
+	var font_size = 10
+	var current_time = Time.get_unix_time_from_system()
+	var time_offset = current_time - chart_center_time
+
+	if abs(time_offset) > 300.0:  # More than 5 minutes offset
+		var hours_offset = time_offset / 3600.0
+		var days_offset = time_offset / 86400.0
+
+		var time_text = ""
+		if abs(days_offset) >= 1.0:
+			time_text = "%.1f days from now" % days_offset
+		else:
+			time_text = "%.1f hours from now" % hours_offset
+
+		var text_size = font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+		var padding = Vector2(8, 4)
+		var bg_rect = Rect2(Vector2(5, 5), Vector2(text_size.x + padding.x * 2, text_size.y + padding.y * 2))
+
+		draw_rect(bg_rect, Color(0.2, 0.15, 0.0, 0.9))
+		draw_rect(bg_rect, Color(0.5, 0.4, 0.2, 0.8), false, 1.0)
+		draw_string(font, Vector2(bg_rect.position.x + padding.x, bg_rect.position.y + padding.y + text_size.y), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.ORANGE)
 
 
 func draw_background():
@@ -636,180 +715,117 @@ func draw_time_grid_line(timestamp: float, data_start_time: float, data_time_spa
 
 # Modify the draw_price_line function (around line 200) to include candlestick drawing
 func draw_price_line():
-	print("=== DRAWING PRICE LINE WITH CANDLESTICKS ===")
-	print("Data points: %d, Candlestick data: %d, Time window: %.1f hours" % [price_data.size(), candlestick_data.size(), get_current_time_window() / 3600.0])
+	print("=== DRAWING PRICE LINE (SIMPLE DRAG) ===")
+	print("Price data size: %d, Candlestick data size: %d" % [price_data.size(), candlestick_data.size()])
+	print("Chart center time: %.0f, price: %.2f, range: %.2f" % [chart_center_time, chart_center_price, chart_price_range])
 
 	if price_data.size() < 1:
 		print("No price data to draw")
 		return
 
-	var current_time = Time.get_unix_time_from_system()
-	var time_window = get_current_time_window()
-	var window_start = current_time - time_window
-	var window_end = current_time
+	var bounds = get_current_window_bounds()
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
+	var price_range = max_price - min_price
 
-	# Get visible points and price range
+	print("Drawing bounds: time %.0f-%.0f, price %.2f-%.2f" % [window_start, window_end, min_price, max_price])
+
+	# Get visible data
 	var visible_points = []
 	var visible_candles = []
 
-	for i in range(price_data.size()):
-		var timestamp = price_data[i].timestamp
-		if timestamp >= window_start and timestamp <= window_end:
-			visible_points.append(price_data[i])
+	for point in price_data:
+		if point.timestamp >= window_start and point.timestamp <= window_end:
+			visible_points.append(point)
 
-	# Get visible candlestick data
-	for i in range(candlestick_data.size()):
-		var timestamp = candlestick_data[i].timestamp
-		if timestamp >= window_start and timestamp <= window_end:
-			visible_candles.append(candlestick_data[i])
+	for candle in candlestick_data:
+		if candle.timestamp >= window_start and candle.timestamp <= window_end:
+			visible_candles.append(candle)
+
+	print("Visible points: %d, Visible candles: %d" % [visible_points.size(), visible_candles.size()])
 
 	if visible_points.size() < 1:
-		print("No data points in current time window")
+		print("No visible points in current window")
 		return
 
-	# Use the same price range calculation as Y-axis labels
-	var price_info = get_visible_price_range()
-	var min_price = price_info.min_price
-	var max_price = price_info.max_price
-	var price_range = price_info.range
-
-	print("Visible points: %d, Visible candles: %d, Price range: %.2f - %.2f" % [visible_points.size(), visible_candles.size(), min_price, max_price])
-
-	var chart_height = size.y * 0.6
-	var chart_y_offset = size.y * 0.05
-	var points: PackedVector2Array = []
-
-	# Sort visible points by timestamp
 	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
-	# Find the actual data time range (not the window range)
-	var data_start_time = visible_points[0].timestamp
-	var data_end_time = visible_points[-1].timestamp
-	var data_time_span = data_end_time - data_start_time
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
 
-	# If we only have one point or very close times, use the full window
-	if data_time_span < 60.0:  # Less than 1 minute span
-		data_start_time = window_start
-		data_end_time = window_end
-		data_time_span = time_window
+	print("Chart dimensions: height %.1f, y_offset %.1f" % [chart_height, chart_y_offset])
 
-	# Draw candlesticks first (behind the moving average line)
+	# Draw candlesticks first
 	if show_candlesticks and visible_candles.size() > 0:
-		draw_candlesticks(visible_candles, data_start_time, data_time_span, min_price, price_range, chart_height, chart_y_offset)
+		print("Drawing %d candlesticks" % visible_candles.size())
+		draw_candlesticks_simple(visible_candles, window_start, window_end, min_price, price_range, chart_height, chart_y_offset)
 
-	# Create drawing points for moving average line using actual data range
+	# Draw moving average line
+	var points: PackedVector2Array = []
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
-
-		# X position: map timestamp to chart width using data span (not window span)
-		var time_progress = (point_data.timestamp - data_start_time) / data_time_span
+		var time_progress = (point_data.timestamp - window_start) / (window_end - window_start)
 		var x = time_progress * size.x
 
-		# Y position: map price to chart height using same range as Y-axis
 		var price_progress = (point_data.price - min_price) / price_range
 		var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
 		points.append(Vector2(x, y))
 
-	print("Generated %d drawing points for moving average" % points.size())
+		if i < 3:  # Debug first few points
+			print("Point %d: time %.0f, price %.2f -> x %.1f, y %.1f" % [i, point_data.timestamp, point_data.price, x, y])
 
-	# Draw moving average lines between consecutive data points
+	print("Generated %d drawing points" % points.size())
+
+	# Draw lines between points
 	for i in range(points.size() - 1):
 		var current_point_data = visible_points[i]
 		var next_point_data = visible_points[i + 1]
-
-		# Check if these are consecutive real data points
 		var time_diff = next_point_data.timestamp - current_point_data.timestamp
-		var is_real_connection = time_diff <= 31536000.0  # Within reasonable time gap
 
-		# Only draw connecting lines between real consecutive data points
-		if is_real_connection:
+		if time_diff <= 86400.0 * 2:  # Within 2 days
 			var current_is_historical = current_point_data.get("is_historical", false)
 			var next_is_historical = next_point_data.get("is_historical", false)
 
-			# Both points are historical = historical line
-			if current_is_historical and next_is_historical:
-				var line_color = Color(0.6, 0.8, 1.0, 0.6)  # More transparent since candlesticks show price
-				var line_width = 1.5
-				draw_line(points[i], points[i + 1], line_color, line_width, true)
-			# One or both are real-time = real-time line
-			else:
-				var line_color = Color.YELLOW
-				var line_width = 2.0
-				draw_line(points[i], points[i + 1], line_color, line_width, true)
+			var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
+			var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
+			draw_line(points[i], points[i + 1], line_color, line_width, true)
 
-	# Draw smaller data point circles for moving average (since candlesticks show actual price points)
+			if i < 3:  # Debug first few lines
+				print("Drew line %d: from (%.1f,%.1f) to (%.1f,%.1f) color %s" % [i, points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, line_color])
+
+	# Draw data points
 	for i in range(points.size()):
 		var point_data = visible_points[i]
 		var is_historical = point_data.get("is_historical", false)
 		var volume = point_data.get("volume", 0)
 
-		# Find original index for hover detection
-		var original_index = -1
-		for j in range(price_data.size()):
-			if price_data[j].timestamp == point_data.timestamp:
-				original_index = j
-				break
+		var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
+		var circle_radius = 3.0
 
-		var is_hovered = i == hovered_point_index
-
-		# Get zoom-based scaling
-		var scale_factors = get_zoom_scale_factor()
-		var base_point_scale = scale_factors.point_scale
-
-		# Smaller circles since candlesticks show the main price data
-		var circle_radius = (point_visual_radius * 0.7) * base_point_scale  # 70% of original size
-		var circle_color: Color
-		var outline_color = Color.WHITE
-		var outline_width = 1.0 * base_point_scale
-
-		# Different styling for moving average points
 		if volume > 0:
-			# Real data point - moving average indicator
-			circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
-		else:
-			# Gap fill / interpolated point
-			circle_color = Color(0.5, 0.5, 0.6, 0.6)
-			outline_color = Color.GRAY
+			draw_circle(points[i], circle_radius + 1.0, Color.WHITE, true)
+			draw_circle(points[i], circle_radius, circle_color, true)
 
-		# Highlight hovered point
-		if is_hovered:
-			circle_radius *= 1.5
-			outline_width = 1.5
-			outline_color = Color.CYAN
-
-		# Ensure minimum visibility
-		circle_radius = max(circle_radius, 2.0)
-		outline_width = max(outline_width, 0.5)
-
-		# Draw circle with outline
-		draw_circle(points[i], circle_radius + outline_width, outline_color, true)
-		draw_circle(points[i], circle_radius, circle_color, true)
-
-		# Inner highlight for real data only
-		if volume > 0 and (not is_historical or is_hovered):
-			var highlight_color = Color.WHITE
-			highlight_color.a = 0.4 if is_hovered else 0.2
-			draw_circle(points[i], circle_radius * 0.6, highlight_color, true)
+		if i < 3:  # Debug first few circles
+			print("Drew circle %d at (%.1f,%.1f) color %s" % [i, points[i].x, points[i].y, circle_color])
 
 
 # Add this new function after draw_price_line
-func draw_candlesticks(visible_candles: Array, data_start_time: float, data_time_span: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
-	"""Draw candlestick chart with wicks colored by day-to-day price movement"""
-	print("Drawing %d candlesticks with day-to-day colored wicks" % visible_candles.size())
-
-	# Get zoom scaling
+func draw_candlesticks_simple(visible_candles: Array, window_start: float, window_end: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
+	"""Draw candlesticks with simple positioning"""
 	var scale_factors = get_zoom_scale_factor()
 	var scaled_candle_width = candle_width * scale_factors.volume_scale
-	var scaled_wick_width = max(1.0, wick_width * scale_factors.volume_scale)
+	var scaled_wick_width = max(2.0, wick_width * scale_factors.volume_scale)
 
 	for i in range(visible_candles.size()):
 		var candle = visible_candles[i]
-		var timestamp = candle.timestamp
 
-		# Calculate X position using same method as price line
-		var time_progress = (timestamp - data_start_time) / data_time_span
+		# Calculate X position
+		var time_progress = (candle.timestamp - window_start) / (window_end - window_start)
 		var x = time_progress * size.x
 
 		# Get OHLC prices
@@ -827,86 +843,51 @@ func draw_candlesticks(visible_candles: Array, data_start_time: float, data_time
 		var low_y = chart_y_offset + chart_height - ((low_price - min_price) / price_range * chart_height)
 		var close_y = chart_y_offset + chart_height - ((close_price - min_price) / price_range * chart_height)
 
-		# Determine body color based on open vs close (same day)
+		# Determine colors (same logic as before)
 		var candle_color: Color
-		var price_diff = close_price - open_price
-
-		if price_diff > 0.01:  # Bullish same-day
-			candle_color = Color(0.1, 0.8, 0.1, 0.9)  # Green body
-		elif price_diff < -0.01:  # Bearish same-day
-			candle_color = Color(0.8, 0.1, 0.1, 0.9)  # Red body
-		else:  # Neutral/Doji same-day
-			candle_color = Color(0.6, 0.6, 0.6, 0.9)  # Gray body
-
-		# Determine wick color based on day-to-day movement (close vs previous day's close)
 		var wick_trend_color: Color
 		var previous_close = 0.0
-		var day_to_day_movement = ""
 
-		# Find previous day's closing price
 		if i > 0:
 			previous_close = visible_candles[i - 1].get("close", 0.0)
+
+		var day_change = close_price - previous_close if previous_close > 0 else 0.0
+
+		# Body color (open vs close)
+		var price_diff = close_price - open_price
+		if price_diff > 0.01:
+			candle_color = Color(0.1, 0.8, 0.1, 0.9)
+		elif price_diff < -0.01:
+			candle_color = Color(0.8, 0.1, 0.1, 0.9)
 		else:
-			# If this is the first candle, look in the full candlestick_data array
-			# Find the candle immediately before this one by timestamp
-			var current_timestamp = candle.timestamp
-			var previous_candle_data = null
-			var smallest_time_diff = 999999999.0
+			candle_color = Color(0.6, 0.6, 0.6, 0.9)
 
-			for other_candle in candlestick_data:
-				var time_diff = current_timestamp - other_candle.timestamp
-				if time_diff > 0 and time_diff < smallest_time_diff:
-					smallest_time_diff = time_diff
-					previous_candle_data = other_candle
-
-			if previous_candle_data:
-				previous_close = previous_candle_data.get("close", 0.0)
-
-		# Compare today's close with previous day's close
-		if previous_close > 0:
-			var day_change = close_price - previous_close
-			if day_change > 0.01:
-				# Close price HIGHER than previous day = GREEN wicks
-				wick_trend_color = Color(0.0, 0.9, 0.0, 1.0)
-				day_to_day_movement = "UP"
-				print("Candle %d: Close %.2f > Prev Close %.2f = GREEN wicks (UP)" % [i, close_price, previous_close])
-			elif day_change < -0.01:
-				# Close price LOWER than previous day = RED wicks
-				wick_trend_color = Color(0.9, 0.0, 0.0, 1.0)
-				day_to_day_movement = "DOWN"
-				print("Candle %d: Close %.2f < Prev Close %.2f = RED wicks (DOWN)" % [i, close_price, previous_close])
-			else:
-				# Close price SAME as previous day = GRAY wicks
-				wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)
-				day_to_day_movement = "FLAT"
-				print("Candle %d: Close %.2f ≈ Prev Close %.2f = GRAY wicks (FLAT)" % [i, close_price, previous_close])
+		# Wick color (day-to-day movement)
+		if day_change > 0.01:
+			wick_trend_color = Color(0.0, 0.9, 0.0, 1.0)  # Green wicks
+		elif day_change < -0.01:
+			wick_trend_color = Color(0.9, 0.0, 0.0, 1.0)  # Red wicks
 		else:
-			# No previous day data = default GRAY wicks
-			wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)
-			day_to_day_movement = "NO_PREV"
-			print("Candle %d: No previous close data = GRAY wicks" % i)
+			wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)  # Gray wicks
 
-		# Draw the body first
+		# Draw the candlestick
 		var body_top = min(open_y, close_y)
 		var body_bottom = max(open_y, close_y)
 		var body_height = max(body_bottom - body_top, 3.0)
-		var body_rect = Rect2(x - scaled_candle_width / 2, body_top, scaled_candle_width, body_height)
 
+		# Draw body
+		var body_rect = Rect2(x - scaled_candle_width / 2, body_top, scaled_candle_width, body_height)
 		draw_rect(body_rect, candle_color, true)
 
-		# Draw HIGH wick with day-to-day trend color (from high to top of body)
+		# Draw wicks
 		if high_y < body_top:
 			draw_line(Vector2(x, high_y), Vector2(x, body_top), wick_trend_color, scaled_wick_width, false)
-
-		# Draw LOW wick with day-to-day trend color (from bottom of body to low)
 		if low_y > body_bottom:
 			draw_line(Vector2(x, body_bottom), Vector2(x, low_y), wick_trend_color, scaled_wick_width, false)
 
-		# Add border to body
+		# Draw border
 		var border_color = wick_trend_color.darkened(0.3)
 		draw_rect(body_rect, border_color, false, 1.0)
-
-		print("Candle %d: Drew %s wicks based on day-to-day movement" % [i, day_to_day_movement])
 
 
 # Modify draw_volume_bars to maintain consistent bar width
@@ -1140,128 +1121,85 @@ func draw_price_levels():
 
 
 func draw_y_axis_labels():
-	"""Draw price labels for currently visible price range in time window"""
-	var price_info = get_visible_price_range()
-
-	if price_info.count == 0:
-		print("No visible prices in current time window for Y-axis labels")
-		return
-
-	var min_price = price_info.min_price
-	var max_price = price_info.max_price
-	var price_range = price_info.range
-
-	print("Y-axis labels: visible price range %.2f - %.2f (from %d points)" % [min_price, max_price, price_info.count])
+	"""Draw price labels for current view"""
+	var bounds = get_current_window_bounds()
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
+	var price_range = max_price - min_price
 
 	var font_size = 10
-	var grid_divisions = 3  # Match grid line count
+	var grid_divisions = 4
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
 
-	# Draw price labels for the visible range
 	for i in range(grid_divisions + 1):
 		var ratio = float(i) / grid_divisions
-		# Map from top to bottom (highest price at top)
 		var price_value = max_price - (ratio * price_range)
 		var y_pos = chart_y_offset + (ratio * chart_height)
 
-		# Format price based on magnitude
 		var price_text = format_price_label(price_value)
-
-		# Draw price label aligned with grid line
 		var text_size = chart_font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 		draw_string(chart_font, Vector2(4, y_pos + text_size.y / 2 - 2), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
 
 
 func draw_x_axis_labels():
-	"""Draw time labels aligned with Eve Online daily boundaries (11:00 UTC)"""
+	"""Draw time labels aligned with Eve Online daily boundaries (simple drag system)"""
 	var font_size = 9
-	var current_time = Time.get_unix_time_from_system()
-	var time_window = get_current_time_window()
+	var bounds = get_current_window_bounds()
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+	var time_window = window_end - window_start
 	var window_days = time_window / 86400.0
 
-	# Get actual data range for consistent scaling with chart
-	var data_start_time = current_time - time_window
-	var data_end_time = current_time
-	var data_time_span = time_window
-
-	# Adjust for actual data range if we have data
-	if price_data.size() > 0:
-		var visible_points = []
-		for point in price_data:
-			if point.timestamp >= data_start_time and point.timestamp <= data_end_time:
-				visible_points.append(point)
-
-		if visible_points.size() > 0:
-			visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
-			var actual_start = visible_points[0].timestamp
-			var actual_end = visible_points[-1].timestamp
-			var actual_span = actual_end - actual_start
-
-			# Use actual data range if it spans more than 1 minute
-			if actual_span > 60.0:
-				data_start_time = actual_start
-				data_end_time = actual_end
-				data_time_span = actual_span
-
-	# Determine label interval and format based on zoom level
+	# Determine label interval based on zoom level
 	var label_interval_seconds: float
 	var label_format_type: String
 
 	if window_days <= 1:
-		# Very zoomed in (≤1 day): Show every 6 hours
 		label_interval_seconds = 21600.0  # 6 hours
 		label_format_type = "time"
 	elif window_days <= 7:
-		# Zoomed in (≤1 week): Show daily labels
-		label_interval_seconds = 86400.0  # 24 hours = 1 day
+		label_interval_seconds = 86400.0  # 1 day
 		label_format_type = "daily"
 	elif window_days <= 30:
-		# Medium zoom (≤1 month): Show every 3 days
 		label_interval_seconds = 259200.0  # 3 days
 		label_format_type = "multi_day"
 	elif window_days <= 90:
-		# Zoomed out (≤3 months): Show weekly
-		label_interval_seconds = 604800.0  # 7 days = 1 week
+		label_interval_seconds = 604800.0  # 1 week
 		label_format_type = "weekly"
 	else:
-		# Far zoom (>3 months): Show monthly
-		label_interval_seconds = 2592000.0  # 30 days = ~1 month
+		label_interval_seconds = 2592000.0  # 1 month
 		label_format_type = "monthly"
 
 	# Find the most recent Eve downtime as anchor
+	var current_time = Time.get_unix_time_from_system()
 	var eve_downtime_anchor = find_most_recent_eve_downtime(current_time)
 
-	# Generate labels working backwards from anchor
+	# Generate labels
 	var labels_drawn = 0
-	var max_labels = 8  # Prevent overcrowding
+	var max_labels = 8
 	var chart_bottom = size.y * 0.7
 
-	# Start from anchor and work backwards in time
 	var label_timestamp = eve_downtime_anchor
-	while label_timestamp >= data_start_time and labels_drawn < max_labels:
-		if label_timestamp <= data_end_time:
-			draw_x_axis_label_at_timestamp(label_timestamp, data_start_time, data_time_span, chart_bottom, label_format_type, font_size)
+	while label_timestamp >= window_start and labels_drawn < max_labels:
+		if label_timestamp <= window_end:
+			draw_x_axis_label_at_timestamp(label_timestamp, window_start, window_end, chart_bottom, label_format_type, font_size)
 			labels_drawn += 1
 		label_timestamp -= label_interval_seconds
 
-	# Draw labels going forward in time
 	label_timestamp = eve_downtime_anchor + label_interval_seconds
-	while label_timestamp <= data_end_time and labels_drawn < max_labels:
-		if label_timestamp >= data_start_time:
-			draw_x_axis_label_at_timestamp(label_timestamp, data_start_time, data_time_span, chart_bottom, label_format_type, font_size)
+	while label_timestamp <= window_end and labels_drawn < max_labels:
+		if label_timestamp >= window_start:
+			draw_x_axis_label_at_timestamp(label_timestamp, window_start, window_end, chart_bottom, label_format_type, font_size)
 			labels_drawn += 1
 		label_timestamp += label_interval_seconds
 
-	print("Drew %d X-axis labels (%s format)" % [labels_drawn, label_format_type])
 
-
-func draw_x_axis_label_at_timestamp(timestamp: float, data_start_time: float, data_time_span: float, chart_bottom: float, format_type: String, font_size: int):
+func draw_x_axis_label_at_timestamp(timestamp: float, window_start: float, window_end: float, chart_bottom: float, format_type: String, font_size: int):
 	"""Draw a single X-axis label at the specified timestamp"""
-	var time_progress = (timestamp - data_start_time) / data_time_span
+	var time_progress = (timestamp - window_start) / (window_end - window_start)
 	var x_pos = time_progress * size.x
 
-	# Only draw if the label position is within the visible chart area
 	if x_pos < 0 or x_pos > size.x:
 		return
 
@@ -1269,7 +1207,6 @@ func draw_x_axis_label_at_timestamp(timestamp: float, data_start_time: float, da
 	var text_size = chart_font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 	var label_x = x_pos - text_size.x / 2
 
-	# Ensure label doesn't go off screen
 	label_x = max(0, min(label_x, size.x - text_size.x))
 
 	draw_string(chart_font, Vector2(label_x, chart_bottom + text_size.y + 4), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
@@ -1737,6 +1674,9 @@ func add_data_point(price: float, volume: int, time_label: String = ""):
 	if price_data.size() % 10 == 0:  # Update every 10 data points
 		update_price_levels()
 
+	if price_data.size() == 1:  # First data point
+		initialize_price_center()
+
 	queue_redraw()
 
 
@@ -1792,6 +1732,9 @@ func add_historical_data_point(price: float, volume: int, timestamp: float):
 	price_data.append(data_point)
 	volume_data.append(volume)
 	time_labels.append(data_point.time_label)
+
+	if price_data.size() % 10 == 0:  # Every 10 points, update center
+		initialize_price_center()
 
 	print("  ACCEPTED: Added historical point. Total: %d" % price_data.size())
 
@@ -2081,6 +2024,39 @@ func get_current_time_window() -> float:
 	return base_time_window / zoom_level
 
 
+func get_time_at_pixel(x_pixel: float) -> float:
+	"""Get the timestamp at a specific pixel position"""
+	var time_window = get_current_time_window()
+	var progress = x_pixel / size.x
+	return chart_center_time - (time_window / 2.0) + (progress * time_window)
+
+
+func get_price_at_pixel(y_pixel: float) -> float:
+	"""Get the price at a specific pixel position"""
+	var chart_height = size.y * 0.6
+	var chart_y_offset = size.y * 0.05
+	var relative_y = y_pixel - chart_y_offset
+	var progress = 1.0 - (relative_y / chart_height)  # Invert Y (top = high price)
+
+	var half_range = chart_price_range / 2.0
+	return chart_center_price - half_range + (progress * chart_price_range)
+
+
+func get_max_historical_time() -> float:
+	"""Get the earliest timestamp from available data"""
+	var earliest = Time.get_unix_time_from_system()
+
+	for point in price_data:
+		if point.timestamp < earliest:
+			earliest = point.timestamp
+
+	for candle in candlestick_data:
+		if candle.timestamp < earliest:
+			earliest = candle.timestamp
+
+	return earliest
+
+
 func get_day_progress() -> float:
 	"""Get progress through current day (0.0 to 1.0)"""
 	var current_time = Time.get_unix_time_from_system()
@@ -2167,6 +2143,15 @@ func on_zoom_changed():
 	queue_redraw()
 
 
+func reset_to_current():
+	"""Reset chart to current time and auto-fit price"""
+	chart_center_time = Time.get_unix_time_from_system()
+	zoom_level = 1.0
+	initialize_price_center()
+	queue_redraw()
+	print("Reset to current time and auto price range")
+
+
 func get_zoom_scale_factor() -> Dictionary:
 	"""Calculate scale factors based on current zoom level with better point scaling"""
 	var zoom_ratio = zoom_level / max_zoom  # 0.0 (zoomed out) to 1.0 (zoomed in)
@@ -2180,6 +2165,18 @@ func get_zoom_scale_factor() -> Dictionary:
 	var volume_scale = lerp(0.1, 1.2, zoom_ratio)  # 10% to 120% width
 
 	return {"point_scale": point_scale, "volume_scale": volume_scale, "zoom_ratio": zoom_ratio}
+
+
+func get_current_window_bounds() -> Dictionary:
+	"""Get the current time and price window bounds"""
+	var time_window = get_current_time_window()
+	var half_time = time_window / 2.0
+	var half_price = chart_price_range / 2.0
+
+	var bounds = {"time_start": chart_center_time - half_time, "time_end": chart_center_time + half_time, "price_min": chart_center_price - half_price, "price_max": chart_center_price + half_price}
+
+	print("Window bounds: time %.0f-%.0f, price %.2f-%.2f" % [bounds.time_start, bounds.time_end, bounds.price_min, bounds.price_max])
+	return bounds
 
 
 func cleanup_old_data():
