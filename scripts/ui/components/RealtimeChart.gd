@@ -202,14 +202,14 @@ func handle_simple_drag(event: InputEventMouseMotion):
 	# Calculate how much to move based on current zoom level
 	var time_window = get_current_time_window()
 	var time_per_pixel = time_window / size.x
-	var price_per_pixel = chart_price_range / (size.y * 0.6)  # Chart area is 60% of height
+	var price_per_pixel = chart_price_range / (size.y * 0.6)
 
 	# Move chart center (opposite direction of drag for natural feel)
 	var time_delta = drag_delta.x * time_per_pixel
 	var price_delta = drag_delta.y * price_per_pixel
 
-	chart_center_time -= time_delta  # Drag right = go back in time
-	chart_center_price += price_delta  # Drag up = see higher prices
+	chart_center_time -= time_delta
+	chart_center_price += price_delta  # This affects Y-axis labels
 
 	# Clamp to reasonable limits
 	var current_time = Time.get_unix_time_from_system()
@@ -220,7 +220,7 @@ func handle_simple_drag(event: InputEventMouseMotion):
 	# Reset drag start for smooth continuous dragging
 	drag_start_position = event.position
 
-	queue_redraw()
+	queue_redraw()  # This will redraw Y-axis labels with new price center
 
 
 func zoom_in_at_mouse(mouse_pos: Vector2):
@@ -231,7 +231,7 @@ func zoom_in_at_mouse(mouse_pos: Vector2):
 	if zoom_level != old_zoom:
 		# Adjust chart center to zoom toward mouse position
 		adjust_center_for_zoom(mouse_pos, old_zoom, zoom_level)
-		queue_redraw()
+		queue_redraw()  # This will redraw grid with new zoom level
 		print("Zoomed in to %.1fx at mouse position" % zoom_level)
 
 
@@ -243,7 +243,7 @@ func zoom_out_at_mouse(mouse_pos: Vector2):
 	if zoom_level != old_zoom:
 		# Adjust chart center to zoom from mouse position
 		adjust_center_for_zoom(mouse_pos, old_zoom, zoom_level)
-		queue_redraw()
+		queue_redraw()  # This will redraw grid with new zoom level
 		print("Zoomed out to %.1fx from mouse position" % zoom_level)
 
 
@@ -260,9 +260,12 @@ func adjust_center_for_zoom(mouse_pos: Vector2, old_zoom: float, new_zoom: float
 	var time_offset = mouse_time - chart_center_time
 	chart_center_time = mouse_time - (time_offset / zoom_factor)
 
-	# Adjust price center
+	# Adjust price center (this affects Y-axis labels)
 	var price_offset = mouse_price - chart_center_price
 	chart_center_price = mouse_price - (price_offset / zoom_factor)
+
+	# Also adjust price range for zoom
+	chart_price_range = chart_price_range / zoom_factor
 
 
 func check_point_hover(mouse_pos: Vector2):
@@ -573,109 +576,168 @@ func draw_tooltip():
 
 
 func draw_grid():
-	"""Draw intelligent grid lines that scale with zoom and align with Eve Online daily boundaries"""
+	"""Draw intelligent grid lines that scale with zoom and align with current view"""
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
 
-	# Draw horizontal price grid lines (static)
-	var grid_divisions_y = 4  # Keep price grid consistent
-	for i in range(grid_divisions_y + 1):
-		var y = chart_y_offset + (float(i) / grid_divisions_y) * chart_height
-		draw_line(Vector2(0, y), Vector2(size.x, y), grid_color, 1.0)
+	# Draw horizontal price grid lines (dynamic based on current view)
+	draw_price_grid_lines(chart_height, chart_y_offset)
 
-	# Draw intelligent time-based vertical grid lines
+	# Draw intelligent time-based vertical grid lines (dynamic based on current view)
 	draw_time_grid_lines()
 
 
-func draw_time_grid_lines():
-	"""Draw vertical grid lines aligned with Eve Online daily boundaries (11:00 UTC)"""
-	var current_time = Time.get_unix_time_from_system()
-	var time_window = get_current_time_window()
-	var window_days = time_window / 86400.0  # Convert to days
+func draw_price_grid_lines(chart_height: float, chart_y_offset: float):
+	"""Draw horizontal grid lines based on current price range"""
+	var bounds = get_current_window_bounds()
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
+	var price_range = max_price - min_price
 
-	# Determine appropriate grid interval based on zoom level
+	if price_range <= 0:
+		return
+
+	# Determine appropriate price grid interval
+	var price_interval = calculate_price_grid_interval(price_range)
+
+	# Find the first grid line (round down to nearest interval)
+	var first_price = floor(min_price / price_interval) * price_interval
+
+	# Draw grid lines
+	var current_price = first_price
+	var lines_drawn = 0
+	var max_lines = 20  # Prevent too many lines
+
+	while current_price <= max_price and lines_drawn < max_lines:
+		if current_price >= min_price:
+			var price_progress = (current_price - min_price) / price_range
+			var y = chart_y_offset + chart_height - (price_progress * chart_height)
+
+			# Use slightly brighter lines for major price levels
+			var is_major = is_major_price_level(current_price, price_interval)
+			var line_color = grid_color.lightened(0.2) if is_major else grid_color
+			var line_width = 1.5 if is_major else 1.0
+
+			draw_line(Vector2(0, y), Vector2(size.x, y), line_color, line_width)
+			lines_drawn += 1
+
+		current_price += price_interval
+
+
+func calculate_price_grid_interval(price_range: float) -> float:
+	"""Calculate appropriate price grid interval based on current range"""
+	# Target around 4-8 grid lines for good readability
+	var target_lines = 6.0
+	var raw_interval = price_range / target_lines
+
+	# Round to nice numbers
+	var magnitude = pow(10, floor(log(raw_interval) / log(10)))
+	var normalized = raw_interval / magnitude
+
+	var nice_interval = magnitude
+	if normalized <= 1.0:
+		nice_interval = magnitude
+	elif normalized <= 2.0:
+		nice_interval = magnitude * 2.0
+	elif normalized <= 5.0:
+		nice_interval = magnitude * 5.0
+	else:
+		nice_interval = magnitude * 10.0
+
+	# Ensure minimum interval to prevent too many labels
+	var min_interval = price_range / 10.0  # Maximum 10 lines
+	nice_interval = max(nice_interval, min_interval)
+
+	return nice_interval
+
+
+func is_major_price_level(price: float, interval: float) -> bool:
+	"""Check if this is a major price level (for emphasized labels)"""
+	# Consider every 5th interval as major, or round numbers
+	var major_interval = interval * 5.0
+	var is_major_multiple = abs(fmod(price, major_interval)) < (interval * 0.01)
+
+	# Also consider "round" numbers as major based on magnitude
+	var magnitude = pow(10, floor(log(price) / log(10)))
+	var normalized_price = price / magnitude
+	var is_round_number = normalized_price == 1.0 or normalized_price == 2.0 or normalized_price == 5.0
+
+	return is_major_multiple or is_round_number
+
+
+func draw_time_grid_lines():
+	"""Draw vertical grid lines aligned with current time view"""
+	var bounds = get_current_window_bounds()
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+	var time_window = window_end - window_start
+	var window_days = time_window / 86400.0
+
+	# Determine appropriate grid interval based on current zoom level
 	var grid_interval_seconds: float
-	var grid_label_format: String
 
 	if window_days <= 2:
 		# Very zoomed in (≤2 days): Show 6-hour intervals
 		grid_interval_seconds = 21600.0  # 6 hours
-		grid_label_format = "6h"
 	elif window_days <= 7:
 		# Zoomed in (≤1 week): Show daily intervals
 		grid_interval_seconds = 86400.0  # 24 hours = 1 day
-		grid_label_format = "daily"
 	elif window_days <= 30:
 		# Medium zoom (≤1 month): Show every 3 days
 		grid_interval_seconds = 259200.0  # 3 days
-		grid_label_format = "3day"
 	elif window_days <= 90:
 		# Zoomed out (≤3 months): Show weekly intervals
 		grid_interval_seconds = 604800.0  # 7 days = 1 week
-		grid_label_format = "weekly"
 	elif window_days <= 365:
 		# Far zoom (≤1 year): Show monthly intervals (~30 days)
 		grid_interval_seconds = 2592000.0  # 30 days = ~1 month
-		grid_label_format = "monthly"
 	else:
 		# Maximum zoom (>1 year): Show quarterly intervals
 		grid_interval_seconds = 7776000.0  # 90 days = ~1 quarter
-		grid_label_format = "quarterly"
 
-	# Find the most recent Eve downtime (11:00 UTC) as our anchor point
-	var eve_downtime_anchor = find_most_recent_eve_downtime(current_time)
+	# Find appropriate starting point aligned to Eve downtime
+	var eve_anchor = find_aligned_eve_time(window_start, grid_interval_seconds)
 
-	# Calculate grid lines working backwards from the anchor
-	var window_start = current_time - time_window
-	var window_end = current_time
+	# Draw grid lines
+	var current_time = eve_anchor
+	var lines_drawn = 0
+	var max_lines = 20
 
-	# Get actual data range for consistent scaling with chart
-	var data_start_time = window_start
-	var data_end_time = window_end
-	var data_time_span = time_window
+	while current_time <= window_end and lines_drawn < max_lines:
+		if current_time >= window_start:
+			var time_progress = (current_time - window_start) / time_window
+			var x = time_progress * size.x
 
-	# Adjust for actual data range if we have data
-	if price_data.size() > 0:
-		var visible_points = []
-		for point in price_data:
-			if point.timestamp >= window_start and point.timestamp <= window_end:
-				visible_points.append(point)
+			# Only draw if within chart bounds
+			if x >= 0 and x <= size.x:
+				# Check if this is a daily boundary (11:00 UTC) for emphasis
+				var datetime = Time.get_datetime_dict_from_unix_time(current_time)
+				var is_daily_boundary = datetime.hour == 11 and datetime.minute == 0
 
-		if visible_points.size() > 0:
-			visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
-			var actual_start = visible_points[0].timestamp
-			var actual_end = visible_points[-1].timestamp
-			var actual_span = actual_end - actual_start
+				var line_color = grid_color.lightened(0.3) if is_daily_boundary else grid_color
+				var line_width = 1.5 if is_daily_boundary else 1.0
 
-			# Use actual data range if it spans more than 1 minute
-			if actual_span > 60.0:
-				data_start_time = actual_start
-				data_end_time = actual_end
-				data_time_span = actual_span
+				draw_line(Vector2(x, 0), Vector2(x, size.y * 0.8), line_color, line_width)
+				lines_drawn += 1
 
-	# Generate grid lines
-	var grid_lines_drawn = 0
-	var max_grid_lines = 20  # Prevent too many lines
+		current_time += grid_interval_seconds
 
-	# Start from the anchor and work backwards and forwards
-	var line_timestamp = eve_downtime_anchor
 
-	# Draw lines going backwards in time
-	while line_timestamp >= data_start_time and grid_lines_drawn < max_grid_lines:
-		if line_timestamp <= data_end_time:
-			draw_time_grid_line(line_timestamp, data_start_time, data_time_span)
-			grid_lines_drawn += 1
-		line_timestamp -= grid_interval_seconds
+func find_aligned_eve_time(start_time: float, interval_seconds: float) -> float:
+	"""Find the first grid line aligned to Eve time boundaries"""
+	var current_time = Time.get_unix_time_from_system()
+	var eve_downtime = find_most_recent_eve_downtime(current_time)
 
-	# Reset and draw lines going forwards in time
-	line_timestamp = eve_downtime_anchor + grid_interval_seconds
-	while line_timestamp <= data_end_time and grid_lines_drawn < max_grid_lines:
-		if line_timestamp >= data_start_time:
-			draw_time_grid_line(line_timestamp, data_start_time, data_time_span)
-			grid_lines_drawn += 1
-		line_timestamp += grid_interval_seconds
+	# Work backwards from Eve downtime to find the first line before start_time
+	var aligned_time = eve_downtime
+	while aligned_time > start_time:
+		aligned_time -= interval_seconds
 
-	print("Drew %d %s grid lines aligned with Eve downtime" % [grid_lines_drawn, grid_label_format])
+	# Move forward to first line at or after start_time
+	while aligned_time < start_time:
+		aligned_time += interval_seconds
+
+	return aligned_time
 
 
 func find_most_recent_eve_downtime(current_time: float) -> float:
@@ -1121,25 +1183,55 @@ func draw_price_levels():
 
 
 func draw_y_axis_labels():
-	"""Draw price labels for current view"""
+	"""Draw price labels aligned with dynamic price grid lines"""
 	var bounds = get_current_window_bounds()
 	var min_price = bounds.price_min
 	var max_price = bounds.price_max
 	var price_range = max_price - min_price
 
-	var font_size = 10
-	var grid_divisions = 4
+	if price_range <= 0:
+		print("Invalid price range for Y-axis labels")
+		return
+
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
+	var font_size = 10
 
-	for i in range(grid_divisions + 1):
-		var ratio = float(i) / grid_divisions
-		var price_value = max_price - (ratio * price_range)
-		var y_pos = chart_y_offset + (ratio * chart_height)
+	# Use the same price interval calculation as the grid
+	var price_interval = calculate_price_grid_interval(price_range)
 
-		var price_text = format_price_label(price_value)
-		var text_size = chart_font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-		draw_string(chart_font, Vector2(4, y_pos + text_size.y / 2 - 2), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
+	# Find the first label price (round down to nearest interval)
+	var first_price = floor(min_price / price_interval) * price_interval
+
+	# Draw labels at the same positions as grid lines
+	var current_price = first_price
+	var labels_drawn = 0
+	var max_labels = 20  # Prevent too many labels
+
+	while current_price <= max_price and labels_drawn < max_labels:
+		if current_price >= min_price:
+			# Calculate Y position (same logic as grid lines)
+			var price_progress = (current_price - min_price) / price_range
+			var y_pos = chart_y_offset + chart_height - (price_progress * chart_height)
+
+			# Format price based on magnitude and make it readable
+			var price_text = format_price_label_for_axis(current_price)
+
+			# Check if this is a major price level for styling
+			var is_major = is_major_price_level(current_price, price_interval)
+			var text_color = axis_label_color.lightened(0.2) if is_major else axis_label_color
+			var actual_font_size = font_size + (1 if is_major else 0)
+
+			# Draw price label
+			var text_size = chart_font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, actual_font_size)
+			var label_y = y_pos + text_size.y / 2 - 2  # Center vertically on grid line
+
+			draw_string(chart_font, Vector2(4, label_y), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, actual_font_size, text_color)
+			labels_drawn += 1
+
+		current_price += price_interval
+
+	print("Drew %d Y-axis labels with interval %.2f" % [labels_drawn, price_interval])
 
 
 func draw_x_axis_labels():
@@ -1210,6 +1302,24 @@ func draw_x_axis_label_at_timestamp(timestamp: float, window_start: float, windo
 	label_x = max(0, min(label_x, size.x - text_size.x))
 
 	draw_string(chart_font, Vector2(label_x, chart_bottom + text_size.y + 4), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
+
+
+func format_price_label_for_axis(price: float) -> String:
+	"""Format price labels specifically for Y-axis (more compact than tooltips)"""
+	if price >= 1000000000:
+		return "%.1fB" % (price / 1000000000.0)
+	elif price >= 1000000:
+		return "%.1fM" % (price / 1000000.0)
+	elif price >= 1000:
+		return "%.1fK" % (price / 1000.0)
+	elif price >= 100:
+		return "%.0f" % price
+	elif price >= 10:
+		return "%.1f" % price
+	elif price >= 1:
+		return "%.2f" % price
+	else:
+		return "%.3f" % price
 
 
 func format_eve_time_label(timestamp: float, format_type: String) -> String:
@@ -1810,6 +1920,7 @@ func finish_historical_data_load():
 			print("  Point %d: %.1fh ago, price=%.2f, vol=%d, historical=%s" % [i, hours_ago, point.price, volume_data[i], point.get("is_historical", false)])
 
 	print("Final: %d historical, %d realtime" % [historical_count, realtime_count])
+	initialize_price_center()
 	queue_redraw()
 
 
