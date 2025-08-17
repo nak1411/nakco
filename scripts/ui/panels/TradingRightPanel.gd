@@ -557,7 +557,7 @@ func load_historical_chart_data(history_data: Dictionary):
 	# Create both moving average points AND candlestick data
 	for entry_info in valid_entries:
 		var entry = entry_info.data
-		var day_timestamp = entry_info.timestamp + 43200.0  # Noon of that day
+		var day_timestamp = entry_info.timestamp  # 11:00 UTC Eve Time
 
 		# Use REAL data from EVE API
 		var real_avg_price = entry.get("average", 0.0)
@@ -593,7 +593,7 @@ func load_historical_chart_data(history_data: Dictionary):
 
 
 func parse_eve_date(date_str: String) -> float:
-	"""Parse EVE date format (YYYY-MM-DD) to unix timestamp"""
+	"""Parse EVE date format (YYYY-MM-DD) to unix timestamp at 11:00 UTC (Eve downtime)"""
 	var parts = date_str.split("-")
 	if parts.size() != 3:
 		print("Invalid date format: %s" % date_str)
@@ -608,10 +608,11 @@ func parse_eve_date(date_str: String) -> float:
 		print("Invalid date components: %d-%d-%d" % [year, month, day])
 		return 0.0
 
-	var datetime = {"year": year, "month": month, "day": day, "hour": 12, "minute": 0, "second": 0}  # Noon UTC
+	# Set to 11:00 UTC - Eve Online's daily downtime/reset time
+	var datetime = {"year": year, "month": month, "day": day, "hour": 11, "minute": 0, "second": 0}
 
 	var timestamp = Time.get_unix_time_from_datetime_dict(datetime)
-	print("Parsed '%s' to timestamp %f (%s)" % [date_str, timestamp, Time.get_datetime_string_from_unix_time(timestamp)])
+	print("Parsed '%s' to EVE downtime timestamp %f (%s)" % [date_str, timestamp, Time.get_datetime_string_from_unix_time(timestamp)])
 	return timestamp
 
 

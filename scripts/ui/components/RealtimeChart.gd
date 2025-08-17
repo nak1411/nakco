@@ -494,22 +494,144 @@ func draw_tooltip():
 
 
 func draw_grid():
-	# Get consistent divisions that match the axis labels
-	var grid_divisions_x = 6  # Match X-axis label count
-	var grid_divisions_y = 3  # Match Y-axis label count
-
+	"""Draw intelligent grid lines that scale with zoom and align with Eve Online daily boundaries"""
 	var chart_height = size.y * 0.6
 	var chart_y_offset = size.y * 0.05
 
-	# Vertical grid lines (time) - aligned with X-axis labels
-	for i in range(grid_divisions_x + 1):
-		var x = (float(i) / grid_divisions_x) * size.x
-		draw_line(Vector2(x, 0), Vector2(x, size.y * 0.8), grid_color, 1.0)
-
-	# Horizontal grid lines (price) - aligned with Y-axis labels using same calculation
+	# Draw horizontal price grid lines (static)
+	var grid_divisions_y = 4  # Keep price grid consistent
 	for i in range(grid_divisions_y + 1):
 		var y = chart_y_offset + (float(i) / grid_divisions_y) * chart_height
 		draw_line(Vector2(0, y), Vector2(size.x, y), grid_color, 1.0)
+
+	# Draw intelligent time-based vertical grid lines
+	draw_time_grid_lines()
+
+
+func draw_time_grid_lines():
+	"""Draw vertical grid lines aligned with Eve Online daily boundaries (11:00 UTC)"""
+	var current_time = Time.get_unix_time_from_system()
+	var time_window = get_current_time_window()
+	var window_days = time_window / 86400.0  # Convert to days
+
+	# Determine appropriate grid interval based on zoom level
+	var grid_interval_seconds: float
+	var grid_label_format: String
+
+	if window_days <= 2:
+		# Very zoomed in (≤2 days): Show 6-hour intervals
+		grid_interval_seconds = 21600.0  # 6 hours
+		grid_label_format = "6h"
+	elif window_days <= 7:
+		# Zoomed in (≤1 week): Show daily intervals
+		grid_interval_seconds = 86400.0  # 24 hours = 1 day
+		grid_label_format = "daily"
+	elif window_days <= 30:
+		# Medium zoom (≤1 month): Show every 3 days
+		grid_interval_seconds = 259200.0  # 3 days
+		grid_label_format = "3day"
+	elif window_days <= 90:
+		# Zoomed out (≤3 months): Show weekly intervals
+		grid_interval_seconds = 604800.0  # 7 days = 1 week
+		grid_label_format = "weekly"
+	elif window_days <= 365:
+		# Far zoom (≤1 year): Show monthly intervals (~30 days)
+		grid_interval_seconds = 2592000.0  # 30 days = ~1 month
+		grid_label_format = "monthly"
+	else:
+		# Maximum zoom (>1 year): Show quarterly intervals
+		grid_interval_seconds = 7776000.0  # 90 days = ~1 quarter
+		grid_label_format = "quarterly"
+
+	# Find the most recent Eve downtime (11:00 UTC) as our anchor point
+	var eve_downtime_anchor = find_most_recent_eve_downtime(current_time)
+
+	# Calculate grid lines working backwards from the anchor
+	var window_start = current_time - time_window
+	var window_end = current_time
+
+	# Get actual data range for consistent scaling with chart
+	var data_start_time = window_start
+	var data_end_time = window_end
+	var data_time_span = time_window
+
+	# Adjust for actual data range if we have data
+	if price_data.size() > 0:
+		var visible_points = []
+		for point in price_data:
+			if point.timestamp >= window_start and point.timestamp <= window_end:
+				visible_points.append(point)
+
+		if visible_points.size() > 0:
+			visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+			var actual_start = visible_points[0].timestamp
+			var actual_end = visible_points[-1].timestamp
+			var actual_span = actual_end - actual_start
+
+			# Use actual data range if it spans more than 1 minute
+			if actual_span > 60.0:
+				data_start_time = actual_start
+				data_end_time = actual_end
+				data_time_span = actual_span
+
+	# Generate grid lines
+	var grid_lines_drawn = 0
+	var max_grid_lines = 20  # Prevent too many lines
+
+	# Start from the anchor and work backwards and forwards
+	var line_timestamp = eve_downtime_anchor
+
+	# Draw lines going backwards in time
+	while line_timestamp >= data_start_time and grid_lines_drawn < max_grid_lines:
+		if line_timestamp <= data_end_time:
+			draw_time_grid_line(line_timestamp, data_start_time, data_time_span)
+			grid_lines_drawn += 1
+		line_timestamp -= grid_interval_seconds
+
+	# Reset and draw lines going forwards in time
+	line_timestamp = eve_downtime_anchor + grid_interval_seconds
+	while line_timestamp <= data_end_time and grid_lines_drawn < max_grid_lines:
+		if line_timestamp >= data_start_time:
+			draw_time_grid_line(line_timestamp, data_start_time, data_time_span)
+			grid_lines_drawn += 1
+		line_timestamp += grid_interval_seconds
+
+	print("Drew %d %s grid lines aligned with Eve downtime" % [grid_lines_drawn, grid_label_format])
+
+
+func find_most_recent_eve_downtime(current_time: float) -> float:
+	"""Find the most recent Eve Online downtime (11:00 UTC) before current_time"""
+	var current_datetime = Time.get_datetime_dict_from_unix_time(current_time)
+
+	# Start with today at 11:00 UTC
+	var today_downtime = Time.get_unix_time_from_datetime_dict({"year": current_datetime.year, "month": current_datetime.month, "day": current_datetime.day, "hour": 11, "minute": 0, "second": 0})
+
+	# If today's downtime hasn't happened yet, use yesterday's
+	if today_downtime > current_time:
+		today_downtime -= 86400.0  # Go back 24 hours
+
+	return today_downtime
+
+
+func draw_time_grid_line(timestamp: float, data_start_time: float, data_time_span: float):
+	"""Draw a single vertical grid line at the specified timestamp"""
+	var time_progress = (timestamp - data_start_time) / data_time_span
+	var x = time_progress * size.x
+
+	# Only draw if the line is within the visible chart area
+	if x >= 0 and x <= size.x:
+		# Use slightly thicker/brighter lines for daily boundaries (11:00 UTC)
+		var datetime = Time.get_datetime_dict_from_unix_time(timestamp)
+		var is_daily_boundary = datetime.hour == 11 and datetime.minute == 0
+
+		var line_color = grid_color
+		var line_width = 1.0
+
+		if is_daily_boundary:
+			line_color = grid_color.lightened(0.3)  # Brighter for daily boundaries
+			line_width = 1.5
+
+		draw_line(Vector2(x, 0), Vector2(x, size.y * 0.8), line_color, line_width)
 
 
 # Modify the draw_price_line function (around line 200) to include candlestick drawing
@@ -674,13 +796,13 @@ func draw_price_line():
 
 # Add this new function after draw_price_line
 func draw_candlesticks(visible_candles: Array, data_start_time: float, data_time_span: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
-	"""Draw candlestick chart with trend-colored high/low wicks"""
-	print("Drawing %d candlesticks with trend-colored wicks" % visible_candles.size())
+	"""Draw candlestick chart with wicks colored by day-to-day price movement"""
+	print("Drawing %d candlesticks with day-to-day colored wicks" % visible_candles.size())
 
 	# Get zoom scaling
 	var scale_factors = get_zoom_scale_factor()
 	var scaled_candle_width = candle_width * scale_factors.volume_scale
-	var scaled_wick_width = max(2.0, wick_width * scale_factors.volume_scale)
+	var scaled_wick_width = max(1.0, wick_width * scale_factors.volume_scale)
 
 	for i in range(visible_candles.size()):
 		var candle = visible_candles[i]
@@ -705,20 +827,64 @@ func draw_candlesticks(visible_candles: Array, data_start_time: float, data_time
 		var low_y = chart_y_offset + chart_height - ((low_price - min_price) / price_range * chart_height)
 		var close_y = chart_y_offset + chart_height - ((close_price - min_price) / price_range * chart_height)
 
-		# Determine trend colors based on close vs open
+		# Determine body color based on open vs close (same day)
 		var candle_color: Color
-		var wick_trend_color: Color
 		var price_diff = close_price - open_price
 
-		if price_diff > 0.01:  # Bullish trend
+		if price_diff > 0.01:  # Bullish same-day
 			candle_color = Color(0.1, 0.8, 0.1, 0.9)  # Green body
-			wick_trend_color = Color(0.0, 0.9, 0.0, 1.0)  # GREEN wicks for upward trend
-		elif price_diff < -0.01:  # Bearish trend
+		elif price_diff < -0.01:  # Bearish same-day
 			candle_color = Color(0.8, 0.1, 0.1, 0.9)  # Red body
-			wick_trend_color = Color(0.9, 0.0, 0.0, 1.0)  # RED wicks for downward trend
-		else:  # Neutral/Doji
+		else:  # Neutral/Doji same-day
 			candle_color = Color(0.6, 0.6, 0.6, 0.9)  # Gray body
-			wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)  # Gray wicks for neutral
+
+		# Determine wick color based on day-to-day movement (close vs previous day's close)
+		var wick_trend_color: Color
+		var previous_close = 0.0
+		var day_to_day_movement = ""
+
+		# Find previous day's closing price
+		if i > 0:
+			previous_close = visible_candles[i - 1].get("close", 0.0)
+		else:
+			# If this is the first candle, look in the full candlestick_data array
+			# Find the candle immediately before this one by timestamp
+			var current_timestamp = candle.timestamp
+			var previous_candle_data = null
+			var smallest_time_diff = 999999999.0
+
+			for other_candle in candlestick_data:
+				var time_diff = current_timestamp - other_candle.timestamp
+				if time_diff > 0 and time_diff < smallest_time_diff:
+					smallest_time_diff = time_diff
+					previous_candle_data = other_candle
+
+			if previous_candle_data:
+				previous_close = previous_candle_data.get("close", 0.0)
+
+		# Compare today's close with previous day's close
+		if previous_close > 0:
+			var day_change = close_price - previous_close
+			if day_change > 0.01:
+				# Close price HIGHER than previous day = GREEN wicks
+				wick_trend_color = Color(0.0, 0.9, 0.0, 1.0)
+				day_to_day_movement = "UP"
+				print("Candle %d: Close %.2f > Prev Close %.2f = GREEN wicks (UP)" % [i, close_price, previous_close])
+			elif day_change < -0.01:
+				# Close price LOWER than previous day = RED wicks
+				wick_trend_color = Color(0.9, 0.0, 0.0, 1.0)
+				day_to_day_movement = "DOWN"
+				print("Candle %d: Close %.2f < Prev Close %.2f = RED wicks (DOWN)" % [i, close_price, previous_close])
+			else:
+				# Close price SAME as previous day = GRAY wicks
+				wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)
+				day_to_day_movement = "FLAT"
+				print("Candle %d: Close %.2f ≈ Prev Close %.2f = GRAY wicks (FLAT)" % [i, close_price, previous_close])
+		else:
+			# No previous day data = default GRAY wicks
+			wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)
+			day_to_day_movement = "NO_PREV"
+			print("Candle %d: No previous close data = GRAY wicks" % i)
 
 		# Draw the body first
 		var body_top = min(open_y, close_y)
@@ -728,17 +894,19 @@ func draw_candlesticks(visible_candles: Array, data_start_time: float, data_time
 
 		draw_rect(body_rect, candle_color, true)
 
-		# Draw HIGH wick with trend color (from high to top of body)
+		# Draw HIGH wick with day-to-day trend color (from high to top of body)
 		if high_y < body_top:
 			draw_line(Vector2(x, high_y), Vector2(x, body_top), wick_trend_color, scaled_wick_width, false)
 
-		# Draw LOW wick with trend color (from bottom of body to low)
+		# Draw LOW wick with day-to-day trend color (from bottom of body to low)
 		if low_y > body_bottom:
 			draw_line(Vector2(x, body_bottom), Vector2(x, low_y), wick_trend_color, scaled_wick_width, false)
 
 		# Add border to body
 		var border_color = wick_trend_color.darkened(0.3)
 		draw_rect(body_rect, border_color, false, 1.0)
+
+		print("Candle %d: Drew %s wicks based on day-to-day movement" % [i, day_to_day_movement])
 
 
 # Modify draw_volume_bars to maintain consistent bar width
@@ -1006,17 +1174,18 @@ func draw_y_axis_labels():
 
 
 func draw_x_axis_labels():
-	"""Draw time labels for current time window with proper scaling"""
+	"""Draw time labels aligned with Eve Online daily boundaries (11:00 UTC)"""
 	var font_size = 9
 	var current_time = Time.get_unix_time_from_system()
 	var time_window = get_current_time_window()
+	var window_days = time_window / 86400.0
 
 	# Get actual data range for consistent scaling with chart
 	var data_start_time = current_time - time_window
 	var data_end_time = current_time
 	var data_time_span = time_window
 
-	# Check if we have actual data to determine real time range
+	# Adjust for actual data range if we have data
 	if price_data.size() > 0:
 		var visible_points = []
 		for point in price_data:
@@ -1035,21 +1204,132 @@ func draw_x_axis_labels():
 				data_end_time = actual_end
 				data_time_span = actual_span
 
-	var grid_divisions = 6  # Match grid line count
+	# Determine label interval and format based on zoom level
+	var label_interval_seconds: float
+	var label_format_type: String
+
+	if window_days <= 1:
+		# Very zoomed in (≤1 day): Show every 6 hours
+		label_interval_seconds = 21600.0  # 6 hours
+		label_format_type = "time"
+	elif window_days <= 7:
+		# Zoomed in (≤1 week): Show daily labels
+		label_interval_seconds = 86400.0  # 24 hours = 1 day
+		label_format_type = "daily"
+	elif window_days <= 30:
+		# Medium zoom (≤1 month): Show every 3 days
+		label_interval_seconds = 259200.0  # 3 days
+		label_format_type = "multi_day"
+	elif window_days <= 90:
+		# Zoomed out (≤3 months): Show weekly
+		label_interval_seconds = 604800.0  # 7 days = 1 week
+		label_format_type = "weekly"
+	else:
+		# Far zoom (>3 months): Show monthly
+		label_interval_seconds = 2592000.0  # 30 days = ~1 month
+		label_format_type = "monthly"
+
+	# Find the most recent Eve downtime as anchor
+	var eve_downtime_anchor = find_most_recent_eve_downtime(current_time)
+
+	# Generate labels working backwards from anchor
+	var labels_drawn = 0
+	var max_labels = 8  # Prevent overcrowding
 	var chart_bottom = size.y * 0.7
 
-	for i in range(grid_divisions + 1):
-		var time_progress = float(i) / grid_divisions
-		var target_time = data_start_time + (time_progress * data_time_span)
-		var x_pos = time_progress * size.x
+	# Start from anchor and work backwards in time
+	var label_timestamp = eve_downtime_anchor
+	while label_timestamp >= data_start_time and labels_drawn < max_labels:
+		if label_timestamp <= data_end_time:
+			draw_x_axis_label_at_timestamp(label_timestamp, data_start_time, data_time_span, chart_bottom, label_format_type, font_size)
+			labels_drawn += 1
+		label_timestamp -= label_interval_seconds
 
-		var hours_back = (current_time - target_time) / 3600.0
-		var time_text = format_time_for_window(hours_back, time_window)
+	# Draw labels going forward in time
+	label_timestamp = eve_downtime_anchor + label_interval_seconds
+	while label_timestamp <= data_end_time and labels_drawn < max_labels:
+		if label_timestamp >= data_start_time:
+			draw_x_axis_label_at_timestamp(label_timestamp, data_start_time, data_time_span, chart_bottom, label_format_type, font_size)
+			labels_drawn += 1
+		label_timestamp += label_interval_seconds
 
-		var text_size = chart_font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-		var label_x = x_pos - text_size.x / 2
+	print("Drew %d X-axis labels (%s format)" % [labels_drawn, label_format_type])
 
-		draw_string(chart_font, Vector2(label_x, chart_bottom + text_size.y + 4), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
+
+func draw_x_axis_label_at_timestamp(timestamp: float, data_start_time: float, data_time_span: float, chart_bottom: float, format_type: String, font_size: int):
+	"""Draw a single X-axis label at the specified timestamp"""
+	var time_progress = (timestamp - data_start_time) / data_time_span
+	var x_pos = time_progress * size.x
+
+	# Only draw if the label position is within the visible chart area
+	if x_pos < 0 or x_pos > size.x:
+		return
+
+	var label_text = format_eve_time_label(timestamp, format_type)
+	var text_size = chart_font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+	var label_x = x_pos - text_size.x / 2
+
+	# Ensure label doesn't go off screen
+	label_x = max(0, min(label_x, size.x - text_size.x))
+
+	draw_string(chart_font, Vector2(label_x, chart_bottom + text_size.y + 4), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
+
+
+func format_eve_time_label(timestamp: float, format_type: String) -> String:
+	"""Format time labels based on type and Eve Online conventions"""
+	var datetime = Time.get_datetime_dict_from_unix_time(timestamp)
+	var current_time = Time.get_unix_time_from_system()
+
+	match format_type:
+		"time":
+			# Show time of day (for very zoomed in views)
+			if datetime.hour == 11:
+				return "DT"  # Eve downtime marker
+			if datetime.hour == 0:
+				return "00:00"
+			if datetime.hour == 6:
+				return "06:00"
+			if datetime.hour == 12:
+				return "12:00"
+			if datetime.hour == 18:
+				return "18:00"
+
+			return "%02d:00" % datetime.hour
+
+		"daily":
+			# Show day format
+			var days_ago = (current_time - timestamp) / 86400.0
+			if days_ago < 1:
+				return "Today"
+			if days_ago < 2:
+				return "Yesterday"
+			else:
+				# Show month/day for recent dates
+				return "%d/%d" % [datetime.month, datetime.day]
+
+		"multi_day":
+			# Show date for multi-day intervals
+			return "%d/%d" % [datetime.month, datetime.day]
+
+		"weekly":
+			# Show week indicators
+			var days_ago = (current_time - timestamp) / 86400.0
+			var weeks_ago = int(days_ago / 7.0)
+			if weeks_ago == 0:
+				return "This Week"
+			if weeks_ago == 1:
+				return "Last Week"
+			else:
+				return "-%dw" % weeks_ago
+
+		"monthly":
+			# Show month/year
+			var month_names = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+			return "%s %d" % [month_names[datetime.month], datetime.year]
+
+		_:
+			# Fallback
+			return "%d/%d" % [datetime.month, datetime.day]
 
 
 func draw_crosshair():
