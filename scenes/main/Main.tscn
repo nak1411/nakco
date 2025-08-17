@@ -155,59 +155,74 @@ custom_minimum_size = Vector2(200, 0)
 layout_mode = 2
 split_offset = 180
 
-[node name="SearchPanel" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel"]
+[node name="SearchWatchlistPanel" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel"]
 layout_mode = 2
 
-[node name="SearchLabel" type="Label" parent="UIManager/MainContent/LeftPanel/SearchPanel"]
+[node name="SearchPanel" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel"]
+layout_mode = 2
+
+[node name="SearchLabel" type="Label" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/SearchPanel"]
 layout_mode = 2
 text = "Item Search"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="SearchContainer" type="HBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchPanel"]
+[node name="SearchContainer" type="HBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/SearchPanel"]
 layout_mode = 2
 
-[node name="ItemSearch" type="LineEdit" parent="UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer"]
+[node name="ItemSearch" type="LineEdit" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/SearchPanel/SearchContainer"]
 layout_mode = 2
 size_flags_horizontal = 3
 placeholder_text = "Search items..."
 clear_button_enabled = true
 
-[node name="SearchButton" type="Button" parent="UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer"]
+[node name="SearchButton" type="Button" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/SearchPanel/SearchContainer"]
 custom_minimum_size = Vector2(32, 32)
 layout_mode = 2
 
-[node name="SearchResults" type="ScrollContainer" parent="UIManager/MainContent/LeftPanel/SearchPanel"]
+[node name="SearchResults" type="ScrollContainer" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/SearchPanel"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="SearchResultsList" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchPanel/SearchResults"]
+[node name="SearchResultsList" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/SearchPanel/SearchResults"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="WatchlistPanel" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel"]
+[node name="WatchlistPanel" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel"]
 layout_mode = 2
 
-[node name="WatchlistHeader" type="HBoxContainer" parent="UIManager/MainContent/LeftPanel/WatchlistPanel"]
+[node name="WatchlistHeader" type="HBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/WatchlistPanel"]
 layout_mode = 2
 
-[node name="WatchlistLabel" type="Label" parent="UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistHeader"]
+[node name="WatchlistLabel" type="Label" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/WatchlistPanel/WatchlistHeader"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Watchlist"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="AddToWatchlistButton" type="Button" parent="UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistHeader"]
+[node name="AddToWatchlistButton" type="Button" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/WatchlistPanel/WatchlistHeader"]
 custom_minimum_size = Vector2(24, 24)
 layout_mode = 2
 text = "+"
 
-[node name="WatchlistContainer" type="ScrollContainer" parent="UIManager/MainContent/LeftPanel/WatchlistPanel"]
+[node name="WatchlistContainer" type="ScrollContainer" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/WatchlistPanel"]
 layout_mode = 2
 size_flags_vertical = 3
 
-[node name="WatchlistItems" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistContainer"]
+[node name="WatchlistItems" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/SearchWatchlistPanel/WatchlistPanel/WatchlistContainer"]
 layout_mode = 2
 size_flags_horizontal = 3
+
+[node name="OrderBookPanel" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel"]
+layout_mode = 2
+
+[node name="Header" type="HBoxContainer" parent="UIManager/MainContent/LeftPanel/OrderBookPanel"]
+layout_mode = 2
+
+[node name="ScrollContainer" type="ScrollContainer" parent="UIManager/MainContent/LeftPanel/OrderBookPanel"]
+layout_mode = 2
+
+[node name="OrderBookList" type="VBoxContainer" parent="UIManager/MainContent/LeftPanel/OrderBookPanel/ScrollContainer"]
+layout_mode = 2
 
 [node name="CenterRightPanel" type="VSplitContainer" parent="UIManager/MainContent"]
 clip_contents = true

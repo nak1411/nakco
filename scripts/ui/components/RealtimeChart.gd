@@ -84,7 +84,7 @@ var spread_line_color: Color = Color.CYAN
 
 
 func _ready():
-	custom_minimum_size = Vector2(400, 200)
+	custom_minimum_size = Vector2(400, 150)  # Reduced minimum height
 	mouse_entered.connect(_on_mouse_entered)
 	mouse_exited.connect(_on_mouse_exited)
 
@@ -103,6 +103,9 @@ func _ready():
 
 	set_day_start_time()
 
+	# Connect resize signal to handle size changes
+	resized.connect(_on_chart_resized)
+
 
 func _on_mouse_entered():
 	show_crosshair = true
@@ -112,6 +115,22 @@ func _on_mouse_exited():
 	show_crosshair = false
 	hovered_point_index = -1
 	hovered_volume_index = -1  # Clear hovered volume bar when mouse leaves
+	queue_redraw()
+
+
+func _on_chart_resized():
+	"""Handle chart resize - recalculate dimensions and redraw"""
+	print("Chart resized to: %.1f x %.1f" % [size.x, size.y])
+
+	# Update cached chart boundaries
+	var boundaries = get_chart_boundaries()
+	print("New chart boundaries: top=%.1f, bottom=%.1f, height=%.1f" % [boundaries.top, boundaries.bottom, boundaries.height])
+
+	# Update support/resistance levels if enabled
+	if show_support_resistance:
+		update_price_levels()
+
+	# Force complete redraw with new dimensions
 	queue_redraw()
 
 
@@ -619,9 +638,10 @@ func draw_tooltip():
 
 
 func draw_grid():
-	"""Draw intelligent grid lines that scale with zoom and align with current view"""
-	var chart_height = size.y * 0.6
-	var chart_y_offset = size.y * 0.05
+	"""Draw intelligent grid lines that scale with zoom and DYNAMIC chart size"""
+	var chart_bounds = get_chart_boundaries()
+	var chart_height = chart_bounds.height
+	var chart_y_offset = chart_bounds.top
 
 	# Draw horizontal price grid lines (dynamic based on current view)
 	draw_price_grid_lines(chart_height, chart_y_offset)
@@ -858,15 +878,15 @@ func draw_price_line():
 	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
-	var chart_height = size.y * 0.6
-	var chart_y_offset = size.y * 0.05
+	# Use dynamic chart boundaries
+	var chart_bounds = get_chart_boundaries()
+	var chart_height = chart_bounds.height
+	var chart_y_offset = chart_bounds.top
+	var chart_top = chart_bounds.top
+	var chart_bottom = chart_bounds.bottom
 
-	# Define chart boundaries for clipping
-	var chart_top = chart_y_offset
-	var chart_bottom = chart_y_offset + chart_height
-
-	print("Chart dimensions: height %.1f, y_offset %.1f" % [chart_height, chart_y_offset])
-	print("Chart bounds: top %.1f, bottom %.1f" % [chart_top, chart_bottom])
+	print("Dynamic chart dimensions: height %.1f, y_offset %.1f" % [chart_height, chart_y_offset])
+	print("Dynamic chart bounds: top %.1f, bottom %.1f" % [chart_top, chart_bottom])
 
 	# Draw candlesticks first (with clipping)
 	if show_candlesticks and visible_candles.size() > 0:
@@ -891,7 +911,7 @@ func draw_price_line():
 
 	print("Generated %d drawing points" % points.size())
 
-	# Draw lines between points with proper clipping
+	# Draw lines between points with proper clipping using DYNAMIC boundaries
 	for i in range(points.size() - 1):
 		var current_point_data = visible_points[i]
 		var next_point_data = visible_points[i + 1]
@@ -901,8 +921,9 @@ func draw_price_line():
 			var p1 = points[i]
 			var p2 = points[i + 1]
 
-			# Clip line to chart bounds using proper line clipping
-			var clipped_line = clip_line_to_rect(p1, p2, Rect2(Vector2(0, chart_top), Vector2(size.x, chart_height)))
+			# Clip line to DYNAMIC chart bounds
+			var clip_rect = Rect2(Vector2(0, chart_top), Vector2(size.x, chart_height))
+			var clipped_line = clip_line_to_rect(p1, p2, clip_rect)
 
 			if clipped_line.has("start") and clipped_line.has("end"):
 				var current_is_historical = current_point_data.get("is_historical", false)
@@ -915,12 +936,12 @@ func draw_price_line():
 				if i < 3:  # Debug first few lines
 					print("Drew clipped line %d: from (%.1f,%.1f) to (%.1f,%.1f)" % [i, clipped_line.start.x, clipped_line.start.y, clipped_line.end.x, clipped_line.end.y])
 
-	# Draw data points with clipping
+	# Draw data points with DYNAMIC clipping
 	for i in range(points.size()):
 		var point_data = visible_points[i]
 		var point = points[i]
 
-		# Only draw points within chart bounds
+		# Only draw points within DYNAMIC chart bounds
 		if point.y >= chart_top and point.y <= chart_bottom:
 			var is_historical = point_data.get("is_historical", false)
 			var volume = point_data.get("volume", 0)
@@ -1027,14 +1048,15 @@ func compute_outcode(x: float, y: float, xmin: float, ymin: float, xmax: float, 
 
 # Add this new function after draw_price_line
 func draw_candlesticks_simple(visible_candles: Array, window_start: float, window_end: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
-	"""Draw candlesticks with simple positioning and clipping"""
+	"""Draw candlesticks with simple positioning and DYNAMIC clipping"""
 	var scale_factors = get_zoom_scale_factor()
 	var scaled_candle_width = candle_width * scale_factors.volume_scale
 	var scaled_wick_width = max(2.0, wick_width * scale_factors.volume_scale)
 
-	# Define chart boundaries for clipping
-	var chart_top = chart_y_offset
-	var chart_bottom = chart_y_offset + chart_height
+	# Use DYNAMIC chart boundaries for clipping
+	var chart_bounds = get_chart_boundaries()
+	var chart_top = chart_bounds.top
+	var chart_bottom = chart_bounds.bottom
 
 	print("Candlestick clipping bounds: top %.1f, bottom %.1f" % [chart_top, chart_bottom])
 
@@ -1054,23 +1076,17 @@ func draw_candlesticks_simple(visible_candles: Array, window_start: float, windo
 		if high_price <= 0 or low_price <= 0:
 			continue
 
-		# Calculate Y positions
+		# Calculate Y positions (DON'T clamp yet)
 		var open_y = chart_y_offset + chart_height - ((open_price - min_price) / price_range * chart_height)
 		var high_y = chart_y_offset + chart_height - ((high_price - min_price) / price_range * chart_height)
 		var low_y = chart_y_offset + chart_height - ((low_price - min_price) / price_range * chart_height)
 		var close_y = chart_y_offset + chart_height - ((close_price - min_price) / price_range * chart_height)
 
-		# Clamp Y coordinates to chart bounds
-		open_y = clamp(open_y, chart_top, chart_bottom)
-		high_y = clamp(high_y, chart_top, chart_bottom)
-		low_y = clamp(low_y, chart_top, chart_bottom)
-		close_y = clamp(close_y, chart_top, chart_bottom)
-
 		# Check if candlestick is within visible bounds before drawing
 		var min_candle_y = min(high_y, min(open_y, min(close_y, low_y)))
 		var max_candle_y = max(high_y, max(open_y, max(close_y, low_y)))
 
-		# Only draw if candlestick intersects with chart bounds
+		# Only draw if candlestick intersects with DYNAMIC chart bounds
 		if max_candle_y >= chart_top and min_candle_y <= chart_bottom:
 			# Determine colors (same logic as before)
 			var candle_color: Color
@@ -1134,7 +1150,7 @@ func draw_candlesticks_simple(visible_candles: Array, window_start: float, windo
 
 # Modify draw_volume_bars to maintain consistent bar width
 func draw_volume_bars():
-	print("=== DRAWING VOLUME BARS WITH ZOOM SCALING ===")
+	print("=== DRAWING VOLUME BARS WITH DYNAMIC SCALING ===")
 	print("Volume data size: %d, Time window: %.1f days" % [volume_data.size(), get_current_time_window() / 86400.0])
 
 	if volume_data.size() == 0 or price_data.size() == 0:
@@ -1149,6 +1165,16 @@ func draw_volume_bars():
 	# Get zoom-based scaling
 	var scale_factors = get_zoom_scale_factor()
 	var volume_scale = scale_factors.volume_scale
+
+	# Get DYNAMIC chart boundaries
+	var chart_bounds = get_chart_boundaries()
+	var chart_bottom = chart_bounds.bottom
+
+	# Volume bars area is below the chart area
+	var volume_area_height = size.y - chart_bottom
+	var volume_base_y = chart_bottom
+
+	print("Dynamic volume area: starts at Y=%.1f, height=%.1f" % [volume_base_y, volume_area_height])
 
 	# Collect all volume data within the time window
 	var visible_volume_data = []
@@ -1196,9 +1222,12 @@ func draw_volume_bars():
 	var scaling_max = historical_max if historical_max > 0 else all_max
 	var volume_cap = scaling_max * 3  # Cap for real-time spikes
 
-	var volume_height_scale = size.y * 0.3
+	# Use DYNAMIC volume area height instead of fixed percentage
+	var volume_height_scale = volume_area_height * 0.8  # Use 80% of available volume area
 	var base_bar_width = 30.0 * volume_scale  # Apply zoom scaling to bar width
 	var bars_drawn = 0
+
+	print("Volume scaling: max=%d, height_scale=%.1f, bar_width=%.1f" % [scaling_max, volume_height_scale, base_bar_width])
 
 	# Draw all visible volume bars
 	for i in range(visible_volume_data.size()):
@@ -1220,7 +1249,7 @@ func draw_volume_bars():
 		if not is_historical and volume > volume_cap:
 			display_volume = volume_cap
 
-		# Scale volume to bar height
+		# Scale volume to bar height using DYNAMIC area
 		var normalized_volume = float(display_volume) / scaling_max
 		var bar_height = normalized_volume * volume_height_scale
 
@@ -1228,12 +1257,12 @@ func draw_volume_bars():
 		if bar_height < 1.0:
 			bar_height = 1.0
 
-		# Cap maximum height
-		var max_bar_height = size.y * 0.15
-		if bar_height > max_bar_height:
-			bar_height = max_bar_height
+		# Cap maximum height to available volume area
+		if bar_height > volume_area_height:
+			bar_height = volume_area_height
 
-		var y = size.y - bar_height
+		# Position bar in the DYNAMIC volume area (below chart)
+		var y = volume_base_y + (volume_area_height - bar_height)
 		var bar_rect = Rect2(x - base_bar_width / 2, y, base_bar_width, bar_height)
 
 		# Color coding based on data type and age
@@ -1271,23 +1300,24 @@ func draw_volume_bars():
 			var volume_text = format_number(volume)
 			var text_size = font.get_string_size(volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
-			# Position label above the bar
+			# Position label above the bar (but below chart area)
 			var label_x = x - text_size.x / 2
 			var label_y = y - 6
 
-			# Ensure label stays within bounds
-			if label_x >= 0 and label_x + text_size.x <= size.x and label_y > text_size.y:
+			# Ensure label stays within volume area bounds
+			if label_x >= 0 and label_x + text_size.x <= size.x and label_y > volume_base_y:
 				# Draw volume label with background for better visibility when highlighted
 				var bg_padding = Vector2(4, 2)
 				var label_bg_rect = Rect2(Vector2(label_x - bg_padding.x, label_y - text_size.y - bg_padding.y), Vector2(text_size.x + bg_padding.x * 2, text_size.y + bg_padding.y * 2))
 
-				# Draw text
-				var text_color = Color.WHITE
-				draw_string(font, Vector2(label_x, label_y), volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+				# Only draw label if it doesn't overlap with chart area
+				if label_bg_rect.position.y >= volume_base_y:
+					draw_rect(label_bg_rect, Color(0, 0, 0, 0.7))
+					draw_string(font, Vector2(label_x, label_y), volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 		bars_drawn += 1
 
-	print("Drew %d volume bars with %.2f scale factor" % [bars_drawn, volume_scale])
+	print("Drew %d volume bars with %.2f scale factor in dynamic area (Y: %.1f-%.1f)" % [bars_drawn, volume_scale, volume_base_y, size.y])
 
 
 func draw_price_levels():
@@ -1431,7 +1461,7 @@ func update_spread_data_realistic(buy_orders: Array, sell_orders: Array):
 
 
 func draw_spread_analysis():
-	"""Draw spread analysis visualization on the chart using proper zoom/pan bounds"""
+	"""Draw spread analysis visualization using DYNAMIC chart bounds"""
 	print("Drawing spread analysis: buy=%.2f, sell=%.2f" % [current_buy_price, current_sell_price])
 
 	if current_buy_price <= 0 or current_sell_price <= 0:
@@ -1448,10 +1478,13 @@ func draw_spread_analysis():
 		print("Invalid price range for spread analysis")
 		return
 
-	var chart_height = size.y * 0.6
-	var chart_y_offset = size.y * 0.05
+	# Use DYNAMIC chart boundaries
+	var chart_bounds = get_chart_boundaries()
+	var chart_height = chart_bounds.height
+	var chart_y_offset = chart_bounds.top
 
 	print("Spread analysis bounds: price %.2f-%.2f, range %.2f" % [min_price, max_price, price_range])
+	print("Dynamic chart bounds: height %.1f, y_offset %.1f" % [chart_height, chart_y_offset])
 	print("Buy price %.2f in range: %s" % [current_buy_price, current_buy_price >= min_price and current_buy_price <= max_price])
 	print("Sell price %.2f in range: %s" % [current_sell_price, current_sell_price >= min_price and current_sell_price <= max_price])
 
@@ -3054,6 +3087,15 @@ func get_current_window_bounds() -> Dictionary:
 
 	print("Window bounds: time %.0f-%.0f, price %.2f-%.2f" % [bounds.time_start, bounds.time_end, bounds.price_min, bounds.price_max])
 	return bounds
+
+
+func get_chart_boundaries() -> Dictionary:
+	"""Get current chart boundaries that update with resizing"""
+	var current_size = size
+	var chart_height = current_size.y * 0.6  # 60% of current height
+	var chart_y_offset = current_size.y * 0.05  # 5% offset from top
+
+	return {"top": chart_y_offset, "bottom": chart_y_offset + chart_height, "left": 0, "right": current_size.x, "height": chart_height, "width": current_size.x}
 
 
 func cleanup_old_data():

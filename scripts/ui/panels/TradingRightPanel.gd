@@ -23,17 +23,36 @@ func setup_panels():
 	for child in get_children():
 		child.queue_free()
 
-	# 1. Item Info Header
+	# Set the VBoxContainer to fill and expand
+	size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	size_flags_vertical = Control.SIZE_EXPAND_FILL
+
+	# 1. Item Info Header (fixed height)
 	create_item_info_header()
 
-	# 2. Real-time Price Chart
+	# 2. Real-time Price Chart (expandable)
 	create_real_time_chart()
+
+
+func create_order_book():
+	"""Create order book section with fixed height"""
+	var order_book_panel = PanelContainer.new()
+	order_book_panel.name = "OrderBookPanel"
+	order_book_panel.custom_minimum_size.y = 200  # Fixed height
+	order_book_panel.size_flags_vertical = Control.SIZE_SHRINK_END  # Don't expand
+	add_child(order_book_panel)
+
+	var order_book_scroll = ScrollContainer.new()
+	order_book_panel.add_child(order_book_scroll)
+
+	order_book_list = VBoxContainer.new()
+	order_book_scroll.add_child(order_book_list)
 
 
 func create_item_info_header():
 	var header_panel = PanelContainer.new()
 	header_panel.name = "ItemInfoPanel"
-	header_panel.custom_minimum_size.y = 50
+	header_panel.custom_minimum_size.y = 60  # Slightly taller for better info display
 	add_child(header_panel)
 
 	var header_vbox = VBoxContainer.new()
@@ -79,17 +98,20 @@ func create_item_info_header():
 func create_real_time_chart():
 	var chart_panel = PanelContainer.new()
 	chart_panel.name = "ChartPanel"
-	chart_panel.custom_minimum_size.y = 300
+	chart_panel.custom_minimum_size.y = 300  # Larger minimum since it has more space
+	chart_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Takes all remaining space
 	add_child(chart_panel)
 
 	var chart_vbox = VBoxContainer.new()
+	chart_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	chart_panel.add_child(chart_vbox)
 
 	var chart_header_container = HBoxContainer.new()
+	chart_header_container.custom_minimum_size.y = 30
 	chart_vbox.add_child(chart_header_container)
 
 	var chart_header = Label.new()
-	chart_header.text = "24-Hour Price Chart"
+	chart_header.text = "Station Trading Analysis"
 	chart_header.add_theme_color_override("font_color", Color.CYAN)
 	chart_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	chart_header_container.add_child(chart_header)
@@ -104,6 +126,7 @@ func create_real_time_chart():
 	real_time_chart = RealtimeChart.new()
 	real_time_chart.name = "RealtimeChart"
 	real_time_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	real_time_chart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	# EXPLICITLY disable any tooltip behavior
 	real_time_chart.tooltip_text = ""
@@ -111,8 +134,26 @@ func create_real_time_chart():
 
 	chart_vbox.add_child(real_time_chart)
 
-	# Connect historical data request signal
+	# Connect signals
 	real_time_chart.historical_data_requested.connect(_on_historical_data_requested)
+	chart_panel.resized.connect(_on_chart_panel_resized)
+	real_time_chart.resized.connect(_on_chart_resized)
+
+
+func _on_chart_panel_resized():
+	"""Called when the chart panel is resized"""
+	print("Chart panel resized to: ", get_node("ChartPanel").size)
+	if real_time_chart:
+		# Force a redraw to adjust to new size
+		real_time_chart.queue_redraw()
+
+
+func _on_chart_resized():
+	"""Called when the chart itself is resized"""
+	if real_time_chart:
+		print("Chart resized to: ", real_time_chart.size)
+		# Recalculate chart boundaries and redraw
+		real_time_chart.queue_redraw()
 
 
 func create_order_book_header():
@@ -225,9 +266,6 @@ func update_with_realtime_data(realtime_data: Dictionary):
 	"""Update panel with fresh real-time data"""
 	print("TradingRightPanel: Received real-time data update")
 
-	# DON'T call update_item_display - that clears the chart!
-	# Instead, just update the specific parts that need updating
-
 	# Update selected_item_data with new real-time info
 	selected_item_data.merge(realtime_data, true)
 
@@ -237,10 +275,18 @@ func update_with_realtime_data(realtime_data: Dictionary):
 	# Update chart with new price point (without clearing)
 	update_realtime_chart_data(realtime_data)
 
-	# Update order book with fresh orders
-	update_order_book_realtime(realtime_data)
+	# Update order book in LEFT PANEL instead of right panel
+	update_left_panel_order_book(realtime_data)
 
 	print("Real-time update complete - chart data preserved")
+
+
+func update_left_panel_order_book(data: Dictionary):
+	"""Update order book in left panel via main scene"""
+	# Get reference to main scene
+	var main_scene = get_tree().current_scene
+	if main_scene and main_scene.has_method("update_left_panel_order_book"):
+		main_scene.update_left_panel_order_book(data)
 
 
 func update_realtime_chart_data(data: Dictionary):

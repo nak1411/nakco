@@ -41,9 +41,9 @@ var market_grid: SpreadsheetGrid
 @onready var right_panel: VBoxContainer = $UIManager/MainContent/CenterRightPanel/RightPanel
 
 # Search and watchlist
-@onready var item_search: LineEdit = $UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer/ItemSearch
-@onready var search_button: Button = $UIManager/MainContent/LeftPanel/SearchPanel/SearchContainer/SearchButton
-@onready var watchlist_items: VBoxContainer = $UIManager/MainContent/LeftPanel/WatchlistPanel/WatchlistContainer/WatchlistItems
+@onready var search_button: Button = $UIManager/MainContent/LeftPanel/SearchWatchlistPanel/SearchPanel/SearchContainer/SearchButton
+@onready var item_search: LineEdit = $UIManager/MainContent/LeftPanel/SearchWatchlistPanel/SearchPanel/SearchContainer/ItemSearch
+@onready var watchlist_items: VBoxContainer = $UIManager/MainContent/LeftPanel/SearchWatchlistPanel/WatchlistPanel/WatchlistContainer/WatchlistItems
 
 # Status bar elements
 @onready var connection_status: Label = $UIManager/StatusBar/ConnectionStatus
@@ -57,13 +57,20 @@ var market_grid: SpreadsheetGrid
 
 
 func _ready():
-	setup_managers()  # Initialize managers FIRST
-	setup_application()  # Then setup application (which uses managers)
+	print("Main scene starting...")
+
+	setup_managers()
 	setup_ui()
 	setup_signals()
-	load_initial_data()
+	setup_left_panel_structure()  # Add this line
+	populate_region_selector()
 
-	test_status_bar()
+	apply_theme()
+
+	# Load initial data
+	refresh_market_data()
+
+	print("Main scene ready")
 
 
 func setup_managers():
@@ -175,6 +182,197 @@ func setup_signals():
 	center_panel.tab_changed.connect(_on_tab_changed)
 
 	print("All signals connected successfully")
+
+
+func setup_left_panel_structure():
+	"""Set up the left panel with search, watchlist, and order book"""
+	# Current structure from .tscn:
+	# LeftPanel (VSplitContainer)
+	#   ├── SearchPanel (VBoxContainer)
+	#   └── WatchlistPanel (VBoxContainer)
+
+	# We need to change this to:
+	# LeftPanel (VSplitContainer)
+	#   ├── SearchWatchlistPanel (VBoxContainer with both search and watchlist)
+	#   └── OrderBookPanel (VBoxContainer)
+
+	# Get references to existing panels
+	var search_panel = left_panel.get_node("SearchPanel")
+	var watchlist_panel = left_panel.get_node("WatchlistPanel")
+
+	# Create new top panel to hold both search and watchlist
+	var search_watchlist_panel = VBoxContainer.new()
+	search_watchlist_panel.name = "SearchWatchlistPanel"
+
+	# Remove existing panels and re-add them to the combined panel
+	left_panel.remove_child(search_panel)
+	left_panel.remove_child(watchlist_panel)
+
+	search_watchlist_panel.add_child(search_panel)
+	search_watchlist_panel.add_child(watchlist_panel)
+
+	# Add the combined panel back to left panel
+	left_panel.add_child(search_watchlist_panel)
+
+	# Create order book panel
+	create_order_book_panel()
+
+	# Adjust split - give more space to search/watchlist, less to order book
+	left_panel.split_offset = 300  # Adjust based on your preference
+
+
+func create_order_book_panel():
+	"""Create order book panel for the left panel"""
+	var order_book_panel = VBoxContainer.new()
+	order_book_panel.name = "OrderBookPanel"
+	left_panel.add_child(order_book_panel)
+
+	# Header
+	var header_container = HBoxContainer.new()
+	order_book_panel.add_child(header_container)
+
+	var header_label = Label.new()
+	header_label.text = "Order Book"
+	header_label.add_theme_color_override("font_color", Color.CYAN)
+	header_label.add_theme_font_size_override("font_size", 14)
+	header_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header_container.add_child(header_label)
+
+	# Refresh button for order book
+	var refresh_orders_button = Button.new()
+	refresh_orders_button.text = "↻"
+	refresh_orders_button.custom_minimum_size = Vector2(24, 24)
+	refresh_orders_button.tooltip_text = "Refresh Orders"
+	refresh_orders_button.pressed.connect(_on_refresh_orders_pressed)
+	header_container.add_child(refresh_orders_button)
+
+	# Scrollable order list
+	var order_scroll = ScrollContainer.new()
+	order_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	order_book_panel.add_child(order_scroll)
+
+	var order_book_list = VBoxContainer.new()
+	order_book_list.name = "OrderBookList"
+	order_scroll.add_child(order_book_list)
+
+	print("Order book panel created in left panel")
+
+
+func _on_refresh_orders_pressed():
+	"""Refresh order book data"""
+	if selected_item_id > 0 and data_manager:
+		print("Refreshing order book for item: ", selected_item_id)
+		data_manager.get_market_orders(current_region_id, selected_item_id)
+
+
+func update_left_panel_order_book(item_data: Dictionary):
+	"""Update the order book in the left panel"""
+	var order_book_list = left_panel.get_node_or_null("OrderBookPanel/ScrollContainer/OrderBookList")
+	if not order_book_list:
+		print("Order book list not found in left panel")
+		return
+
+	# Clear existing orders
+	for child in order_book_list.get_children():
+		child.queue_free()
+
+	# Create header
+	create_left_panel_order_book_header(order_book_list)
+
+	# Add buy orders (top 8)
+	var buy_orders = item_data.get("buy_orders", [])
+	buy_orders.sort_custom(func(a, b): return a.get("price", 0) > b.get("price", 0))
+
+	for i in range(min(8, buy_orders.size())):
+		create_left_panel_order_row(order_book_list, buy_orders[i], true)
+
+	# Add separator
+	var separator = HSeparator.new()
+	separator.add_theme_color_override("separator", Color.GRAY)
+	order_book_list.add_child(separator)
+
+	# Add sell orders (top 8)
+	var sell_orders = item_data.get("sell_orders", [])
+	sell_orders.sort_custom(func(a, b): return a.get("price", 0) < b.get("price", 0))
+
+	for i in range(min(8, sell_orders.size())):
+		create_left_panel_order_row(order_book_list, sell_orders[i], false)
+
+
+func create_left_panel_order_book_header(parent: VBoxContainer):
+	"""Create order book header for left panel"""
+	var header = HBoxContainer.new()
+	parent.add_child(header)
+
+	var price_header = Label.new()
+	price_header.text = "Price"
+	price_header.custom_minimum_size.x = 90
+	price_header.add_theme_color_override("font_color", Color.CYAN)
+	price_header.add_theme_font_size_override("font_size", 10)
+	header.add_child(price_header)
+
+	var volume_header = Label.new()
+	volume_header.text = "Vol"
+	volume_header.custom_minimum_size.x = 50
+	volume_header.add_theme_color_override("font_color", Color.CYAN)
+	volume_header.add_theme_font_size_override("font_size", 10)
+	header.add_child(volume_header)
+
+	var type_header = Label.new()
+	type_header.text = "Type"
+	type_header.custom_minimum_size.x = 40
+	type_header.add_theme_color_override("font_color", Color.CYAN)
+	type_header.add_theme_font_size_override("font_size", 10)
+	header.add_child(type_header)
+
+
+func create_left_panel_order_row(parent: VBoxContainer, order: Dictionary, is_buy: bool):
+	"""Create order row for left panel (compact format)"""
+	var row = HBoxContainer.new()
+	parent.add_child(row)
+
+	var price_label = Label.new()
+	price_label.text = format_isk_compact(order.get("price", 0))
+	price_label.custom_minimum_size.x = 90
+	price_label.add_theme_color_override("font_color", Color.GREEN if is_buy else Color.RED)
+	price_label.add_theme_font_size_override("font_size", 9)
+	row.add_child(price_label)
+
+	var volume_label = Label.new()
+	volume_label.text = format_number_compact(order.get("volume", 0))
+	volume_label.custom_minimum_size.x = 50
+	volume_label.add_theme_color_override("font_color", Color.WHITE)
+	volume_label.add_theme_font_size_override("font_size", 9)
+	row.add_child(volume_label)
+
+	var type_label = Label.new()
+	type_label.text = "BUY" if is_buy else "SELL"
+	type_label.custom_minimum_size.x = 40
+	type_label.add_theme_color_override("font_color", Color.GREEN if is_buy else Color.RED)
+	type_label.add_theme_font_size_override("font_size", 9)
+	row.add_child(type_label)
+
+
+func format_isk_compact(value: float) -> String:
+	"""Compact ISK formatting for narrow displays"""
+	if value >= 1000000000:
+		return "%.1fB" % (value / 1000000000.0)
+	elif value >= 1000000:
+		return "%.1fM" % (value / 1000000.0)
+	elif value >= 1000:
+		return "%.0fK" % (value / 1000.0)
+	else:
+		return "%.0f" % value
+
+
+func format_number_compact(value: int) -> String:
+	"""Compact number formatting"""
+	if value >= 1000000:
+		return "%.0fM" % (value / 1000000.0)
+	elif value >= 1000:
+		return "%.0fK" % (value / 1000.0)
+	else:
+		return str(value)
 
 
 func setup_right_panel():
