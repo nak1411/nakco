@@ -289,7 +289,7 @@ func update_realtime_chart_data(data: Dictionary):
 
 
 func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
-	"""Calculate realistic spread using volume-weighted average of top orders to avoid outliers"""
+	"""Calculate realistic station trading opportunities in the same region"""
 	if not real_time_chart:
 		return
 
@@ -299,67 +299,74 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	sorted_buy_orders.sort_custom(func(a, b): return a.get("price", 0) > b.get("price", 0))  # Highest first
 	sorted_sell_orders.sort_custom(func(a, b): return a.get("price", 0) < b.get("price", 0))  # Lowest first
 
-	var realistic_buy_price = 0.0
-	var realistic_sell_price = 0.0
+	if sorted_buy_orders.size() == 0 or sorted_sell_orders.size() == 0:
+		print("Insufficient orders for station trading analysis")
+		return
 
-	# Strategy 1: Use volume-weighted average of top 3 orders (more realistic for actual trading)
-	if sorted_buy_orders.size() >= 3 and sorted_sell_orders.size() >= 3:
-		print("Using volume-weighted top 3 orders strategy")
+	# STATION TRADING STRATEGY:
+	# 1. You place a BUY order slightly higher than current best buy order
+	# 2. You place a SELL order slightly lower than current best sell order
+	# 3. You profit from the difference (minus taxes/broker fees)
 
-		# Calculate volume-weighted buy price from top 3 buy orders
-		var total_buy_volume = 0
-		var weighted_buy_total = 0.0
-		for i in range(min(3, sorted_buy_orders.size())):
-			var order = sorted_buy_orders[i]
-			var volume = order.get("volume", 0)
-			var price = order.get("price", 0.0)
-			total_buy_volume += volume
-			weighted_buy_total += price * volume
-			print("  Buy order %d: %.2f ISK x %d = %.2f weighted" % [i + 1, price, volume, price * volume])
+	var current_highest_buy = sorted_buy_orders[0].get("price", 0.0)  # What others are bidding
+	var current_lowest_sell = sorted_sell_orders[0].get("price", 0.0)  # What others are asking
 
-		if total_buy_volume > 0:
-			realistic_buy_price = weighted_buy_total / total_buy_volume
+	print("Station Trading Analysis:")
+	print("  Current highest buy order: %.2f ISK" % current_highest_buy)
+	print("  Current lowest sell order: %.2f ISK" % current_lowest_sell)
 
-		# Calculate volume-weighted sell price from top 3 sell orders
-		var total_sell_volume = 0
-		var weighted_sell_total = 0.0
-		for i in range(min(3, sorted_sell_orders.size())):
-			var order = sorted_sell_orders[i]
-			var volume = order.get("volume", 0)
-			var price = order.get("price", 0.0)
-			total_sell_volume += volume
-			weighted_sell_total += price * volume
-			print("  Sell order %d: %.2f ISK x %d = %.2f weighted" % [i + 1, price, volume, price * volume])
+	# Check if there's a gap to exploit
+	var market_gap = current_lowest_sell - current_highest_buy
+	if market_gap <= 0:
+		print("  No market gap - orders overlap, no station trading opportunity")
+		return
 
-		if total_sell_volume > 0:
-			realistic_sell_price = weighted_sell_total / total_sell_volume
+	# Calculate your competitive prices
+	var price_increment = market_gap * 0.01  # 1% of the gap, or minimum 0.01 ISK
+	price_increment = max(price_increment, 0.01)
 
-		print("Volume-weighted prices: buy=%.2f, sell=%.2f" % [realistic_buy_price, realistic_sell_price])
+	var your_buy_order_price = current_highest_buy + price_increment  # Bid slightly higher
+	var your_sell_order_price = current_lowest_sell - price_increment  # Ask slightly lower
 
-	# Strategy 2: Use 2nd best prices to avoid single outliers
-	elif sorted_buy_orders.size() >= 2 and sorted_sell_orders.size() >= 2:
-		print("Using 2nd best prices strategy (avoiding outliers)")
-		realistic_buy_price = sorted_buy_orders[1].get("price", 0.0)  # 2nd highest buy
-		realistic_sell_price = sorted_sell_orders[1].get("price", 0.0)  # 2nd lowest sell
-		print("2nd best prices: buy=%.2f, sell=%.2f" % [realistic_buy_price, realistic_sell_price])
+	# EVE Online trading fees and taxes (can be reduced with skills/standings)
+	var broker_fee_rate = 0.025  # 2.5% broker fee (default, reducible to ~1% with skills)
+	var sales_tax_rate = 0.08  # 8% sales tax (reducible to ~1% with skills)
+	var transaction_tax_rate = 0.02  # 2% transaction tax (reducible with standings)
 
-	# Strategy 3: Fallback to best prices if insufficient orders
+	# Calculate total costs and income
+	var cost_per_unit = your_buy_order_price * (1 + broker_fee_rate + transaction_tax_rate)
+	var income_per_unit = your_sell_order_price * (1 - sales_tax_rate - broker_fee_rate)
+
+	var profit_per_unit = income_per_unit - cost_per_unit
+	var profit_margin = (profit_per_unit / cost_per_unit) * 100.0
+
+	print("  Your buy order: %.2f ISK (total cost with fees: %.2f ISK)" % [your_buy_order_price, cost_per_unit])
+	print("  Your sell order: %.2f ISK (net income after taxes: %.2f ISK)" % [your_sell_order_price, income_per_unit])
+	print("  Profit per unit: %.2f ISK" % profit_per_unit)
+	print("  Profit margin: %.2f%%" % profit_margin)
+
+	# Only show profitable opportunities
+	if profit_margin > 2.0:  # At least 2% profit to be worth the effort
+		print("  ✅ PROFITABLE station trading opportunity!")
+
+		# Update chart with YOUR prices (what you'd actually pay and receive)
+		real_time_chart.update_spread_data(cost_per_unit, income_per_unit)
+
+		# Store additional info for the tooltip
+		real_time_chart.current_station_trading_data = {
+			"your_buy_price": your_buy_order_price,
+			"your_sell_price": your_sell_order_price,
+			"cost_with_fees": cost_per_unit,
+			"income_after_taxes": income_per_unit,
+			"profit_per_unit": profit_per_unit,
+			"profit_margin": profit_margin,
+			"market_gap": market_gap
+		}
 	else:
-		print("Using best prices fallback strategy")
-		realistic_buy_price = sorted_buy_orders[0].get("price", 0.0) if sorted_buy_orders.size() > 0 else 0.0
-		realistic_sell_price = sorted_sell_orders[0].get("price", 0.0) if sorted_sell_orders.size() > 0 else 0.0
-		print("Best prices: buy=%.2f, sell=%.2f" % [realistic_buy_price, realistic_sell_price])
-
-	# Update the chart with realistic spread data
-	if realistic_buy_price > 0 and realistic_sell_price > 0:
-		real_time_chart.update_spread_data(realistic_buy_price, realistic_sell_price)
-
-		# Calculate and log the realistic spread info
-		var spread = realistic_sell_price - realistic_buy_price
-		var margin = (spread / realistic_sell_price) * 100.0
-		print("Realistic spread: %.2f ISK (%.2f%% margin)" % [spread, margin])
-	else:
-		print("Could not calculate realistic spread - invalid prices")
+		print("  ❌ Not profitable after fees (%.2f%% margin too low)" % profit_margin)
+		# Clear spread data if not profitable
+		real_time_chart.current_buy_price = 0.0
+		real_time_chart.current_sell_price = 0.0
 
 
 func update_order_book_realtime(data: Dictionary):

@@ -6,6 +6,7 @@ signal price_level_clicked(price: float)
 signal historical_data_requested
 
 var price_data: Array[Dictionary] = []
+var current_station_trading_data: Dictionary = {}
 var volume_data: Array[int] = []
 var time_labels: Array[String] = []
 var max_data_points: int = 365
@@ -1554,26 +1555,37 @@ func check_spread_zone_hover(mouse_pos: Vector2):
 
 
 func draw_spread_hover_tooltip(spread: float, margin_pct: float):
-	"""Draw spread information tooltip near mouse cursor when hovering spread zone"""
+	"""Draw station trading information tooltip when hovering spread zone"""
 	var font = ThemeDB.fallback_font
 	var font_size = 12
 
-	var lines = [
-		"SPREAD ANALYSIS",
-		"Spread: %s ISK" % format_price_label(spread),
-		"Margin: %.2f%%" % margin_pct,
-		get_spread_quality_text(margin_pct),
-		"",
-		"Buy: %s ISK" % format_price_label(current_buy_price),
-		"Sell: %s ISK" % format_price_label(current_sell_price)
-	]
+	var lines = []
+
+	if current_station_trading_data.size() > 0:
+		var data = current_station_trading_data
+		lines = [
+			"STATION TRADING OPPORTUNITY",
+			"",
+			"Your Buy Order: %s ISK" % format_price_label(data.your_buy_price),
+			"Your Sell Order: %s ISK" % format_price_label(data.your_sell_price),
+			"",
+			"Cost (with fees): %s ISK" % format_price_label(data.cost_with_fees),
+			"Income (after taxes): %s ISK" % format_price_label(data.income_after_taxes),
+			"",
+			"Profit: %s ISK per unit" % format_price_label(data.profit_per_unit),
+			"Margin: %.2f%%" % data.profit_margin,
+			"",
+			get_station_trading_quality_text(data.profit_margin)
+		]
+	else:
+		lines = ["SPREAD ANALYSIS", "Spread: %s ISK" % format_price_label(spread), "Margin: %.2f%%" % margin_pct, get_spread_quality_text(margin_pct)]
 
 	var max_width = 0.0
 	var line_height = 16
 
 	# Calculate tooltip dimensions
 	for line in lines:
-		if line.length() > 0:  # Skip empty lines for width calculation
+		if line.length() > 0:
 			var text_size = font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 			max_width = max(max_width, text_size.x)
 
@@ -1592,9 +1604,9 @@ func draw_spread_hover_tooltip(spread: float, margin_pct: float):
 	if tooltip_pos.y + tooltip_height > size.y:
 		tooltip_pos.y = size.y - tooltip_height - 5
 
-	# Background with spread quality color border
+	# Background with profit quality color border
 	var bg_color = Color(0.05, 0.08, 0.12, 0.95)
-	var border_color = get_spread_color(margin_pct)
+	var border_color = get_station_trading_color(margin_pct)
 
 	draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), bg_color)
 	draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), border_color, false, 2.0)
@@ -1602,7 +1614,7 @@ func draw_spread_hover_tooltip(spread: float, margin_pct: float):
 	# Draw text lines
 	for i in range(lines.size()):
 		var line = lines[i]
-		if line.length() == 0:  # Skip empty lines
+		if line.length() == 0:
 			continue
 
 		var text_pos = tooltip_pos + Vector2(padding.x, padding.y + (i + 1) * line_height)
@@ -1611,16 +1623,44 @@ func draw_spread_hover_tooltip(spread: float, margin_pct: float):
 		# Color code different lines
 		if i == 0:  # Header
 			text_color = Color.CYAN
-		elif line.contains("Margin:"):
-			text_color = get_spread_color(margin_pct)
-		elif line.contains("EXCELLENT") or line.contains("DECENT") or line.contains("MARGINAL") or line.contains("POOR"):
-			text_color = get_spread_color(margin_pct)
-		elif line.contains("Buy:"):
+		elif line.contains("Profit:") or line.contains("Margin:"):
+			text_color = get_station_trading_color(margin_pct)
+		elif line.contains("EXCELLENT") or line.contains("GOOD") or line.contains("MARGINAL") or line.contains("POOR"):
+			text_color = get_station_trading_color(margin_pct)
+		elif line.contains("Your Buy Order:"):
 			text_color = Color.GREEN
-		elif line.contains("Sell:"):
+		elif line.contains("Your Sell Order:"):
 			text_color = Color.RED
+		elif line.contains("Cost"):
+			text_color = Color.ORANGE
+		elif line.contains("Income"):
+			text_color = Color.LIGHT_GREEN
 
 		draw_string(font, text_pos, line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
+
+func get_station_trading_color(margin_pct: float) -> Color:
+	"""Get color based on station trading profit quality"""
+	if margin_pct >= 10.0:
+		return Color.GREEN  # Excellent - 10%+ profit
+	elif margin_pct >= 5.0:
+		return Color.YELLOW  # Good - 5-10% profit
+	elif margin_pct >= 2.0:
+		return Color.ORANGE  # Marginal - 2-5% profit
+	else:
+		return Color.RED  # Poor - <2% profit
+
+
+func get_station_trading_quality_text(margin_pct: float) -> String:
+	"""Get text description of station trading opportunity quality"""
+	if margin_pct >= 10.0:
+		return "EXCELLENT OPPORTUNITY"
+	elif margin_pct >= 5.0:
+		return "GOOD OPPORTUNITY"
+	elif margin_pct >= 2.0:
+		return "MARGINAL OPPORTUNITY"
+	else:
+		return "POOR OPPORTUNITY"
 
 
 func draw_custom_dashed_line(from: Vector2, to: Vector2, color: Color, width: float, dash_length: float):
