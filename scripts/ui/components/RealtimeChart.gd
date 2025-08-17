@@ -347,32 +347,28 @@ func check_point_hover(mouse_pos: Vector2):
 			hovered_point_index = closest_index
 			tooltip_position = mouse_pos
 
-			var point = price_data[closest_index]
+			var point = visible_points[closest_index]
 			var hours_ago = (current_time - point.timestamp) / 3600.0
 			var time_text = format_time_ago(hours_ago)
 			var volume = volume_data[closest_index] if closest_index < volume_data.size() else 0
 			var raw_price = point.get("raw_price", point.price)
 
-			# Find price trend (compare with previous points)
-			var trend_text = "Unknown"
-			var trend_emoji = "⚪"
-			if closest_index > 0:
-				var prev_price = price_data[closest_index - 1].price
-				if point.price > prev_price:
-					trend_text = "Rising"
-					trend_emoji = "📈"
-				elif point.price < prev_price:
-					trend_text = "Falling"
-					trend_emoji = "📉"
-				else:
-					trend_text = "Stable"
-					trend_emoji = "➡️"
+			# Find corresponding candlestick data for high/low values
+			var high_low_text = ""
+			for candle in candlestick_data:
+				# Check if this candlestick is close in time to the current data point
+				if abs(candle.timestamp - point.timestamp) < 86400:  # Within 24 hours
+					var high_price = candle.get("high", 0.0)
+					var low_price = candle.get("low", 0.0)
+					if high_price > 0 and low_price > 0:
+						high_low_text = "High: %s ISK\nLow: %s ISK\n" % [format_price_label(high_price), format_price_label(low_price)]
+					break
 
 			tooltip_text = (
 				"MA Price: %s ISK\n" % format_price_label(point.price)
 				+ "Raw Price: %s ISK\n" % format_price_label(raw_price)
+				+ high_low_text  # Add high/low info here
 				+ "Volume: %s\n" % format_number(volume)
-				+ "Trend: %s\n" % trend_text
 				+ "Time: %s" % time_text
 			)
 
@@ -678,15 +674,16 @@ func draw_price_line():
 
 # Add this new function after draw_price_line
 func draw_candlesticks(visible_candles: Array, data_start_time: float, data_time_span: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
-	"""Draw candlestick chart for daily OHLC data"""
-	print("Drawing %d candlesticks" % visible_candles.size())
+	"""Draw candlestick chart with trend-colored high/low wicks"""
+	print("Drawing %d candlesticks with trend-colored wicks" % visible_candles.size())
 
 	# Get zoom scaling
 	var scale_factors = get_zoom_scale_factor()
 	var scaled_candle_width = candle_width * scale_factors.volume_scale
-	var scaled_wick_width = max(1.0, wick_width * scale_factors.volume_scale)
+	var scaled_wick_width = max(2.0, wick_width * scale_factors.volume_scale)
 
-	for candle in visible_candles:
+	for i in range(visible_candles.size()):
+		var candle = visible_candles[i]
 		var timestamp = candle.timestamp
 
 		# Calculate X position using same method as price line
@@ -708,28 +705,39 @@ func draw_candlesticks(visible_candles: Array, data_start_time: float, data_time
 		var low_y = chart_y_offset + chart_height - ((low_price - min_price) / price_range * chart_height)
 		var close_y = chart_y_offset + chart_height - ((close_price - min_price) / price_range * chart_height)
 
-		# Determine candle color
+		# Determine trend colors based on close vs open
 		var candle_color: Color
-		if close_price > open_price:
-			candle_color = candle_up_color
-		elif close_price < open_price:
-			candle_color = candle_down_color
-		else:
-			candle_color = candle_neutral_color
+		var wick_trend_color: Color
+		var price_diff = close_price - open_price
 
-		# Draw the wick (high-low line)
-		draw_line(Vector2(x, high_y), Vector2(x, low_y), wick_color, scaled_wick_width, false)
+		if price_diff > 0.01:  # Bullish trend
+			candle_color = Color(0.1, 0.8, 0.1, 0.9)  # Green body
+			wick_trend_color = Color(0.0, 0.9, 0.0, 1.0)  # GREEN wicks for upward trend
+		elif price_diff < -0.01:  # Bearish trend
+			candle_color = Color(0.8, 0.1, 0.1, 0.9)  # Red body
+			wick_trend_color = Color(0.9, 0.0, 0.0, 1.0)  # RED wicks for downward trend
+		else:  # Neutral/Doji
+			candle_color = Color(0.6, 0.6, 0.6, 0.9)  # Gray body
+			wick_trend_color = Color(0.7, 0.7, 0.7, 1.0)  # Gray wicks for neutral
 
-		# Draw the body (open-close rectangle)
+		# Draw the body first
 		var body_top = min(open_y, close_y)
 		var body_bottom = max(open_y, close_y)
-		var body_height = max(body_bottom - body_top, 1.0)  # Minimum height of 1 pixel
-
+		var body_height = max(body_bottom - body_top, 3.0)
 		var body_rect = Rect2(x - scaled_candle_width / 2, body_top, scaled_candle_width, body_height)
+
 		draw_rect(body_rect, candle_color, true)
 
-		# Add subtle border to candlestick body
-		var border_color = candle_color.darkened(0.3)
+		# Draw HIGH wick with trend color (from high to top of body)
+		if high_y < body_top:
+			draw_line(Vector2(x, high_y), Vector2(x, body_top), wick_trend_color, scaled_wick_width, false)
+
+		# Draw LOW wick with trend color (from bottom of body to low)
+		if low_y > body_bottom:
+			draw_line(Vector2(x, body_bottom), Vector2(x, low_y), wick_trend_color, scaled_wick_width, false)
+
+		# Add border to body
+		var border_color = wick_trend_color.darkened(0.3)
 		draw_rect(body_rect, border_color, false, 1.0)
 
 
@@ -1678,6 +1686,8 @@ func format_price_label(price: float) -> String:
 # Add this new helper function for consistent time formatting
 func format_time_ago(hours_ago: float) -> String:
 	"""Format time difference in a human-readable way"""
+	print("DEBUG: format_time_ago called with hours_ago = %.2f" % hours_ago)
+
 	if hours_ago < 0.1:
 		return "Now"
 	if hours_ago < 1.0:
@@ -1686,18 +1696,17 @@ func format_time_ago(hours_ago: float) -> String:
 	if hours_ago < 24.0:
 		var hours = int(hours_ago)
 		return "%d hour%s ago" % [hours, "s" if hours != 1 else ""]
-	if hours_ago < 168.0:  # Less than a week
+	if hours_ago < 168.0:  # Less than a week (7 * 24 = 168 hours)
 		var days = int(hours_ago / 24.0)
 		var remaining_hours = int(hours_ago) % 24
 		if remaining_hours == 0:
 			return "%d day%s ago" % [days, "s" if days != 1 else ""]
-
 		return "%dd %dh ago" % [days, remaining_hours]
-	if hours_ago < 720.0:  # Less than a month
+	if hours_ago < 730.0:  # Less than a month (30.4 * 24 = 730 hours)
 		var weeks = int(hours_ago / 168.0)
 		return "%d week%s ago" % [weeks, "s" if weeks != 1 else ""]
-	if hours_ago < 8760.0:  # Less than a year
-		var months = int(hours_ago / 720.0)
+	if hours_ago < 8760.0:  # Less than a year (365 * 24 = 8760 hours)
+		var months = int(hours_ago / 730.0)  # Fixed: 730 hours per month, not 720
 		return "%d month%s ago" % [months, "s" if months != 1 else ""]
 
 	var years = int(hours_ago / 8760.0)
