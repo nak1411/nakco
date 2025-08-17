@@ -31,7 +31,7 @@ var axis_label_color: Color = Color(0.7, 0.7, 0.8, 1)
 var candlestick_data: Array[Dictionary] = []  # Store OHLC data for candlesticks
 var show_candlesticks: bool = true
 var candle_width: float = 12.0  # Base width for candlestick bodies
-var wick_width: float = 2.0  # Width of candlestick wicks
+var wick_width: float = 1.0  # Width of candlestick wicks
 var candle_up_color: Color = Color(0.2, 0.8, 0.2, 0.9)  # Green for up candles
 var candle_down_color: Color = Color(0.8, 0.2, 0.2, 0.9)  # Red for down candles
 var candle_neutral_color: Color = Color(0.6, 0.6, 0.6, 0.9)  # Gray for neutral candles
@@ -350,14 +350,8 @@ func check_point_hover(mouse_pos: Vector2):
 			var point = price_data[closest_index]
 			var hours_ago = (current_time - point.timestamp) / 3600.0
 			var time_text = format_time_ago(hours_ago)
-			var is_historical = point.get("is_historical", false)
-			var data_type = "Historical" if is_historical else "Real-time"
 			var volume = volume_data[closest_index] if closest_index < volume_data.size() else 0
 			var raw_price = point.get("raw_price", point.price)
-
-			# Calculate moving average context
-			var ma_period = min(moving_average_period, closest_index + 1)
-			var ma_text = "Moving Avg (%d periods)" % ma_period
 
 			# Find price trend (compare with previous points)
 			var trend_text = "Unknown"
@@ -375,8 +369,7 @@ func check_point_hover(mouse_pos: Vector2):
 					trend_emoji = "➡️"
 
 			tooltip_text = (
-				"%s %s %s\n" % [data_type, ma_text, trend_emoji]
-				+ "MA Price: %s ISK\n" % format_price_label(point.price)
+				"MA Price: %s ISK\n" % format_price_label(point.price)
 				+ "Raw Price: %s ISK\n" % format_price_label(raw_price)
 				+ "Volume: %s\n" % format_number(volume)
 				+ "Trend: %s\n" % trend_text
@@ -417,7 +410,7 @@ func draw_tooltip():
 	var font = ThemeDB.fallback_font
 	var font_size = 11
 	var line_height = 14
-	var padding = Vector2(10, 8)
+	var padding = Vector2(10, 12)
 
 	# Split tooltip text into lines
 	var lines = tooltip_text.split("\n")
@@ -463,14 +456,13 @@ func draw_tooltip():
 	var text_pos = tooltip_pos + padding
 	for i in range(lines.size()):
 		var line = lines[i]
-		var line_pos = text_pos + Vector2(0, i * line_height)
+		var line_pos = text_pos + Vector2(0, i * line_height + 10)
 		var text_color = Color.WHITE
 		var is_bold = false
 
 		# Color code different types of information
 		if i == 0:  # Header line
 			text_color = Color.CYAN
-			is_bold = true
 		elif line.contains("Open:") or line.contains("MA Price:"):
 			text_color = Color.LIGHT_GREEN
 		elif line.contains("High:"):
@@ -726,7 +718,7 @@ func draw_candlesticks(visible_candles: Array, data_start_time: float, data_time
 			candle_color = candle_neutral_color
 
 		# Draw the wick (high-low line)
-		draw_line(Vector2(x, high_y), Vector2(x, low_y), wick_color, scaled_wick_width, true)
+		draw_line(Vector2(x, high_y), Vector2(x, low_y), wick_color, scaled_wick_width, false)
 
 		# Draw the body (open-close rectangle)
 		var body_top = min(open_y, close_y)
