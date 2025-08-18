@@ -110,12 +110,14 @@ func _ready():
 
 func _on_mouse_entered():
 	show_crosshair = true
+	mouse_default_cursor_shape = Control.CURSOR_CROSS
 
 
 func _on_mouse_exited():
 	show_crosshair = false
 	hovered_point_index = -1
 	hovered_volume_index = -1  # Clear hovered volume bar when mouse leaves
+	mouse_default_cursor_shape = Control.CURSOR_ARROW
 	queue_redraw()
 
 
@@ -149,7 +151,6 @@ func _gui_input(event):
 			handle_simple_drag(event)
 		else:
 			check_point_hover(mouse_position)
-			# ADD THIS LINE - check for spread zone hover
 			if show_spread_analysis:
 				check_spread_zone_hover(mouse_position)
 
@@ -497,6 +498,7 @@ func check_point_hover(mouse_pos: Vector2):
 
 func _draw():
 	draw_background()
+	draw_axis_label_tracks()
 	draw_y_axis_labels()
 	draw_x_axis_labels()
 	draw_grid()
@@ -544,7 +546,27 @@ func draw_drag_indicator():
 
 		draw_rect(bg_rect, Color(0.2, 0.15, 0.0, 0.9))
 		draw_rect(bg_rect, Color(0.5, 0.4, 0.2, 0.8), false, 1.0)
-		draw_string(font, Vector2(bg_rect.position.x + padding.x, bg_rect.position.y + padding.y + text_size.y), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.ORANGE)
+		var drag_text_y = bg_rect.position.y + padding.y + text_size.y - 4
+		draw_string(font, Vector2(bg_rect.position.x + padding.x, drag_text_y), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.ORANGE)
+
+
+func draw_axis_label_tracks():
+	"""Draw background tracks for axis labels to make them more visible"""
+	var track_color = Color(0.08, 0.1, 0.12, 0.85)  # Semi-transparent dark background
+	var border_color = Color(0.2, 0.25, 0.3, 0.6)  # Subtle border
+
+	# Y-axis track (left side for price labels)
+	var y_track_width = 80  # Width of the price label track
+	var y_track_rect = Rect2(Vector2(0, 0), Vector2(y_track_width, size.y))
+	draw_rect(y_track_rect, track_color)
+	draw_line(Vector2(y_track_width, 0), Vector2(y_track_width, size.y), border_color, 1.0)
+
+	# X-axis track (bottom for time labels)
+	var x_track_height = 25  # Height of the time label track
+	var chart_bottom = size.y * 0.7
+	var x_track_rect = Rect2(Vector2(0, chart_bottom), Vector2(size.x, x_track_height))
+	draw_rect(x_track_rect, track_color)
+	draw_line(Vector2(0, chart_bottom), Vector2(size.x, chart_bottom), border_color, 1.0)
 
 
 func draw_background():
@@ -907,7 +929,7 @@ func draw_price_line():
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
 		var time_progress = (point_data.timestamp - window_start) / (window_end - window_start)
-		var x = time_progress * size.x
+		var x = chart_left + (time_progress * chart_width)
 
 		var price_progress = (point_data.price - min_price) / price_range
 		var y = chart_y_offset + chart_height - (price_progress * chart_height)
@@ -995,46 +1017,46 @@ func clip_line_to_rect(p1: Vector2, p2: Vector2, rect: Rect2) -> Dictionary:
 		if (outcode1 & outcode2) != 0:
 			# Both points outside on same side
 			return {}  # Return empty dictionary
-		else:
-			# At least one point outside
-			var outcode_out = outcode1 if outcode1 != 0 else outcode2
-			var x: float
-			var y: float
 
-			# Avoid division by zero
-			if outcode_out & 8:  # Top
-				if abs(y2 - y1) > 0.001:
-					x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1)
-					y = ymax
-				else:
-					return {}
-			elif outcode_out & 4:  # Bottom
-				if abs(y2 - y1) > 0.001:
-					x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1)
-					y = ymin
-				else:
-					return {}
-			elif outcode_out & 2:  # Right
-				if abs(x2 - x1) > 0.001:
-					y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1)
-					x = xmax
-				else:
-					return {}
-			else:  # Left
-				if abs(x2 - x1) > 0.001:
-					y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1)
-					x = xmin
-				else:
-					return {}
+		# At least one point outside
+		var outcode_out = outcode1 if outcode1 != 0 else outcode2
+		var x: float
+		var y: float
 
-			if outcode_out == outcode1:
-				x1 = x
-				y1 = y
-				outcode1 = compute_outcode(x1, y1, xmin, ymin, xmax, ymax)
+		# Avoid division by zero
+		if outcode_out & 8:  # Top
+			if abs(y2 - y1) > 0.001:
+				x = x1 + (x2 - x1) * (ymax - y1) / (y2 - y1)
+				y = ymax
 			else:
-				x2 = x
-				y2 = y
-				outcode2 = compute_outcode(x2, y2, xmin, ymin, xmax, ymax)
+				return {}
+		elif outcode_out & 4:  # Bottom
+			if abs(y2 - y1) > 0.001:
+				x = x1 + (x2 - x1) * (ymin - y1) / (y2 - y1)
+				y = ymin
+			else:
+				return {}
+		elif outcode_out & 2:  # Right
+			if abs(x2 - x1) > 0.001:
+				y = y1 + (y2 - y1) * (xmax - x1) / (x2 - x1)
+				x = xmax
+			else:
+				return {}
+		else:  # Left
+			if abs(x2 - x1) > 0.001:
+				y = y1 + (y2 - y1) * (xmin - x1) / (x2 - x1)
+				x = xmin
+			else:
+				return {}
+
+		if outcode_out == outcode1:
+			x1 = x
+			y1 = y
+			outcode1 = compute_outcode(x1, y1, xmin, ymin, xmax, ymax)
+		else:
+			x2 = x
+			y2 = y
+			outcode2 = compute_outcode(x2, y2, xmin, ymin, xmax, ymax)
 
 	# If we've reached max iterations, return empty dictionary as fallback
 	print("Warning: Line clipping reached max iterations, returning empty result")
@@ -1522,13 +1544,51 @@ func draw_spread_analysis():
 	if current_buy_price >= min_price and current_buy_price <= max_price:
 		print("Drawing buy line at Y=%.1f" % buy_y)
 		draw_custom_dashed_line(Vector2(0, buy_y), Vector2(size.x, buy_y), Color.GREEN, 2.0, 15.0)
-		draw_spread_label("BUY: %s ISK" % format_price_label(current_buy_price), Vector2(size.x - 150, buy_y - 15), Color.GREEN)
+
+		# Align buy label to the dotted line Y position
+		var buy_label_text = "BUY: %s ISK" % format_price_label(current_buy_price)
+		var font = ThemeDB.fallback_font
+		var font_size = 10
+		var text_size = font.get_string_size(buy_label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+		var padding = Vector2(6, 3)
+
+		# Position label on the right side, vertically centered on the line
+		var label_x = size.x - text_size.x - padding.x * 2 - 5
+		var label_y = buy_y - text_size.y / 2 - padding.y  # Center on the line
+
+		# Background for label
+		var bg_rect = Rect2(Vector2(label_x, label_y), Vector2(text_size.x + padding.x * 2, text_size.y + padding.y * 2))
+		draw_rect(bg_rect, Color(0.1, 0.1, 0.15, 0.9))
+		draw_rect(bg_rect, Color.GREEN, false, 1.0)
+
+		# Draw label text
+		var text_y = label_y + padding.y + text_size.y - 2  # Subtract 2 pixels to move text up slightly
+		draw_string(font, Vector2(label_x + padding.x, text_y), buy_label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 	# Draw sell line if it's in visible range
 	if current_sell_price >= min_price and current_sell_price <= max_price:
 		print("Drawing sell line at Y=%.1f" % sell_y)
 		draw_custom_dashed_line(Vector2(0, sell_y), Vector2(size.x, sell_y), Color.RED, 2.0, 15.0)
-		draw_spread_label("SELL: %s ISK" % format_price_label(current_sell_price), Vector2(size.x - 150, sell_y + 25), Color.RED)
+
+		# Align sell label to the dotted line Y position
+		var sell_label_text = "SELL: %s ISK" % format_price_label(current_sell_price)
+		var font = ThemeDB.fallback_font
+		var font_size = 10
+		var text_size = font.get_string_size(sell_label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+		var padding = Vector2(6, 3)
+
+		# Position label on the right side, vertically centered on the line
+		var label_x = size.x - text_size.x - padding.x * 2 - 5
+		var label_y = sell_y - text_size.y / 2 - padding.y  # Center on the line
+
+		# Background for label
+		var bg_rect = Rect2(Vector2(label_x, label_y), Vector2(text_size.x + padding.x * 2, text_size.y + padding.y * 2))
+		draw_rect(bg_rect, Color(0.1, 0.1, 0.15, 0.9))
+		draw_rect(bg_rect, Color.RED, false, 1.0)
+
+		# Draw label text
+		var text_y = label_y + padding.y + text_size.y - 2  # Subtract 2 pixels to move text up slightly
+		draw_string(font, Vector2(label_x + padding.x, text_y), sell_label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 	# Draw spread zone with CLIPPING - show partial zone even if one price is outside range
 	var spread = current_sell_price - current_buy_price
@@ -1641,7 +1701,8 @@ func draw_dotted_horizontal_line(y_pos: float, line_color: Color, label_text: St
 	draw_rect(bg_rect, line_color, false, 1.0)
 
 	# Draw label text
-	draw_string(font, Vector2(label_x + padding.x, label_y + padding.y + text_size.y), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+	var text_y = label_y + padding.y + text_size.y - 2  # Subtract 2 pixels to move text up slightly
+	draw_string(font, Vector2(label_x + padding.x, text_y), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 
 func store_spread_zone_info(_zone_rect: Rect2, _spread: float, _margin_pct: float):
@@ -2016,86 +2077,77 @@ func draw_crosshair():
 	if not show_crosshair or hovered_point_index != -1:  # Don't show crosshair tooltip if hovering over a point
 		return
 
+	var chart_bounds = get_chart_boundaries()
+
 	# Draw crosshair lines
-	draw_line(Vector2(0, mouse_position.y), Vector2(size.x, mouse_position.y), Color.DIM_GRAY, 1.0, false)
-	draw_line(Vector2(mouse_position.x, 0), Vector2(mouse_position.x, size.y), Color.DIM_GRAY, 1.0, false)
+	draw_line(Vector2(chart_bounds.left, mouse_position.y), Vector2(chart_bounds.right, mouse_position.y), Color.DIM_GRAY, 1.0, false)
+	draw_line(Vector2(mouse_position.x, chart_bounds.top), Vector2(mouse_position.x, chart_bounds.bottom), Color.DIM_GRAY, 1.0, false)
 
-	# Calculate price and time at mouse position using current time window
+	# Use the SAME coordinate system as axis labels
 	if price_data.size() > 0:
-		var current_time = Time.get_unix_time_from_system()
-		var time_window = get_current_time_window()
+		# Get current window bounds (same as axis labels use)
+		var bounds = get_current_window_bounds()
+		var window_start = bounds.time_start
+		var window_end = bounds.time_end
+		var min_price = bounds.price_min
+		var max_price = bounds.price_max
+		var price_range = max_price - min_price
+		var time_span = window_end - window_start
 
-		# Use same data range calculation as chart drawing
-		var data_start_time = current_time - time_window
-		var data_end_time = current_time
-		var data_time_span = time_window
+		if price_range > 0 and time_span > 0:
+			# Use the same pixel-to-coordinate conversion as the rest of the chart
+			var time_at_mouse = get_time_at_pixel(mouse_position.x)
+			var price_at_mouse = get_price_at_pixel(mouse_position.y)
 
-		# Check for actual data range
-		var visible_points = []
-		for point in price_data:
-			if point.timestamp >= data_start_time and point.timestamp <= data_end_time:
-				visible_points.append(point)
+			# Determine time format type based on current zoom level
+			var time_window = get_current_time_window()
+			var window_days = time_window / 86400.0
+			var time_format_type: String
+			if window_days <= 1:
+				time_format_type = "time"
+			elif window_days <= 7:
+				time_format_type = "daily"
+			elif window_days <= 30:
+				time_format_type = "multi_day"
+			elif window_days <= 90:
+				time_format_type = "weekly"
+			else:
+				time_format_type = "monthly"
 
-		if visible_points.size() > 0:
-			visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
-			var actual_start = visible_points[0].timestamp
-			var actual_end = visible_points[-1].timestamp
-			var actual_span = actual_end - actual_start
+			# Format price and time using axis label formatting
+			var price_text = format_price_label_for_axis(price_at_mouse)
+			var time_text = format_eve_time_label(time_at_mouse, time_format_type)
 
-			# Use actual data range if it spans more than 1 minute
-			if actual_span > 60.0:
-				data_start_time = actual_start
-				data_end_time = actual_end
-				data_time_span = actual_span
+			# Draw price text clamped to Y-axis
+			var font = chart_font
+			var font_size = 11
+			var price_text_size = font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+			var padding = Vector2(4, 2)
 
-		# Get visible price range for accurate price calculation
-		var visible_prices = []
-		for point in price_data:
-			if point.timestamp >= data_start_time and point.timestamp <= data_end_time:
-				visible_prices.append(point.price)
+			# Position price text at left edge (Y-axis), vertically centered on crosshair
+			var price_bg_rect = Rect2(Vector2(2, mouse_position.y - price_text_size.y / 2 - padding.y), Vector2(price_text_size.x + padding.x * 2, price_text_size.y + padding.y * 2))
 
-		if visible_prices.size() > 0:
-			var min_price = visible_prices[0]
-			var max_price = visible_prices[0]
-			for price in visible_prices:
-				if price < min_price:
-					min_price = price
-				if price > max_price:
-					max_price = price
+			# Draw price background and text
+			draw_rect(price_bg_rect, Color(0.1, 0.1, 0.15, 0.9))
+			draw_rect(price_bg_rect, axis_label_color, false, 1.0)
+			var price_text_y = price_bg_rect.position.y + padding.y + price_text_size.y - 4
+			draw_string(font, Vector2(price_bg_rect.position.x + padding.x, price_text_y), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
-			var price_range = max_price - min_price
-			if price_range > 0:
-				# Calculate price at mouse Y position using visible price range
-				var chart_height = size.y * 0.6
-				var chart_y_offset = size.y * 0.05
-				var price_y_ratio = (chart_y_offset + chart_height - mouse_position.y) / chart_height
-				var price_at_mouse = min_price + (price_y_ratio * price_range)
+			# Draw time text clamped to X-axis
+			var time_text_size = font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+			var chart_bottom = size.y * 0.7
 
-				# Calculate time at mouse X position using data time span
-				var time_ratio = mouse_position.x / size.x
-				var time_at_mouse = data_start_time + (time_ratio * data_time_span)
-				var time_diff = current_time - time_at_mouse
+			# Position time text at bottom edge (X-axis), horizontally centered on crosshair
+			var time_x = mouse_position.x - time_text_size.x / 2
+			time_x = max(0, min(time_x, size.x - time_text_size.x))  # Clamp to chart bounds
 
-				# Format time based on current time window
-				var time_text = format_crosshair_time(time_diff, time_window)
+			var time_bg_rect = Rect2(Vector2(time_x - padding.x, chart_bottom + 2), Vector2(time_text_size.x + padding.x * 2, time_text_size.y + padding.y * 2))
 
-				# Draw crosshair tooltip
-				var font = ThemeDB.fallback_font
-				var font_size = 11
-				var tooltip_text = "%.2f ISK | %s" % [price_at_mouse, time_text]
-				var text_size = font.get_string_size(tooltip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-
-				var padding = Vector2(6, 4)
-				var tooltip_size = text_size + padding * 2
-
-				var label_pos = Vector2(mouse_position.x + 10, mouse_position.y - 10)
-				if label_pos.x + tooltip_size.x > size.x:
-					label_pos.x = mouse_position.x - tooltip_size.x - 10
-				if label_pos.y - tooltip_size.y < 0:
-					label_pos.y = mouse_position.y + 20
-
-				# Draw text
-				draw_string(font, label_pos, tooltip_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.LIGHT_GRAY)
+			# Draw time background and text
+			draw_rect(time_bg_rect, Color(0.1, 0.1, 0.15, 0.9))
+			draw_rect(time_bg_rect, axis_label_color, false, 1.0)
+			var time_text_y = time_bg_rect.position.y + padding.y + time_text_size.y - 4
+			draw_string(font, Vector2(time_bg_rect.position.x + padding.x, time_text_y), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 
 func draw_zoom_indicator():
@@ -2126,7 +2178,8 @@ func draw_zoom_indicator():
 
 	draw_rect(bg_rect, bg_color)
 	draw_rect(bg_rect, Color(0.3, 0.3, 0.4, 0.8), false, 1.0)
-	draw_string(font, Vector2(bg_rect.position.x + padding.x, bg_rect.position.y + padding.y + text_size.y), zoom_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+	var zoom_text_y = bg_rect.position.y + padding.y + text_size.y - 4
+	draw_string(font, Vector2(bg_rect.position.x + (padding.x - 2), zoom_text_y), zoom_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
 
 func zoom_in(_zoom_point: Vector2):
@@ -3196,12 +3249,17 @@ func get_current_window_bounds() -> Dictionary:
 
 
 func get_chart_boundaries() -> Dictionary:
-	"""Get current chart boundaries that update with resizing"""
-	var current_size = size
-	var chart_height = current_size.y * 0.6  # 60% of current height
-	var chart_y_offset = current_size.y * 0.05  # 5% offset from top
+	"""Get current chart boundaries that update with resizing and account for axis tracks"""
+	var y_track_width = 80  # Must match the track width above
+	var chart_left = y_track_width + 5  # Leave small margin after Y-axis track
+	var chart_right = size.x - 10
+	var chart_top = size.y * 0.05
+	var chart_bottom = size.y * 0.7  # This stays the same as X-axis track starts here
 
-	return {"top": chart_y_offset, "bottom": chart_y_offset + chart_height, "left": 0, "right": current_size.x, "height": chart_height, "width": current_size.x}
+	var chart_width = chart_right - chart_left
+	var chart_height = chart_bottom - chart_top
+
+	return {"left": chart_left, "right": chart_right, "top": chart_top, "bottom": chart_bottom, "width": chart_width, "height": chart_height}
 
 
 func cleanup_old_data():
