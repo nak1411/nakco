@@ -1103,7 +1103,7 @@ func draw_candlesticks_simple(visible_candles: Array, window_start: float, windo
 	"""Draw candlesticks with proper clipping that doesn't make them vanish at edges"""
 	var scale_factors = get_zoom_scale_factor()
 	var scaled_candle_width = candle_width * scale_factors.volume_scale
-	var scaled_wick_width = max(2.0, wick_width * scale_factors.volume_scale)
+	var scaled_wick_width = max(1.0, wick_width * scale_factors.volume_scale)
 
 	# Use DYNAMIC chart boundaries for clipping
 	var chart_bounds = get_chart_boundaries()
@@ -1602,7 +1602,7 @@ func draw_spread_analysis():
 	# Draw buy line if it's in visible range
 	if current_buy_price >= min_price and current_buy_price <= max_price:
 		print("Drawing buy line at Y=%.1f" % buy_y)
-		draw_custom_dashed_line(Vector2(50, buy_y), Vector2(size.x, buy_y), Color.GREEN, 2.0, 15.0)
+		draw_custom_dashed_line(Vector2(50, buy_y), Vector2(size.x, buy_y), Color.GREEN, 1.0, 10.0)
 
 		# Align buy label to the dotted line Y position
 		var buy_label_text = "BUY: %s ISK" % format_price_label(current_buy_price)
@@ -1627,7 +1627,7 @@ func draw_spread_analysis():
 	# Draw sell line if it's in visible range
 	if current_sell_price >= min_price and current_sell_price <= max_price:
 		print("Drawing sell line at Y=%.1f" % sell_y)
-		draw_custom_dashed_line(Vector2(50, sell_y), Vector2(size.x, sell_y), Color.RED, 2.0, 15.0)
+		draw_custom_dashed_line(Vector2(50, sell_y), Vector2(size.x, sell_y), Color.RED, 1.0, 10.0)
 
 		# Align sell label to the dotted line Y position
 		var sell_label_text = "SELL: %s ISK" % format_price_label(current_sell_price)
@@ -1661,7 +1661,7 @@ func draw_spread_analysis():
 	if zone_bottom > zone_top:
 		print("Drawing clipped spread zone: top=%.1f, bottom=%.1f (original buy_y=%.1f, sell_y=%.1f)" % [zone_top, zone_bottom, buy_y, sell_y])
 
-		var zone_color = get_spread_color(margin_pct)
+		var zone_color = get_station_trading_color(margin_pct)
 		zone_color.a = 0.15  # Make it semi-transparent
 
 		var zone_rect = Rect2(Vector2(50, zone_top), Vector2(size.x, zone_bottom - zone_top))
@@ -1833,7 +1833,7 @@ func draw_spread_hover_tooltip(spread: float, margin_pct: float):
 		if line.length() == 0:
 			continue
 
-		var text_pos = tooltip_pos + Vector2(padding.x, padding.y + (i + 1) * line_height)
+		var text_pos = tooltip_pos + Vector2(padding.x, padding.y + (i + 0.8) * line_height)
 		var text_color = Color.WHITE
 
 		# Color code different lines
@@ -3292,7 +3292,7 @@ func get_zoom_scale_factor() -> Dictionary:
 	var point_scale = lerp(0.5, 2.0, zoom_ratio)  # 50% to 200% size
 
 	# Volume bar scale: similar to point scale
-	var volume_scale = lerp(0.5, 1.5, zoom_ratio)  # 10% to 120% width
+	var volume_scale = lerp(0.2, 1.5, zoom_ratio)  # 10% to 120% width
 
 	return {"point_scale": point_scale, "volume_scale": volume_scale, "zoom_ratio": zoom_ratio}
 
