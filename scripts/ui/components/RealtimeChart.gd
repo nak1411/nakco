@@ -552,11 +552,11 @@ func draw_drag_indicator():
 
 func draw_axis_label_tracks():
 	"""Draw background tracks for axis labels to make them more visible"""
-	var track_color = Color(0.08, 0.1, 0.12, 0.85)  # Semi-transparent dark background
-	var border_color = Color(0.2, 0.25, 0.3, 0.6)  # Subtle border
+	var track_color = Color(0.08, 0.1, 0.12, 1.0)  # Semi-transparent dark background
+	var border_color = Color(0.2, 0.25, 0.3, 1.0)  # Subtle border
 
 	# Y-axis track (left side for price labels)
-	var y_track_width = 80  # Width of the price label track
+	var y_track_width = 50  # Width of the price label track
 	var y_track_rect = Rect2(Vector2(0, 0), Vector2(y_track_width, size.y))
 	draw_rect(y_track_rect, track_color)
 	draw_line(Vector2(y_track_width, 0), Vector2(y_track_width, size.y), border_color, 1.0)
@@ -712,7 +712,7 @@ func draw_price_grid_lines(chart_height: float, chart_y_offset: float):
 			var line_color = grid_color.lightened(0.2) if is_major else grid_color
 			var line_width = 1.5 if is_major else 1.0
 
-			draw_line(Vector2(0, y), Vector2(size.x, y), line_color, line_width)
+			draw_line(Vector2(50, y), Vector2(size.x, y), line_color, line_width)
 			lines_drawn += 1
 
 		current_price += price_interval
@@ -803,7 +803,7 @@ func draw_time_grid_lines():
 			var x = time_progress * size.x
 
 			# Only draw if within chart bounds
-			if x >= 0 and x <= size.x:
+			if x >= 50 and x <= size.x:
 				# Check if this is a daily boundary (11:00 UTC) for emphasis
 				var datetime = Time.get_datetime_dict_from_unix_time(current_time)
 				var is_daily_boundary = datetime.hour == 11 and datetime.minute == 0
@@ -811,7 +811,7 @@ func draw_time_grid_lines():
 				var line_color = grid_color.lightened(0.3) if is_daily_boundary else grid_color
 				var line_width = 1.5 if is_daily_boundary else 1.0
 
-				draw_line(Vector2(x, 0), Vector2(x, size.y * 0.8), line_color, line_width)
+				draw_line(Vector2(x, 0), Vector2(x, size.y * 0.7), line_color, line_width)
 				lines_drawn += 1
 
 		current_time += grid_interval_seconds
@@ -929,7 +929,7 @@ func draw_price_line():
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
 		var time_progress = (point_data.timestamp - window_start) / (window_end - window_start)
-		var x = chart_left + (time_progress * chart_width)
+		var x = time_progress * size.x
 
 		var price_progress = (point_data.price - min_price) / price_range
 		var y = chart_y_offset + chart_height - (price_progress * chart_height)
@@ -3250,10 +3250,10 @@ func get_current_window_bounds() -> Dictionary:
 
 func get_chart_boundaries() -> Dictionary:
 	"""Get current chart boundaries that update with resizing and account for axis tracks"""
-	var y_track_width = 80  # Must match the track width above
-	var chart_left = y_track_width + 5  # Leave small margin after Y-axis track
-	var chart_right = size.x - 10
-	var chart_top = size.y * 0.05
+	var y_track_width = 50  # Must match the track width above
+	var chart_left = y_track_width
+	var chart_right = size.x
+	var chart_top = 0.0
 	var chart_bottom = size.y * 0.7  # This stays the same as X-axis track starts here
 
 	var chart_width = chart_right - chart_left
