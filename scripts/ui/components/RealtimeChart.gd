@@ -18,6 +18,7 @@ var day_start_timestamp: float = 0.0
 var current_day_data: Array = []
 var has_loaded_historical: bool = false
 var is_loading_historical: bool = false
+var current_volume_bar_positions: Array = []
 
 var chart_color: Color = Color.GREEN
 var background_color: Color = Color(0.1, 0.12, 0.15, 1)
@@ -349,7 +350,7 @@ func check_point_hover(mouse_pos: Vector2):
 				var time_diff = current_time - timestamp
 				var time_text = format_time_ago(time_diff / 3600.0)
 
-				tooltip_text = "Volume: %s\nTime: %s" % [format_number(volume), time_text]
+				tooltip_content = "Volume: %s\nTime: %s" % [format_number(volume), time_text]
 
 				print("Volume bar hover: index=%d, volume=%d" % [hovered_volume_index, volume])
 				break
@@ -418,7 +419,14 @@ func check_point_hover(mouse_pos: Vector2):
 			hovered_point_index = closest_index
 			tooltip_position = mouse_pos
 
-			# ... rest of price point tooltip logic stays the same
+			var point = visible_points[closest_index]
+			var current_time = Time.get_unix_time_from_system()
+			var time_diff = current_time - point.timestamp
+			var time_text = format_time_ago(time_diff / 3600.0)
+
+			tooltip_text = "Price: %.2f ISK\nTime: %s\nVolume: %s" % [point.price, time_text, format_number(point.get("volume", 0))]
+
+			print("Price point hover: index=%d, price=%.2f" % [closest_index, point.price])
 
 	# Check spread zone hover if enabled
 	if show_spread_analysis and hovered_point_index == -1 and hovered_volume_index == -1:
@@ -448,11 +456,14 @@ func _draw():
 	draw_zoom_indicator()
 	draw_drag_indicator()
 
-	# Only draw one type of tooltip at a time
+	# Tooltip priority: Price points > Spread zone > Crosshair
 	if hovered_point_index != -1:
-		draw_tooltip()
+		draw_tooltip()  # Price point tooltip (highest priority)
+	elif is_hovering_spread_zone and show_spread_analysis:
+		# Spread tooltip is already drawn in draw_spread_analysis()
+		pass  # No additional action needed
 	elif show_crosshair:
-		draw_crosshair()
+		draw_crosshair()  # Crosshair (lowest priority)
 
 
 func draw_drag_indicator():
@@ -890,7 +901,7 @@ func draw_price_line():
 			var volume = point_data.get("volume", 0)
 
 			var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
-			var circle_radius = 3.0
+			var circle_radius = 4.0
 
 			if volume > 0:
 				draw_circle(point, circle_radius + 1.0, Color.WHITE, true)
@@ -926,7 +937,7 @@ func clip_line_to_rect(p1: Vector2, p2: Vector2, rect: Rect2) -> Dictionary:
 		if (outcode1 | outcode2) == 0:
 			# Both points inside
 			return {"start": Vector2(x1, y1), "end": Vector2(x2, y2)}
-		elif (outcode1 & outcode2) != 0:
+		if (outcode1 & outcode2) != 0:
 			# Both points outside on same side
 			return {}  # Return empty dictionary
 		else:
@@ -1280,10 +1291,6 @@ func draw_volume_bars():
 	print("Drew %d volume bars with %.2f scale factor in dynamic area (Y: %.1f-%.1f)" % [bars_drawn, volume_scale, volume_base_y, size.y])
 
 
-# Add this variable at the top of RealtimeChart.gd with other variables:
-var current_volume_bar_positions: Array = []
-
-
 func draw_price_levels():
 	"""Draw exactly one support line and one resistance line using current chart bounds"""
 	if price_data.is_empty():
@@ -1425,7 +1432,7 @@ func update_spread_data_realistic(buy_orders: Array, sell_orders: Array):
 
 
 func draw_spread_analysis():
-	"""Draw spread analysis visualization using DYNAMIC chart bounds"""
+	"""Draw spread analysis visualization using DYNAMIC chart bounds with proper clipping"""
 	print("Drawing spread analysis: buy=%.2f, sell=%.2f" % [current_buy_price, current_sell_price])
 
 	if current_buy_price <= 0 or current_sell_price <= 0:
@@ -1446,53 +1453,54 @@ func draw_spread_analysis():
 	var chart_bounds = get_chart_boundaries()
 	var chart_height = chart_bounds.height
 	var chart_y_offset = chart_bounds.top
+	var chart_bottom = chart_bounds.bottom
 
 	print("Spread analysis bounds: price %.2f-%.2f, range %.2f" % [min_price, max_price, price_range])
-	print("Dynamic chart bounds: height %.1f, y_offset %.1f" % [chart_height, chart_y_offset])
-	print("Buy price %.2f in range: %s" % [current_buy_price, current_buy_price >= min_price and current_buy_price <= max_price])
-	print("Sell price %.2f in range: %s" % [current_sell_price, current_sell_price >= min_price and current_sell_price <= max_price])
 
-	# Draw buy and sell price lines ONLY if they're within the visible price range
-	var buy_y = -1.0
-	var sell_y = -1.0
+	# Calculate Y positions for both prices (even if outside visible range)
+	var buy_ratio = (current_buy_price - min_price) / price_range
+	var sell_ratio = (current_sell_price - min_price) / price_range
+	var buy_y = chart_y_offset + chart_height - (buy_ratio * chart_height)
+	var sell_y = chart_y_offset + chart_height - (sell_ratio * chart_height)
 
+	# Draw buy line ONLY if visible
 	if current_buy_price >= min_price and current_buy_price <= max_price:
-		var buy_ratio = (current_buy_price - min_price) / price_range
-		buy_y = chart_y_offset + chart_height - (buy_ratio * chart_height)
-
-		print("Drawing buy line at Y=%.1f (ratio=%.3f)" % [buy_y, buy_ratio])
-
-		# Buy line (green, dashed)
+		print("Drawing buy line at Y=%.1f" % buy_y)
 		draw_custom_dashed_line(Vector2(0, buy_y), Vector2(size.x, buy_y), Color.GREEN, 2.0, 15.0)
 		draw_spread_label("BUY: %s ISK" % format_price_label(current_buy_price), Vector2(size.x - 150, buy_y - 15), Color.GREEN)
 
+	# Draw sell line ONLY if visible
 	if current_sell_price >= min_price and current_sell_price <= max_price:
-		var sell_ratio = (current_sell_price - min_price) / price_range
-		sell_y = chart_y_offset + chart_height - (sell_ratio * chart_height)
-
-		print("Drawing sell line at Y=%.1f (ratio=%.3f)" % [sell_y, sell_ratio])
-
-		# Sell line (red, dashed)
+		print("Drawing sell line at Y=%.1f" % sell_y)
 		draw_custom_dashed_line(Vector2(0, sell_y), Vector2(size.x, sell_y), Color.RED, 2.0, 15.0)
 		draw_spread_label("SELL: %s ISK" % format_price_label(current_sell_price), Vector2(size.x - 150, sell_y + 25), Color.RED)
 
-	# Draw spread zone if both prices are visible
-	if buy_y > 0 and sell_y > 0:
-		var spread = current_sell_price - current_buy_price
-		var margin_pct = (spread / current_sell_price) * 100.0
+	# Draw spread zone with PROPER CLIPPING - even if only partially visible
+	var spread = current_sell_price - current_buy_price
+	var margin_pct = (spread / current_sell_price) * 100.0
+	var zone_color = get_spread_color(margin_pct)
+	zone_color.a = 0.15
 
-		print("Drawing spread zone between Y=%.1f and Y=%.1f" % [min(buy_y, sell_y), max(buy_y, sell_y)])
+	# Determine the spread zone boundaries and clip them to chart area
+	var zone_top = min(buy_y, sell_y)
+	var zone_bottom = max(buy_y, sell_y)
 
-		var zone_color = get_spread_color(margin_pct)
-		zone_color.a = 0.15  # Make it semi-transparent
+	# Clip zone to visible chart area
+	var clipped_top = max(zone_top, chart_y_offset)
+	var clipped_bottom = min(zone_bottom, chart_bottom)
 
-		var zone_rect = Rect2(Vector2(0, min(buy_y, sell_y)), Vector2(size.x, abs(sell_y - buy_y)))
+	# Only draw if there's a visible zone after clipping
+	if clipped_bottom > clipped_top:
+		var zone_height = clipped_bottom - clipped_top
+		var zone_rect = Rect2(Vector2(0, clipped_top), Vector2(size.x, zone_height))
+
+		print("Drawing clipped spread zone: Y %.1f to %.1f (height %.1f)" % [clipped_top, clipped_bottom, zone_height])
 		draw_rect(zone_rect, zone_color)
 
-		# Store spread zone info for hover detection
+		# Store spread zone info for hover detection (use clipped rect)
 		store_spread_zone_info(zone_rect, spread, margin_pct)
 
-		# Draw spread tooltip ONLY when hovering over the spread zone
+		# Draw spread tooltip ONLY when hovering over the visible spread zone
 		if is_hovering_spread_zone:
 			draw_spread_hover_tooltip(spread, margin_pct)
 
@@ -1504,7 +1512,7 @@ func store_spread_zone_info(_zone_rect: Rect2, _spread: float, _margin_pct: floa
 
 
 func check_spread_zone_hover(mouse_pos: Vector2):
-	"""Check if mouse is hovering over the spread zone"""
+	"""Check if mouse is hovering over the spread zone (with proper clipping)"""
 	if current_buy_price <= 0 or current_sell_price <= 0:
 		is_hovering_spread_zone = false
 		return
@@ -1519,29 +1527,32 @@ func check_spread_zone_hover(mouse_pos: Vector2):
 		is_hovering_spread_zone = false
 		return
 
-	var chart_height = size.y * 0.6
-	var chart_y_offset = size.y * 0.05
+	var chart_bounds = get_chart_boundaries()
+	var chart_height = chart_bounds.height
+	var chart_y_offset = chart_bounds.top
+	var chart_bottom = chart_bounds.bottom
 
-	# Calculate buy and sell Y positions
-	var buy_in_range = current_buy_price >= min_price and current_buy_price <= max_price
-	var sell_in_range = current_sell_price >= min_price and current_sell_price <= max_price
-
-	if not (buy_in_range and sell_in_range):
-		is_hovering_spread_zone = false
-		return
-
+	# Calculate Y positions for both prices (even if outside visible range)
 	var buy_ratio = (current_buy_price - min_price) / price_range
 	var sell_ratio = (current_sell_price - min_price) / price_range
 	var buy_y = chart_y_offset + chart_height - (buy_ratio * chart_height)
 	var sell_y = chart_y_offset + chart_height - (sell_ratio * chart_height)
 
-	# Check if mouse is within the spread zone
+	# Determine the spread zone boundaries and clip them to chart area
 	var zone_top = min(buy_y, sell_y)
 	var zone_bottom = max(buy_y, sell_y)
-	var zone_rect = Rect2(Vector2(0, zone_top), Vector2(size.x, zone_bottom - zone_top))
 
+	# Clip zone to visible chart area (same as drawing logic)
+	var clipped_top = max(zone_top, chart_y_offset)
+	var clipped_bottom = min(zone_bottom, chart_bottom)
+
+	# Check if there's a visible zone and if mouse is within it
 	var was_hovering = is_hovering_spread_zone
-	is_hovering_spread_zone = zone_rect.has_point(mouse_pos)
+	is_hovering_spread_zone = false
+
+	if clipped_bottom > clipped_top:
+		var zone_rect = Rect2(Vector2(0, clipped_top), Vector2(size.x, clipped_bottom - clipped_top))
+		is_hovering_spread_zone = zone_rect.has_point(mouse_pos)
 
 	if is_hovering_spread_zone:
 		spread_tooltip_position = mouse_pos
@@ -1640,24 +1651,24 @@ func get_station_trading_color(margin_pct: float) -> Color:
 	"""Get color based on station trading profit quality"""
 	if margin_pct >= 10.0:
 		return Color.GREEN  # Excellent - 10%+ profit
-	elif margin_pct >= 5.0:
+	if margin_pct >= 5.0:
 		return Color.YELLOW  # Good - 5-10% profit
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return Color.ORANGE  # Marginal - 2-5% profit
-	else:
-		return Color.RED  # Poor - <2% profit
+
+	return Color.RED  # Poor - <2% profit
 
 
 func get_station_trading_quality_text(margin_pct: float) -> String:
 	"""Get text description of station trading opportunity quality"""
 	if margin_pct >= 10.0:
 		return "EXCELLENT OPPORTUNITY"
-	elif margin_pct >= 5.0:
+	if margin_pct >= 5.0:
 		return "GOOD OPPORTUNITY"
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return "MARGINAL OPPORTUNITY"
-	else:
-		return "POOR OPPORTUNITY"
+
+	return "POOR OPPORTUNITY"
 
 
 func draw_custom_dashed_line(from: Vector2, to: Vector2, color: Color, width: float, dash_length: float):
@@ -1700,22 +1711,20 @@ func get_spread_color(margin_pct: float) -> Color:
 	"""Get color based on spread quality"""
 	if margin_pct >= 5.0:
 		return profitable_spread_color  # Green - excellent
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return marginal_spread_color  # Yellow - decent
-	else:
-		return poor_spread_color  # Red - poor
+	return poor_spread_color  # Red - poor
 
 
 func get_spread_quality_text(margin_pct: float) -> String:
 	"""Get text description of spread quality"""
 	if margin_pct >= 5.0:
 		return "EXCELLENT"
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return "DECENT"
-	elif margin_pct >= 1.0:
+	if margin_pct >= 1.0:
 		return "MARGINAL"
-	else:
-		return "POOR"
+	return "POOR"
 
 
 func draw_y_axis_labels():
@@ -2756,7 +2765,12 @@ func clear_data():
 	price_history.clear()
 	support_levels.clear()
 	resistance_levels.clear()
-	candlestick_data.clear()  # Add this line
+	candlestick_data.clear()
+
+	# CLEAR SPREAD DATA TOO
+	current_buy_price = 0.0
+	current_sell_price = 0.0
+	spread_history.clear()
 
 	# Reset historical data flags
 	has_loaded_historical = false

@@ -316,20 +316,21 @@ func update_realtime_chart_data(data: Dictionary):
 	if total_volume <= 0:
 		total_volume = max(total_buy_volume + total_sell_volume, 1)
 
+	# UPDATE SPREAD DATA FIRST, before adding price point
+	if buy_orders.size() > 0 and sell_orders.size() > 0:
+		print("Using realistic spread calculation with %d buy orders and %d sell orders" % [buy_orders.size(), sell_orders.size()])
+		update_realistic_spread_data(buy_orders, sell_orders)
+	elif max_buy > 0 and min_sell > 0:
+		print("Fallback to basic spread: buy=%.2f, sell=%.2f" % [max_buy, min_sell])
+		real_time_chart.update_spread_data(max_buy, min_sell)
+	else:
+		print("No valid spread data available")
+
+	# THEN add the price point
 	if market_price > 0:
 		var time_label = Time.get_datetime_string_from_system().substr(11, 8)
 		print("Adding real-time chart point: price=%.2f, volume=%d (preserving existing data)" % [market_price, total_volume])
 		real_time_chart.add_data_point(market_price, total_volume, time_label)
-
-		# UPDATE SPREAD DATA - USE REALISTIC PRICING TO AVOID OUTLIERS
-		if buy_orders.size() > 0 and sell_orders.size() > 0:
-			print("Using realistic spread calculation with %d buy orders and %d sell orders" % [buy_orders.size(), sell_orders.size()])
-			update_realistic_spread_data(buy_orders, sell_orders)
-		elif max_buy > 0 and min_sell > 0:
-			print("Fallback to basic spread: buy=%.2f, sell=%.2f" % [max_buy, min_sell])
-			real_time_chart.update_spread_data(max_buy, min_sell)
-		else:
-			print("No valid spread data available")
 	else:
 		print("No valid market price for real-time update")
 
@@ -410,9 +411,13 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 		}
 	else:
 		print("  ❌ Not profitable after fees (%.2f%% margin too low)" % profit_margin)
-		# Clear spread data if not profitable
-		real_time_chart.current_buy_price = 0.0
-		real_time_chart.current_sell_price = 0.0
+		# INSTEAD OF CLEARING, show the actual market spread
+		var best_buy = sorted_buy_orders[0].get("price", 0.0)
+		var best_sell = sorted_sell_orders[0].get("price", 0.0)
+		real_time_chart.update_spread_data(best_buy, best_sell)
+
+		# Clear the station trading data but keep the spread visible
+		real_time_chart.current_station_trading_data = {}
 
 
 func update_order_book_realtime(data: Dictionary):
