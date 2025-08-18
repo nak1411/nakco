@@ -429,6 +429,12 @@ func check_point_hover(mouse_pos: Vector2):
 			lines.append("PRICE DATA - %s" % time_text)
 			lines.append("Price: %s ISK" % format_price_label(point.price))
 
+			# Get high and low from visible data for this time period
+			var extremes = find_recent_extremes(visible_points, visible_candles)
+			if extremes.has("high") and extremes.has("low"):
+				lines.append("Recent High: %s ISK" % format_price_label(extremes.high))
+				lines.append("Recent Low: %s ISK" % format_price_label(extremes.low))
+
 			# Add volume if available for this timestamp
 			var volume_at_time = get_volume_at_timestamp(point.timestamp)
 			if volume_at_time > 0:
@@ -452,17 +458,23 @@ func check_point_hover(mouse_pos: Vector2):
 				var data = current_station_trading_data
 				lines.append("")
 				lines.append("CURRENT MARKET:")
-				lines.append("Best Buy: %s ISK" % format_price_label(current_buy_price))
-				lines.append("Best Sell: %s ISK" % format_price_label(current_sell_price))
 
-				var spread = current_sell_price - current_buy_price
-				var spread_pct = (spread / current_buy_price) * 100.0
-				lines.append("Spread: %s ISK (%.2f%%)" % [format_price_label(spread), spread_pct])
+				# Show the ACTUAL market prices that match the overview
+				var actual_best_buy = data.get("actual_best_buy", current_buy_price)
+				var actual_best_sell = data.get("actual_best_sell", current_sell_price)
+				lines.append("Best Buy: %s ISK" % format_price_label(actual_best_buy))
+				lines.append("Best Sell: %s ISK" % format_price_label(actual_best_sell))
+
+				var actual_spread = actual_best_sell - actual_best_buy
+				var actual_spread_pct = (actual_spread / actual_best_buy) * 100.0 if actual_best_buy > 0 else 0.0
+				lines.append("Market Spread: %s ISK (%.2f%%)" % [format_price_label(actual_spread), actual_spread_pct])
 
 				# Trading opportunity assessment
 				if data.has("profit_margin") and data.profit_margin > 2.0:
 					lines.append("")
 					lines.append("⚡ TRADING OPPORTUNITY")
+					lines.append("Your Buy: %s ISK" % format_price_label(data.your_buy_price))
+					lines.append("Your Sell: %s ISK" % format_price_label(data.your_sell_price))
 					lines.append("Potential Profit: %.2f%%" % data.profit_margin)
 
 			# Historical context - show if this is a good entry point
@@ -2797,36 +2809,45 @@ func find_volume_weighted_levels(points: Array, candles: Array) -> Dictionary:
 
 
 func find_recent_extremes(points: Array, candles: Array) -> Dictionary:
-	"""Find recent high and low prices from visible data"""
+	"""Find high/low for the specific day being hovered over"""
 	var result = {}
 
-	if points.size() == 0 and candles.size() == 0:
-		return result
+	# If we're hovering over a specific point, find the candle for that day
+	if hovered_point_index != -1 and hovered_point_index < points.size():
+		var hovered_point = points[hovered_point_index]
+		var hover_timestamp = hovered_point.timestamp
 
-	var all_highs = []
-	var all_lows = []
+		print("=== Looking for candle data for hovered point ===")
+		print("Hovered point timestamp: %s" % Time.get_datetime_string_from_unix_time(hover_timestamp))
 
-	# Collect highs and lows from price points
-	for point in points:
-		all_highs.append(point.price)
-		all_lows.append(point.price)
+		# Find the candlestick that matches this day (within 24 hours)
+		var matching_candle = null
+		var closest_time_diff = 999999999.0
 
-	# Collect highs and lows from candlesticks
-	for candle in candles:
-		var high = candle.get("high", 0.0)
-		var low = candle.get("low", 0.0)
-		if high > 0:
-			all_highs.append(high)
-		if low > 0:
-			all_lows.append(low)
+		for candle in candles:
+			var time_diff = abs(candle.timestamp - hover_timestamp)
+			print("Candle at %s, time diff: %.1f hours" % [Time.get_datetime_string_from_unix_time(candle.timestamp), time_diff / 3600.0])
 
-	if all_highs.size() > 0:
-		all_highs.sort()
-		result["high"] = all_highs[-1]  # Highest price
+			# If within same day (12 hours tolerance for EVE downtime timing)
+			if time_diff < 43200.0 and time_diff < closest_time_diff:  # 12 hours
+				closest_time_diff = time_diff
+				matching_candle = candle
 
-	if all_lows.size() > 0:
-		all_lows.sort()
-		result["low"] = all_lows[0]  # Lowest price
+		if matching_candle:
+			var high = matching_candle.get("high", 0.0)
+			var low = matching_candle.get("low", 0.0)
+			print("Found matching candle: H=%.2f, L=%.2f" % [high, low])
+
+			if high > 0 and low > 0:
+				result["high"] = high
+				result["low"] = low
+				return result
+
+	# Fallback to current order book if no specific candle found
+	if current_sell_price > 0 and current_buy_price > 0:
+		result["high"] = current_sell_price
+		result["low"] = current_buy_price
+		print("Using current order book fallback: H=%.2f, L=%.2f" % [current_sell_price, current_buy_price])
 
 	return result
 

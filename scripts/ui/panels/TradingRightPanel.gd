@@ -362,10 +362,15 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	print("  Current highest buy order: %.2f ISK" % current_highest_buy)
 	print("  Current lowest sell order: %.2f ISK" % current_lowest_sell)
 
+	# ALWAYS show the actual market spread in the chart (matches market overview)
+	real_time_chart.update_spread_data(current_highest_buy, current_lowest_sell)
+
 	# Check if there's a gap to exploit
 	var market_gap = current_lowest_sell - current_highest_buy
 	if market_gap <= 0:
 		print("  No market gap - orders overlap, no station trading opportunity")
+		# Clear trading opportunity data but keep the market spread visible
+		real_time_chart.current_station_trading_data = {}
 		return
 
 	# Calculate your competitive prices
@@ -392,14 +397,10 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	print("  Profit per unit: %.2f ISK" % profit_per_unit)
 	print("  Profit margin: %.2f%%" % profit_margin)
 
-	# Only show profitable opportunities
+	# Store the station trading opportunity data for tooltips
 	if profit_margin > 2.0:  # At least 2% profit to be worth the effort
 		print("  ✅ PROFITABLE station trading opportunity!")
 
-		# Update chart with YOUR prices (what you'd actually pay and receive)
-		real_time_chart.update_spread_data(cost_per_unit, income_per_unit)
-
-		# Store additional info for the tooltip
 		real_time_chart.current_station_trading_data = {
 			"your_buy_price": your_buy_order_price,
 			"your_sell_price": your_sell_order_price,
@@ -407,15 +408,12 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 			"income_after_taxes": income_per_unit,
 			"profit_per_unit": profit_per_unit,
 			"profit_margin": profit_margin,
-			"market_gap": market_gap
+			"market_gap": market_gap,
+			"actual_best_buy": current_highest_buy,  # Real market prices for tooltips
+			"actual_best_sell": current_lowest_sell
 		}
 	else:
 		print("  ❌ Not profitable after fees (%.2f%% margin too low)" % profit_margin)
-		# INSTEAD OF CLEARING, show the actual market spread
-		var best_buy = sorted_buy_orders[0].get("price", 0.0)
-		var best_sell = sorted_sell_orders[0].get("price", 0.0)
-		real_time_chart.update_spread_data(best_buy, best_sell)
-
 		# Clear the station trading data but keep the spread visible
 		real_time_chart.current_station_trading_data = {}
 
