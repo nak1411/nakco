@@ -888,6 +888,15 @@ func draw_price_line():
 	var max_price = bounds.price_max
 	var price_range = max_price - min_price
 
+	print("=== TIME WINDOW DEBUG ===")
+	print("Chart center time: %.0f" % chart_center_time)
+	print("Current system time: %.0f" % Time.get_unix_time_from_system())
+	print("Window start: %.0f" % window_start)
+	print("Window end: %.0f" % window_end)
+	print("Window span: %.0f seconds (%.1f days)" % [window_end - window_start, (window_end - window_start) / 86400.0])
+	print("Zoom level: %.2f" % zoom_level)
+	print("Time window from get_current_time_window(): %.0f seconds (%.1f days)" % [get_current_time_window(), get_current_time_window() / 86400.0])
+
 	print("Data points using: start=%.0f, end=%.0f, center=%.0f" % [window_start, window_end, chart_center_time])
 
 	print("Drawing bounds: time %.0f-%.0f, price %.2f-%.2f" % [window_start, window_end, min_price, max_price])
@@ -1218,6 +1227,15 @@ func draw_volume_bars():
 	var window_start = bounds.time_start
 	var window_end = bounds.time_end
 
+	print("=== TIME WINDOW DEBUG ===")
+	print("Chart center time: %.0f" % chart_center_time)
+	print("Current system time: %.0f" % Time.get_unix_time_from_system())
+	print("Window start: %.0f" % window_start)
+	print("Window end: %.0f" % window_end)
+	print("Window span: %.0f seconds (%.1f days)" % [window_end - window_start, (window_end - window_start) / 86400.0])
+	print("Zoom level: %.2f" % zoom_level)
+	print("Time window from get_current_time_window(): %.0f seconds (%.1f days)" % [get_current_time_window(), get_current_time_window() / 86400.0])
+
 	print("Volume bars using: start=%.0f, end=%.0f, center=%.0f" % [window_start, window_end, chart_center_time])
 
 	# Get zoom-based scaling
@@ -1241,9 +1259,6 @@ func draw_volume_bars():
 	var visible_indices = []
 	var historical_max = 0
 	var all_max = 0
-
-	var time_window = window_end - window_start
-	var buffer_time = time_window * 0.1  # Same 10% buffer
 
 	for i in range(min(volume_data.size(), price_data.size())):
 		var timestamp = price_data[i].timestamp
@@ -1295,6 +1310,9 @@ func draw_volume_bars():
 		var timestamp = visible_timestamps[i]
 		var is_historical = visible_historical_flags[i]
 		var original_index = visible_indices[i]
+
+		if not is_historical:
+			continue
 
 		# Use SAME X calculation as price line for alignment
 		var time_progress = (timestamp - window_start) / (window_end - window_start)
