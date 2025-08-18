@@ -557,13 +557,14 @@ func draw_axis_label_tracks():
 
 	# Y-axis track (left side for price labels)
 	var y_track_width = 50  # Width of the price label track
-	var y_track_rect = Rect2(Vector2(0, 0), Vector2(y_track_width, size.y))
-	draw_rect(y_track_rect, track_color)
-	draw_line(Vector2(y_track_width, 0), Vector2(y_track_width, size.y), border_color, 1.0)
-
-	# X-axis track (bottom for time labels)
 	var x_track_height = 25  # Height of the time label track
 	var chart_bottom = size.y * 0.7
+
+	var y_track_rect = Rect2(Vector2(0, 0), Vector2(y_track_width, chart_bottom))
+	draw_rect(y_track_rect, track_color)
+	draw_line(Vector2(y_track_width, 0), Vector2(y_track_width, chart_bottom), border_color, 1.0)
+
+	# X-axis track (bottom for time labels)
 	var x_track_rect = Rect2(Vector2(0, chart_bottom), Vector2(size.x, x_track_height))
 	draw_rect(x_track_rect, track_color)
 	draw_line(Vector2(0, chart_bottom), Vector2(size.x, chart_bottom), border_color, 1.0)
@@ -892,12 +893,16 @@ func draw_price_line():
 	var visible_points = []
 	var visible_candles = []
 
+	# Extend the window slightly to include adjacent points for line continuation
+	var time_window = window_end - window_start
+	var buffer_time = time_window * 0.1  # 10% buffer on each side
+
 	for point in price_data:
-		if point.timestamp >= window_start and point.timestamp <= window_end:
+		if point.timestamp >= (window_start - buffer_time) and point.timestamp <= (window_end + buffer_time):
 			visible_points.append(point)
 
 	for candle in candlestick_data:
-		if candle.timestamp >= window_start and candle.timestamp <= window_end:
+		if candle.timestamp >= (window_start - buffer_time) and candle.timestamp <= (window_end + buffer_time):
 			visible_candles.append(candle)
 
 	print("Visible points: %d, Visible candles: %d" % [visible_points.size(), visible_candles.size()])
@@ -953,7 +958,7 @@ func draw_price_line():
 			var p2 = points[i + 1]
 
 			# Clip line to DYNAMIC chart bounds
-			var clip_rect = Rect2(Vector2(0, chart_top), Vector2(size.x, chart_height))
+			var clip_rect = Rect2(Vector2(chart_bounds.left, chart_bounds.top), Vector2(chart_bounds.right - chart_bounds.left, chart_bounds.bottom - chart_bounds.top))
 			var clipped_line = clip_line_to_rect(p1, p2, clip_rect)
 
 			if clipped_line.has("start") and clipped_line.has("end"):
@@ -973,7 +978,7 @@ func draw_price_line():
 		var point = points[i]
 
 		# Only draw points within DYNAMIC chart bounds
-		if point.y >= chart_top and point.y <= chart_bottom:
+		if point.y >= chart_bounds.top and point.y <= chart_bounds.bottom and point.x >= chart_bounds.left and point.x <= chart_bounds.right:
 			var is_historical = point_data.get("is_historical", false)
 			var volume = point_data.get("volume", 0)
 
@@ -1168,22 +1173,24 @@ func draw_candlesticks_simple(visible_candles: Array, window_start: float, windo
 			# Draw wicks with proper clipping
 
 			# Upper wick: from high to top of body (clipped)
-			if high_y < body_top:  # Only if high extends above body
-				var wick_start_y = max(high_y, chart_top)  # Clip wick start to chart bounds
-				var wick_end_y = min(body_top, chart_bottom)  # Clip wick end to chart bounds
+			if x >= chart_bounds.left and x <= chart_bounds.right:
+				# Upper wick: from high to top of body (clipped)
+				if high_y < body_top:  # Only if high extends above body
+					var wick_start_y = max(high_y, chart_top)  # Clip wick start to chart bounds
+					var wick_end_y = min(body_top, chart_bottom)  # Clip wick end to chart bounds
 
-				# Only draw if there's a visible wick segment
-				if wick_start_y < wick_end_y:
-					draw_line(Vector2(x, wick_start_y), Vector2(x, wick_end_y), wick_trend_color, scaled_wick_width, false)
+					# Only draw if there's a visible wick segment
+					if wick_start_y < wick_end_y:
+						draw_line(Vector2(x, wick_start_y), Vector2(x, wick_end_y), wick_trend_color, scaled_wick_width, false)
 
-			# Lower wick: from bottom of body to low (clipped)
-			if low_y > body_bottom:  # Only if low extends below body
-				var wick_start_y = max(body_bottom, chart_top)  # Clip wick start to chart bounds
-				var wick_end_y = min(low_y, chart_bottom)  # Clip wick end to chart bounds
+				# Lower wick: from bottom of body to low (clipped)
+				if low_y > body_bottom:  # Only if low extends below body
+					var wick_start_y = max(body_bottom, chart_top)  # Clip wick start to chart bounds
+					var wick_end_y = min(low_y, chart_bottom)  # Clip wick end to chart bounds
 
-				# Only draw if there's a visible wick segment
-				if wick_start_y < wick_end_y:
-					draw_line(Vector2(x, wick_start_y), Vector2(x, wick_end_y), wick_trend_color, scaled_wick_width, false)
+					# Only draw if there's a visible wick segment
+					if wick_start_y < wick_end_y:
+						draw_line(Vector2(x, wick_start_y), Vector2(x, wick_end_y), wick_trend_color, scaled_wick_width, false)
 
 		if i < 3:  # Debug first few candlesticks
 			print("Candlestick %d: OHLC(%.2f,%.2f,%.2f,%.2f) -> Y(%.1f,%.1f,%.1f,%.1f)" % [i, open_price, high_price, low_price, close_price, open_y, high_y, low_y, close_y])
@@ -1543,7 +1550,7 @@ func draw_spread_analysis():
 	# Draw buy line if it's in visible range
 	if current_buy_price >= min_price and current_buy_price <= max_price:
 		print("Drawing buy line at Y=%.1f" % buy_y)
-		draw_custom_dashed_line(Vector2(0, buy_y), Vector2(size.x, buy_y), Color.GREEN, 2.0, 15.0)
+		draw_custom_dashed_line(Vector2(50, buy_y), Vector2(size.x, buy_y), Color.GREEN, 2.0, 15.0)
 
 		# Align buy label to the dotted line Y position
 		var buy_label_text = "BUY: %s ISK" % format_price_label(current_buy_price)
@@ -1568,7 +1575,7 @@ func draw_spread_analysis():
 	# Draw sell line if it's in visible range
 	if current_sell_price >= min_price and current_sell_price <= max_price:
 		print("Drawing sell line at Y=%.1f" % sell_y)
-		draw_custom_dashed_line(Vector2(0, sell_y), Vector2(size.x, sell_y), Color.RED, 2.0, 15.0)
+		draw_custom_dashed_line(Vector2(50, sell_y), Vector2(size.x, sell_y), Color.RED, 2.0, 15.0)
 
 		# Align sell label to the dotted line Y position
 		var sell_label_text = "SELL: %s ISK" % format_price_label(current_sell_price)
@@ -1605,7 +1612,7 @@ func draw_spread_analysis():
 		var zone_color = get_spread_color(margin_pct)
 		zone_color.a = 0.15  # Make it semi-transparent
 
-		var zone_rect = Rect2(Vector2(0, zone_top), Vector2(size.x, zone_bottom - zone_top))
+		var zone_rect = Rect2(Vector2(50, zone_top), Vector2(size.x, zone_bottom - zone_top))
 		draw_rect(zone_rect, zone_color)
 
 		# Store the CLIPPED zone info for hover detection
@@ -2078,6 +2085,8 @@ func draw_crosshair():
 		return
 
 	var chart_bounds = get_chart_boundaries()
+	if mouse_position.x < chart_bounds.left or mouse_position.x > chart_bounds.right or mouse_position.y < chart_bounds.top or mouse_position.y > chart_bounds.bottom:
+		return
 
 	# Draw crosshair lines
 	draw_line(Vector2(chart_bounds.left, mouse_position.y), Vector2(chart_bounds.right, mouse_position.y), Color.DIM_GRAY, 1.0, false)
