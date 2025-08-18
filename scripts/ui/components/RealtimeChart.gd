@@ -404,7 +404,8 @@ func check_point_hover(mouse_pos: Vector2):
 			var timestamp = point.timestamp
 
 			var time_progress = (timestamp - window_start) / (window_end - window_start)
-			var x = time_progress * size.x
+			var chart_width = chart_bounds.right - chart_bounds.left
+			var x = chart_bounds.left + (time_progress * chart_width)
 
 			var normalized_price = (point.price - min_price) / price_range
 			var y = chart_y_offset + chart_height * (1.0 - normalized_price)
@@ -887,6 +888,8 @@ func draw_price_line():
 	var max_price = bounds.price_max
 	var price_range = max_price - min_price
 
+	print("Data points using: start=%.0f, end=%.0f, center=%.0f" % [window_start, window_end, chart_center_time])
+
 	print("Drawing bounds: time %.0f-%.0f, price %.2f-%.2f" % [window_start, window_end, min_price, max_price])
 
 	# Get visible data
@@ -934,7 +937,11 @@ func draw_price_line():
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
 		var time_progress = (point_data.timestamp - window_start) / (window_end - window_start)
-		var x = time_progress * size.x
+		var chart_width = chart_bounds.right - chart_bounds.left
+		var x = chart_bounds.left + (time_progress * chart_width)
+
+		if i < 3:
+			print("Data point %d: timestamp=%.0f, progress=%.6f, chart_left=%.1f, width=%.1f, x=%.1f" % [i, point_data.timestamp, time_progress, chart_bounds.left, chart_width, x])
 
 		var price_progress = (point_data.price - min_price) / price_range
 		var y = chart_y_offset + chart_height - (price_progress * chart_height)
@@ -1101,7 +1108,8 @@ func draw_candlesticks_simple(visible_candles: Array, window_start: float, windo
 
 		# Calculate X position
 		var time_progress = (candle.timestamp - window_start) / (window_end - window_start)
-		var x = time_progress * size.x
+		var chart_width = chart_bounds.right - chart_bounds.left
+		var x = chart_bounds.left + (time_progress * chart_width)
 
 		# Get OHLC prices
 		var open_price = candle.get("open", 0.0)
@@ -1206,10 +1214,11 @@ func draw_volume_bars():
 		print("No volume or price data to draw")
 		return
 
-	var current_time = Time.get_unix_time_from_system()
-	var time_window = get_current_time_window()
-	var window_start = current_time - time_window
-	var window_end = current_time
+	var bounds = get_current_window_bounds()
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+
+	print("Volume bars using: start=%.0f, end=%.0f, center=%.0f" % [window_start, window_end, chart_center_time])
 
 	# Get zoom-based scaling
 	var scale_factors = get_zoom_scale_factor()
@@ -1232,6 +1241,9 @@ func draw_volume_bars():
 	var visible_indices = []
 	var historical_max = 0
 	var all_max = 0
+
+	var time_window = window_end - window_start
+	var buffer_time = time_window * 0.1  # Same 10% buffer
 
 	for i in range(min(volume_data.size(), price_data.size())):
 		var timestamp = price_data[i].timestamp
@@ -1257,7 +1269,6 @@ func draw_volume_bars():
 	print("Visible volume bars: %d, Volume scale: %.2f" % [visible_volume_data.size(), volume_scale])
 
 	# Use the SAME time calculation as price line for consistency
-	var bounds = get_current_window_bounds()
 	var data_start_time = bounds.time_start
 	var data_end_time = bounds.time_end
 	var data_time_span = data_end_time - data_start_time
@@ -1286,8 +1297,12 @@ func draw_volume_bars():
 		var original_index = visible_indices[i]
 
 		# Use SAME X calculation as price line for alignment
-		var time_progress = (timestamp - data_start_time) / data_time_span
-		var x = time_progress * size.x
+		var time_progress = (timestamp - window_start) / (window_end - window_start)
+		var chart_width = chart_bounds.right - chart_bounds.left
+		var x = chart_bounds.left + (time_progress * chart_width)
+
+		if i < 3:
+			print("Volume bar %d: timestamp=%.0f, progress=%.6f, chart_left=%.1f, width=%.1f, x=%.1f" % [i, timestamp, time_progress, chart_bounds.left, chart_width, x])
 
 		# Skip if somehow outside visible area
 		if x < -base_bar_width or x > size.x + base_bar_width:
@@ -1358,14 +1373,9 @@ func draw_volume_bars():
 
 			# Ensure label stays within volume area bounds and doesn't overlap chart
 			if label_x >= 0 and label_x + text_size.x <= size.x and label_y >= volume_base_y:
-				# Draw volume label with background for better visibility when highlighted
-				var bg_padding = Vector2(4, 2)
-				var label_bg_rect = Rect2(Vector2(label_x - bg_padding.x, label_y - text_size.y - bg_padding.y), Vector2(text_size.x + bg_padding.x * 2, text_size.y + bg_padding.y * 2))
-
 				# Only draw label if it doesn't overlap with chart area
-				if label_bg_rect.position.y >= volume_base_y:
-					draw_rect(label_bg_rect, Color(0, 0, 0, 0.7))
-					draw_string(font, Vector2(label_x, label_y), volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
+
+				draw_string(font, Vector2(label_x, label_y), volume_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 		bars_drawn += 1
 
@@ -3240,7 +3250,7 @@ func get_zoom_scale_factor() -> Dictionary:
 	var point_scale = lerp(0.5, 2.0, zoom_ratio)  # 50% to 200% size
 
 	# Volume bar scale: similar to point scale
-	var volume_scale = lerp(0.1, 1.2, zoom_ratio)  # 10% to 120% width
+	var volume_scale = lerp(0.5, 1.5, zoom_ratio)  # 10% to 120% width
 
 	return {"point_scale": point_scale, "volume_scale": volume_scale, "zoom_ratio": zoom_ratio}
 
