@@ -62,7 +62,6 @@ func _ready():
 	setup_managers()
 	setup_ui()
 	setup_signals()
-	setup_left_panel_structure()  # Add this line
 	populate_region_selector()
 
 	apply_theme()

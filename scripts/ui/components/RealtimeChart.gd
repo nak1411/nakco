@@ -1247,8 +1247,14 @@ func draw_volume_bars():
 	var chart_bottom = chart_bounds.bottom
 
 	# Volume bars area is below the chart area
+	var x_track_height = 25
 	var volume_area_height = size.y - chart_bottom
 	var volume_base_y = chart_bottom
+
+	# Ensure minimum volume area
+	if volume_area_height < 20:
+		volume_area_height = 20
+		volume_base_y = size.y - x_track_height - volume_area_height
 
 	print("Dynamic volume area: starts at Y=%.1f, height=%.1f" % [volume_base_y, volume_area_height])
 
@@ -1292,7 +1298,8 @@ func draw_volume_bars():
 
 	# Use historical max for scaling, fall back to all max if no historical data
 	var scaling_max = historical_max if historical_max > 0 else all_max
-	var volume_cap = scaling_max * 3  # Cap for real-time spikes
+	var volume_percentile_95 = calculate_volume_percentile(visible_volume_data, 95.0)
+	var volume_cap = volume_percentile_95 * 1.5  # Cap at 150% of 95th percentile instead of 300% of max
 
 	# Use DYNAMIC volume area height instead of fixed percentage
 	var volume_height_scale = volume_area_height * 0.8  # Use 80% of available volume area
@@ -1330,6 +1337,7 @@ func draw_volume_bars():
 		var display_volume = volume
 		if not is_historical and volume > volume_cap:
 			display_volume = volume_cap
+			print("Capped outlier volume: %d -> %d" % [volume, display_volume])
 
 		# Scale volume to bar height using DYNAMIC area
 		var normalized_volume = float(display_volume) / scaling_max if scaling_max > 0 else 0.0
@@ -1345,6 +1353,8 @@ func draw_volume_bars():
 
 		# Position bar in the DYNAMIC volume area (below chart)
 		var y = volume_base_y + (volume_area_height - bar_height)
+		y = max(y, volume_base_y)  # Ensure bar doesn't go above volume area
+		y = min(y + bar_height, volume_base_y + volume_area_height) - bar_height
 		var bar_rect = Rect2(x - base_bar_width / 2, y, base_bar_width, bar_height)
 
 		# Store position for hover detection
@@ -1401,6 +1411,20 @@ func draw_volume_bars():
 	current_volume_bar_positions = volume_bar_positions
 
 	print("Drew %d volume bars with %.2f scale factor in dynamic area (Y: %.1f-%.1f)" % [bars_drawn, volume_scale, volume_base_y, size.y])
+
+
+func calculate_volume_percentile(volume_data: Array, percentile: float) -> float:
+	"""Calculate the Nth percentile of volume data for outlier detection"""
+	if volume_data.is_empty():
+		return 0.0
+
+	var sorted_volumes = volume_data.duplicate()
+	sorted_volumes.sort()
+
+	var index = int((percentile / 100.0) * (sorted_volumes.size() - 1))
+	index = clamp(index, 0, sorted_volumes.size() - 1)
+
+	return sorted_volumes[index]
 
 
 func draw_price_levels():
