@@ -79,7 +79,12 @@ func _draw_no_data_message():
 
 
 func _draw_grid():
-	var bounds = chart_math.get_chart_boundaries()
+	# Use EXACT original chart dimensions
+	var chart_height = parent_chart.size.y * 0.6
+	var chart_y_offset = parent_chart.size.y * 0.05
+	var chart_bounds = chart_math.get_chart_boundaries()
+	var chart_top = chart_y_offset
+	var chart_bottom = chart_y_offset + chart_height
 
 	# Vertical grid lines (time)
 	var time_window = chart_math.get_current_time_window()
@@ -104,10 +109,10 @@ func _draw_grid():
 
 	while current_time <= end_time:
 		var time_progress = (current_time - start_time) / (end_time - start_time)
-		var x = bounds.left + (time_progress * bounds.width)
+		var x = chart_bounds.left + (time_progress * chart_bounds.width)
 
-		if x >= bounds.left and x <= bounds.right:
-			parent_chart.draw_line(Vector2(x, bounds.top), Vector2(x, bounds.bottom), grid_color, 1.0, false)
+		if x >= chart_bounds.left and x <= chart_bounds.right:
+			parent_chart.draw_line(Vector2(x, chart_top), Vector2(x, chart_bottom), grid_color, 1.0, false)
 
 		current_time += grid_interval
 
@@ -119,14 +124,18 @@ func _draw_grid():
 	for i in range(price_grid_count + 1):
 		var price = window_bounds.price_min + (i * price_step)
 		var price_progress = (price - window_bounds.price_min) / price_range
-		var y = bounds.top + bounds.height - (price_progress * bounds.height)
+		var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
-		if y >= bounds.top and y <= bounds.bottom:
-			parent_chart.draw_line(Vector2(bounds.left, y), Vector2(bounds.right, y), grid_color, 1.0, false)
+		if y >= chart_top and y <= chart_bottom:
+			parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), grid_color, 1.0, false)
 
 
 func _draw_price_line():
+	print("=== DRAWING PRICE LINE (EXACT ORIGINAL) ===")
+	print("Price data size: %d, Candlestick data size: %d" % [chart_data.price_data.size(), chart_data.candlestick_data.size()])
+
 	if chart_data.price_data.size() < 1:
+		print("No price data to draw")
 		return
 
 	var bounds = chart_math.get_current_window_bounds()
@@ -136,12 +145,15 @@ func _draw_price_line():
 	var max_price = bounds.price_max
 	var price_range = max_price - min_price
 
-	# Get visible data
+	print("Drawing bounds: time %.0f-%.0f, price %.2f-%.2f" % [window_start, window_end, min_price, max_price])
+
+	# Get visible data (EXACT original logic)
 	var visible_points = []
 	var visible_candles = []
 
+	# Extend the window slightly to include adjacent points for line continuation (EXACT original)
 	var time_window = window_end - window_start
-	var buffer_time = time_window * 0.1
+	var buffer_time = time_window * 0.1  # 10% buffer on each side
 
 	for point in chart_data.price_data:
 		if point.timestamp >= (window_start - buffer_time) and point.timestamp <= (window_end + buffer_time):
@@ -151,21 +163,31 @@ func _draw_price_line():
 		if candle.timestamp >= (window_start - buffer_time) and candle.timestamp <= (window_end + buffer_time):
 			visible_candles.append(candle)
 
+	print("Visible points: %d, Visible candles: %d" % [visible_points.size(), visible_candles.size()])
+
 	if visible_points.size() < 1:
+		print("No visible points in current window")
 		return
 
 	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
+	# Use EXACT original chart dimensions
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_height = chart_bounds.height
-	var chart_y_offset = chart_bounds.top
+	var chart_height = parent_chart.size.y * 0.6  # EXACT original proportion
+	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT original offset
+	var chart_top = chart_y_offset
+	var chart_bottom = chart_y_offset + chart_height
 
-	# Draw candlesticks first
+	print("Chart dimensions: height %.1f, y_offset %.1f" % [chart_height, chart_y_offset])
+	print("Chart bounds: top %.1f, bottom %.1f" % [chart_top, chart_bottom])
+
+	# Draw candlesticks first (if enabled)
 	if parent_chart.show_candlesticks and visible_candles.size() > 0:
+		print("Drawing %d candlesticks" % visible_candles.size())
 		_draw_candlesticks(visible_candles, window_start, window_end, min_price, price_range, chart_height, chart_y_offset)
 
-	# Draw price line
+	# Draw moving average line (EXACT original)
 	var points: PackedVector2Array = []
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
@@ -173,12 +195,21 @@ func _draw_price_line():
 		var chart_width = chart_bounds.right - chart_bounds.left
 		var x = chart_bounds.left + (time_progress * chart_width)
 
+		if i < 3:
+			print("Data point %d: timestamp=%.0f, progress=%.6f, chart_left=%.1f, width=%.1f, x=%.1f" % [i, point_data.timestamp, time_progress, chart_bounds.left, chart_width, x])
+
 		var price_progress = (point_data.price - min_price) / price_range
 		var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
+		# DON'T clamp here - keep original positions for proper line math
 		points.append(Vector2(x, y))
 
-	# Draw lines between points with clipping
+		if i < 3:  # Debug first few points
+			print("Point %d: time %.0f, price %.2f -> x %.1f, y %.1f" % [i, point_data.timestamp, point_data.price, x, y])
+
+	print("Generated %d drawing points" % points.size())
+
+	# Draw lines between points with proper clipping (EXACT original)
 	for i in range(points.size() - 1):
 		var current_point_data = visible_points[i]
 		var next_point_data = visible_points[i + 1]
@@ -188,7 +219,8 @@ func _draw_price_line():
 			var p1 = points[i]
 			var p2 = points[i + 1]
 
-			var clip_rect = Rect2(Vector2(chart_bounds.left, chart_bounds.top), Vector2(chart_bounds.width, chart_bounds.height))
+			# Clip line to chart bounds
+			var clip_rect = Rect2(Vector2(chart_bounds.left, chart_top), Vector2(chart_bounds.width, chart_height))
 			var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
 
 			if clipped_line.has("start") and clipped_line.has("end"):
@@ -199,12 +231,16 @@ func _draw_price_line():
 				var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
 				parent_chart.draw_line(clipped_line.start, clipped_line.end, line_color, line_width, true)
 
-	# Draw data points
+				if i < 3:  # Debug first few lines
+					print("Drew clipped line %d: from (%.1f,%.1f) to (%.1f,%.1f)" % [i, clipped_line.start.x, clipped_line.start.y, clipped_line.end.x, clipped_line.end.y])
+
+	# Draw data points (EXACT original)
 	for i in range(points.size()):
 		var point_data = visible_points[i]
 		var point = points[i]
 
-		if point.y >= chart_bounds.top and point.y <= chart_bounds.bottom and point.x >= chart_bounds.left and point.x <= chart_bounds.right:
+		# Only draw points within chart bounds
+		if point.y >= chart_top and point.y <= chart_bottom and point.x >= chart_bounds.left and point.x <= chart_bounds.right:
 			var is_historical = point_data.get("is_historical", false)
 			var volume = point_data.get("volume", 0)
 
@@ -214,6 +250,9 @@ func _draw_price_line():
 			if volume > 0:
 				parent_chart.draw_circle(point, circle_radius + 1.0, Color.WHITE, true)
 				parent_chart.draw_circle(point, circle_radius, circle_color, true)
+
+			if i < 3:  # Debug first few circles
+				print("Drew circle %d at (%.1f,%.1f) color %s" % [i, point.x, point.y, circle_color])
 
 
 func _draw_candlesticks(visible_candles: Array, window_start: float, window_end: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
@@ -313,47 +352,150 @@ func _draw_candlesticks(visible_candles: Array, window_start: float, window_end:
 
 
 func _draw_volume_bars():
+	print("=== DRAWING VOLUME BARS WITH EXACT ORIGINAL LAYOUT ===")
+
 	if chart_data.volume_data.size() == 0 or chart_data.price_data.size() == 0:
+		print("No volume or price data to draw")
 		return
 
 	var bounds = chart_math.get_current_window_bounds()
 	var window_start = bounds.time_start
 	var window_end = bounds.time_end
 
-	var visible_data = []
-	for i in range(min(chart_data.price_data.size(), chart_data.volume_data.size())):
-		var point = chart_data.price_data[i]
-		if point.timestamp >= window_start and point.timestamp <= window_end:
-			visible_data.append({"timestamp": point.timestamp, "volume": chart_data.volume_data[i], "is_historical": point.get("is_historical", false)})
+	# Get zoom-based scaling (EXACT original)
+	var scale_factors = chart_math.get_zoom_scale_factor()
+	var volume_scale = scale_factors.volume_scale
 
-	if visible_data.size() == 0:
-		return
-
-	var max_volume = chart_data.get_max_volume()
-	if max_volume <= 0:
-		return
-
+	# Get EXACT original chart boundaries
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var volume_area_height = parent_chart.size.y * 0.25
-	var volume_area_bottom = parent_chart.size.y * 0.95
-	var volume_area_top = volume_area_bottom - volume_area_height
+	var chart_bottom = chart_bounds.bottom
 
-	var time_span = window_end - window_start
-	var bar_width = max(1.0, chart_bounds.width / max(visible_data.size(), 1))
+	# EXACT original volume area calculation
+	var x_track_height = 25
+	var volume_area_height = parent_chart.size.y - chart_bottom
+	var volume_base_y = chart_bottom
 
-	for i in range(visible_data.size()):
-		var data = visible_data[i]
-		var time_progress = (data.timestamp - window_start) / time_span
-		var x = chart_bounds.left + (time_progress * chart_bounds.width)
+	# Ensure minimum volume area (EXACT original)
+	if volume_area_height < 20:
+		volume_area_height = 20
+		volume_base_y = parent_chart.size.y - x_track_height - volume_area_height
 
-		var volume_ratio = float(data.volume) / float(max_volume)
-		var bar_height = volume_ratio * volume_area_height
-		var bar_y = volume_area_bottom - bar_height
+	print("Volume area: starts at Y=%.1f, height=%.1f" % [volume_base_y, volume_area_height])
 
-		var bar_color = Color(0.3, 0.6, 1.0, 0.4) if data.is_historical else Color(1.0, 0.8, 0.2, 0.6)
+	# Collect visible volume data (EXACT original logic)
+	var visible_volume_data = []
+	var visible_timestamps = []
+	var visible_historical_flags = []
+	var visible_indices = []
+	var historical_max = 0
+	var all_max = 0
 
-		var bar_rect = Rect2(x - bar_width / 2, bar_y, bar_width, bar_height)
-		parent_chart.draw_rect(bar_rect, bar_color, true)
+	for i in range(min(chart_data.volume_data.size(), chart_data.price_data.size())):
+		var timestamp = chart_data.price_data[i].timestamp
+		if timestamp >= window_start and timestamp <= window_end:
+			var volume = chart_data.volume_data[i]
+			var is_historical = chart_data.price_data[i].get("is_historical", false)
+
+			visible_volume_data.append(volume)
+			visible_timestamps.append(timestamp)
+			visible_historical_flags.append(is_historical)
+			visible_indices.append(i)
+
+			# Track maximums for scaling (EXACT original)
+			if volume > all_max:
+				all_max = volume
+			if is_historical and volume > historical_max:
+				historical_max = volume
+
+	if visible_volume_data.size() == 0:
+		print("No visible volume data in time window")
+		return
+
+	# Use historical max for scaling, fall back to all max if no historical data (EXACT original)
+	var scaling_max = historical_max if historical_max > 0 else all_max
+	var volume_percentile_95 = _calculate_volume_percentile(visible_volume_data, 95.0)
+	var volume_cap = volume_percentile_95 * 1.5  # EXACT original cap
+
+	# EXACT original volume area height calculation
+	var volume_height_scale = volume_area_height * 0.8  # Use 80% of available volume area
+	var base_bar_width = 30.0 * volume_scale  # Apply zoom scaling to bar width
+
+	print("Volume scaling: max=%d, height_scale=%.1f, bar_width=%.1f" % [scaling_max, volume_height_scale, base_bar_width])
+
+	# Draw all visible volume bars (EXACT original logic)
+	for i in range(visible_volume_data.size()):
+		var volume = visible_volume_data[i]
+		var timestamp = visible_timestamps[i]
+		var is_historical = visible_historical_flags[i]
+		var original_index = visible_indices[i]
+
+		if not is_historical:
+			continue
+
+		# EXACT original X calculation
+		var time_progress = (timestamp - window_start) / (window_end - window_start)
+		var chart_width = chart_bounds.right - chart_bounds.left
+		var x = chart_bounds.left + (time_progress * chart_width)
+
+		# Skip if outside visible area
+		if x < -base_bar_width or x > parent_chart.size.x + base_bar_width:
+			continue
+
+		# Cap extreme volumes for display consistency (EXACT original)
+		var display_volume = volume
+		if not is_historical and volume > volume_cap:
+			display_volume = volume_cap
+
+		# Scale volume to bar height using volume area (EXACT original)
+		var normalized_volume = float(display_volume) / scaling_max if scaling_max > 0 else 0.0
+		var bar_height = normalized_volume * volume_height_scale
+
+		# Ensure minimum visibility (EXACT original)
+		if bar_height < 2.0:
+			bar_height = 2.0
+
+		# Cap maximum height to available volume area (EXACT original)
+		if bar_height > volume_area_height:
+			bar_height = volume_area_height
+
+		# Position bar in the volume area below chart (EXACT original)
+		var y = volume_base_y + (volume_area_height - bar_height)
+		y = max(y, volume_base_y)  # Ensure bar doesn't go above volume area
+		y = min(y + bar_height, volume_base_y + volume_area_height) - bar_height
+		var bar_rect = Rect2(x - base_bar_width / 2, y, base_bar_width, bar_height)
+
+		# EXACT original color coding
+		var bar_color: Color
+		if is_historical:
+			var volume_intensity = clamp(normalized_volume + 0.4, 0.5, 1.0)
+			bar_color = Color(0.2, 0.4, 0.8, 0.8) * volume_intensity
+		else:
+			var volume_intensity = clamp(normalized_volume + 0.4, 0.5, 1.0)
+			bar_color = Color(0.8, 0.9, 0.2, 0.9) * volume_intensity
+
+		# Draw the volume bar
+		parent_chart.draw_rect(bar_rect, bar_color)
+
+		# Add subtle border (EXACT original)
+		if bar_height > 2:
+			var border_height = max(1.0, 1.0 * volume_scale)
+			parent_chart.draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x, border_height)), Color.WHITE * 0.2)
+
+	print("Drew volume bars in area Y: %.1f-%.1f" % [volume_base_y, parent_chart.size.y])
+
+
+func _calculate_volume_percentile(volume_data: Array, percentile: float) -> float:
+	"""Calculate the Nth percentile of volume data for outlier detection (EXACT original)"""
+	if volume_data.is_empty():
+		return 0.0
+
+	var sorted_volumes = volume_data.duplicate()
+	sorted_volumes.sort()
+
+	var index = int((percentile / 100.0) * (sorted_volumes.size() - 1))
+	index = clamp(index, 0, sorted_volumes.size() - 1)
+
+	return sorted_volumes[index]
 
 
 func _draw_axis_labels():
@@ -361,7 +503,13 @@ func _draw_axis_labels():
 	var bounds = chart_math.get_current_window_bounds()
 	var chart_bounds = chart_math.get_chart_boundaries()
 
-	# Price labels (Y-axis)
+	# Use EXACT original chart dimensions
+	var chart_height = parent_chart.size.y * 0.6
+	var chart_y_offset = parent_chart.size.y * 0.05
+	var chart_top = chart_y_offset
+	var chart_bottom = chart_y_offset + chart_height
+
+	# Price labels (Y-axis) - EXACT original
 	var price_range = bounds.price_max - bounds.price_min
 	var label_count = 8
 	var price_step = price_range / label_count
@@ -369,14 +517,14 @@ func _draw_axis_labels():
 	for i in range(label_count + 1):
 		var price = bounds.price_min + (i * price_step)
 		var price_progress = (price - bounds.price_min) / price_range
-		var y = chart_bounds.top + chart_bounds.height - (price_progress * chart_bounds.height)
+		var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
 		var price_text = _format_price_label(price)
 		var text_size = chart_font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
 		parent_chart.draw_string(chart_font, Vector2(5, y + text_size.y / 2 - 2), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
 
-	# Time labels (X-axis)
+	# Time labels (X-axis) - EXACT original position
 	var time_window = chart_math.get_current_time_window()
 	var window_days = time_window / 86400.0
 
@@ -391,7 +539,8 @@ func _draw_axis_labels():
 		var time_text = _format_time_label(timestamp, window_days)
 		var text_size = chart_font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
-		parent_chart.draw_string(chart_font, Vector2(x - text_size.x / 2, chart_bounds.bottom + 15), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
+		# Position at EXACT original Y position (below chart area)
+		parent_chart.draw_string(chart_font, Vector2(x - text_size.x / 2, chart_bottom + 15), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
 
 
 func _draw_crosshair():

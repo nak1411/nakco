@@ -27,20 +27,23 @@ func get_time_at_pixel(x_pixel: float) -> float:
 
 
 func get_price_at_pixel(y_pixel: float) -> float:
+	# EXACT ORIGINAL PROPORTIONS
 	var chart_height = parent_chart.size.y * 0.6
 	var chart_y_offset = parent_chart.size.y * 0.05
 	var relative_y = y_pixel - chart_y_offset
-	var progress = 1.0 - (relative_y / chart_height)
+	var progress = 1.0 - (relative_y / chart_height)  # Invert Y (top = high price)
 
 	var half_range = parent_chart.chart_price_range / 2.0
 	return parent_chart.chart_center_price - half_range + (progress * parent_chart.chart_price_range)
 
 
 func get_chart_boundaries() -> Dictionary:
-	var chart_left = 0.0
+	# EXACT ORIGINAL BOUNDARIES from RealtimeChart.gd
+	var y_track_width = 50  # Must match the original
+	var chart_left = y_track_width
 	var chart_right = parent_chart.size.x
 	var chart_top = 0.0
-	var chart_bottom = parent_chart.size.y * 0.7
+	var chart_bottom = parent_chart.size.y * 0.7  # This stays the same as X-axis track starts here
 
 	var chart_width = chart_right - chart_left
 	var chart_height = chart_bottom - chart_top

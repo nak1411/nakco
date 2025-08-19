@@ -172,3 +172,19 @@ func set_day_start_time():
 	print("Chart window set to show last 1 year")
 	print("Start time: ", Time.get_datetime_string_from_unix_time(day_start_timestamp))
 	print("End time: ", Time.get_datetime_string_from_unix_time(current_time))
+
+
+func clear_all_data():
+	"""Clear all data arrays"""
+	price_data.clear()
+	volume_data.clear()
+	candlestick_data.clear()
+	time_labels.clear()
+	current_station_trading_data.clear()
+	price_history.clear()
+
+	# Reset flags
+	has_loaded_historical = false
+	is_loading_historical = false
+
+	print("ChartData: All data cleared")
