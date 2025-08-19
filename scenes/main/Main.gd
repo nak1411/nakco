@@ -636,8 +636,8 @@ func _on_region_changed(index: int):
 
 	# Clear the real-time chart when changing regions
 	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
-	if trading_panel and trading_panel.real_time_chart:
-		trading_panel.real_time_chart.clear_data()
+	if trading_panel and trading_panel.market_chart:
+		trading_panel.market_chart.clear_data()
 		print("Cleared chart data for region change")
 
 	# Stop real-time updates when region changes
@@ -751,8 +751,8 @@ func _on_market_item_selected(item_id: int, item_data: Dictionary):
 
 	# Clear the real-time chart when selecting a new item
 	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
-	if trading_panel and trading_panel.real_time_chart:
-		trading_panel.real_time_chart.clear_data()
+	if trading_panel and trading_panel.market_chart:
+		trading_panel.market_chart.clear_data()
 		print("Cleared chart data for new item selection")
 
 	# Start real-time updates for this item

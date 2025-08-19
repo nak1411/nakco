@@ -7,7 +7,7 @@ signal alert_created(alert_data: Dictionary)
 
 var selected_item_data: Dictionary = {}
 var current_market_data: Dictionary = {}
-var real_time_chart: RealtimeChart
+var market_chart: MarketChart
 var order_book_list: VBoxContainer
 var quick_trade_panel: VBoxContainer
 
@@ -31,7 +31,7 @@ func setup_panels():
 	create_item_info_header()
 
 	# 2. Real-time Price Chart (expandable)
-	create_real_time_chart()
+	create_market_chart()
 
 
 func create_order_book():
@@ -95,7 +95,7 @@ func create_item_info_header():
 	price_container.add_child(spread_label)
 
 
-func create_real_time_chart():
+func create_market_chart():
 	var chart_panel = PanelContainer.new()
 	chart_panel.name = "ChartPanel"
 	chart_panel.custom_minimum_size.y = 300  # Larger minimum since it has more space
@@ -123,37 +123,37 @@ func create_real_time_chart():
 	timeframe_label.add_theme_font_size_override("font_size", 10)
 	chart_header_container.add_child(timeframe_label)
 
-	real_time_chart = RealtimeChart.new()
-	real_time_chart.name = "RealtimeChart"
-	real_time_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	real_time_chart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	market_chart = MarketChart.new()
+	market_chart.name = "MarketChart"
+	market_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	market_chart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	# EXPLICITLY disable any tooltip behavior
-	real_time_chart.tooltip_text = ""
-	real_time_chart.mouse_filter = Control.MOUSE_FILTER_PASS
+	market_chart.tooltip_text = ""
+	market_chart.mouse_filter = Control.MOUSE_FILTER_PASS
 
-	chart_vbox.add_child(real_time_chart)
+	chart_vbox.add_child(market_chart)
 
 	# Connect signals
-	real_time_chart.historical_data_requested.connect(_on_historical_data_requested)
+	market_chart.historical_data_requested.connect(_on_historical_data_requested)
 	chart_panel.resized.connect(_on_chart_panel_resized)
-	real_time_chart.resized.connect(_on_chart_resized)
+	market_chart.resized.connect(_on_chart_resized)
 
 
 func _on_chart_panel_resized():
 	"""Called when the chart panel is resized"""
 	print("Chart panel resized to: ", get_node("ChartPanel").size)
-	if real_time_chart:
+	if market_chart:
 		# Force a redraw to adjust to new size
-		real_time_chart.queue_redraw()
+		market_chart.queue_redraw()
 
 
 func _on_chart_resized():
 	"""Called when the chart itself is resized"""
-	if real_time_chart:
-		print("Chart resized to: ", real_time_chart.size)
+	if market_chart:
+		print("Chart resized to: ", market_chart.size)
 		# Recalculate chart boundaries and redraw
-		real_time_chart.queue_redraw()
+		market_chart.queue_redraw()
 
 
 func create_order_book_header():
@@ -188,14 +188,14 @@ func update_item_display(item_data: Dictionary):
 	selected_item_data = item_data
 
 	# Only clear chart for genuinely NEW items
-	if real_time_chart:
-		real_time_chart.clear_data()
+	if market_chart:
+		market_chart.clear_data()
 
 		# Set initial spread data if available
 		var max_buy = item_data.get("max_buy", 0.0)
 		var min_sell = item_data.get("min_sell", 0.0)
 		if max_buy > 0 and min_sell > 0:
-			real_time_chart.update_spread_data(max_buy, min_sell)
+			market_chart.update_spread_data(max_buy, min_sell)
 
 		print("Chart cleared for new item selection")
 
@@ -291,8 +291,8 @@ func update_left_panel_order_book(data: Dictionary):
 
 func update_realtime_chart_data(data: Dictionary):
 	"""Add new data point to real-time chart WITHOUT clearing existing data"""
-	if not real_time_chart:
-		print("ERROR: No real_time_chart available")
+	if not market_chart:
+		print("ERROR: No market_chart available")
 		return
 
 	var max_buy = data.get("max_buy", 0.0)
@@ -322,7 +322,7 @@ func update_realtime_chart_data(data: Dictionary):
 		update_realistic_spread_data(buy_orders, sell_orders)
 	elif max_buy > 0 and min_sell > 0:
 		print("Fallback to basic spread: buy=%.2f, sell=%.2f" % [max_buy, min_sell])
-		real_time_chart.update_spread_data(max_buy, min_sell)
+		market_chart.update_spread_data(max_buy, min_sell)
 	else:
 		print("No valid spread data available")
 
@@ -330,14 +330,14 @@ func update_realtime_chart_data(data: Dictionary):
 	if market_price > 0:
 		var time_label = Time.get_datetime_string_from_system().substr(11, 8)
 		print("Adding real-time chart point: price=%.2f, volume=%d (preserving existing data)" % [market_price, total_volume])
-		real_time_chart.add_data_point(market_price, total_volume, time_label)
+		market_chart.add_data_point(market_price, total_volume, time_label)
 	else:
 		print("No valid market price for real-time update")
 
 
 func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	"""Calculate realistic station trading opportunities in the same region"""
-	if not real_time_chart:
+	if not market_chart:
 		return
 
 	# Sort orders to ensure we have best prices first
@@ -363,14 +363,14 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	print("  Current lowest sell order: %.2f ISK" % current_lowest_sell)
 
 	# ALWAYS show the actual market spread in the chart (matches market overview)
-	real_time_chart.update_spread_data(current_highest_buy, current_lowest_sell)
+	market_chart.update_spread_data(current_highest_buy, current_lowest_sell)
 
 	# Check if there's a gap to exploit
 	var market_gap = current_lowest_sell - current_highest_buy
 	if market_gap <= 0:
 		print("  No market gap - orders overlap, no station trading opportunity")
 		# Clear trading opportunity data but keep the market spread visible
-		real_time_chart.current_station_trading_data = {}
+		market_chart.current_station_trading_data = {}
 		return
 
 	# Calculate your competitive prices
@@ -401,7 +401,7 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	if profit_margin > 2.0:  # At least 2% profit to be worth the effort
 		print("  ✅ PROFITABLE station trading opportunity!")
 
-		real_time_chart.current_station_trading_data = {
+		market_chart.current_station_trading_data = {
 			"your_buy_price": your_buy_order_price,
 			"your_sell_price": your_sell_order_price,
 			"cost_with_fees": cost_per_unit,
@@ -415,7 +415,7 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	else:
 		print("  ❌ Not profitable after fees (%.2f%% margin too low)" % profit_margin)
 		# Clear the station trading data but keep the spread visible
-		real_time_chart.current_station_trading_data = {}
+		market_chart.current_station_trading_data = {}
 
 
 func update_order_book_realtime(data: Dictionary):
@@ -558,14 +558,14 @@ func update_alert_defaults(item_data: Dictionary):
 			alert_price_input.value = current_price
 
 
-func update_real_time_chart(item_data: Dictionary):
-	if real_time_chart:
+func update_market_chart(item_data: Dictionary):
+	if market_chart:
 		var price = item_data.get("max_buy", item_data.get("min_sell", 0))
 		var volume = item_data.get("volume", 0)
 
 		if price > 0:
 			var timestamp = Time.get_datetime_string_from_system().substr(11, 8)
-			real_time_chart.add_data_point(price, volume, timestamp)
+			market_chart.add_data_point(price, volume, timestamp)
 
 
 func update_order_book(item_data: Dictionary):
@@ -642,14 +642,14 @@ func _on_historical_data_requested():
 
 	if not selected_item_data.has("item_id"):
 		print("No item selected, finishing without data")
-		if real_time_chart:
-			real_time_chart.finish_historical_data_load()
+		if market_chart:
+			market_chart.finish_historical_data_load()
 		return
 
 	if not data_manager:
 		print("No data manager available, finishing without data")
-		if real_time_chart:
-			real_time_chart.finish_historical_data_load()
+		if market_chart:
+			market_chart.finish_historical_data_load()
 		return
 
 	var item_id = selected_item_data.get("item_id", 0)
@@ -665,8 +665,8 @@ func load_historical_chart_data(history_data: Dictionary):
 	"""Load historical market data into the chart as candlesticks - REAL EVE DATA ONLY"""
 	print("=== LOADING REAL HISTORICAL CHART DATA AS CANDLESTICKS ===")
 
-	if not real_time_chart:
-		print("ERROR: No real_time_chart available")
+	if not market_chart:
+		print("ERROR: No market_chart available")
 		return
 
 	var history_entries = history_data.get("data", [])
@@ -677,7 +677,7 @@ func load_historical_chart_data(history_data: Dictionary):
 
 	if typeof(history_entries) != TYPE_ARRAY or history_entries.size() == 0:
 		print("No valid historical data available")
-		real_time_chart.finish_historical_data_load()
+		market_chart.finish_historical_data_load()
 		return
 
 	var current_time = Time.get_unix_time_from_system()
@@ -726,19 +726,19 @@ func load_historical_chart_data(history_data: Dictionary):
 		print("  Adding REAL data: %.1f days ago, avg=%.2f, H=%.2f, L=%.2f, vol=%d" % [days_ago, real_avg_price, real_highest, real_lowest, real_daily_volume])
 
 		# Add the moving average data point
-		real_time_chart.add_historical_data_point(real_avg_price, real_daily_volume, day_timestamp)
+		market_chart.add_historical_data_point(real_avg_price, real_daily_volume, day_timestamp)
 
 		# Add the candlestick data point (using available OHLC data from EVE)
 		# Note: EVE API doesn't provide open/close, so we'll use high/low/average creatively
 		var open_price = real_avg_price  # Use average as open (placeholder)
 		var close_price = real_avg_price  # Use average as close (placeholder)
-		real_time_chart.add_candlestick_data_point(open_price, real_highest, real_lowest, close_price, real_daily_volume, day_timestamp)
+		market_chart.add_candlestick_data_point(open_price, real_highest, real_lowest, close_price, real_daily_volume, day_timestamp)
 
 		points_added += 1
 
 	print("=== HISTORICAL DATA LOADING COMPLETE ===")
 	print("Total points added: %d (daily historical + candlestick data)" % points_added)
-	real_time_chart.finish_historical_data_load()
+	market_chart.finish_historical_data_load()
 
 
 func parse_eve_date(date_str: String) -> float:
