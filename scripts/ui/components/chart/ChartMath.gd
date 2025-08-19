@@ -51,6 +51,7 @@ func get_chart_boundaries() -> Dictionary:
 	return {"left": chart_left, "right": chart_right, "top": chart_top, "bottom": chart_bottom, "width": chart_width, "height": chart_height}
 
 
+# Update scripts/ui/components/chart/ChartMath.gd
 func get_current_window_bounds() -> Dictionary:
 	var time_window = get_current_time_window()
 	var window_start = parent_chart.chart_center_time - (time_window / 2.0)
@@ -90,6 +91,14 @@ func get_current_window_bounds() -> Dictionary:
 					min_price = price
 				if price > max_price:
 					max_price = price
+
+			# FIX: If all prices are the same, create an artificial range
+			if max_price - min_price < 0.01:  # Essentially zero range
+				var center_price = min_price
+				var artificial_range = max(center_price * 0.1, 1000000.0)  # 10% of price or 1M ISK minimum
+				min_price = center_price - (artificial_range / 2.0)
+				max_price = center_price + (artificial_range / 2.0)
+				print("Created artificial price range: %.2f - %.2f (center: %.2f)" % [min_price, max_price, center_price])
 
 	return {"time_start": window_start, "time_end": window_end, "price_min": min_price, "price_max": max_price}
 

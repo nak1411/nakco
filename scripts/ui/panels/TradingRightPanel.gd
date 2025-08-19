@@ -128,6 +128,8 @@ func create_market_chart():
 	market_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	market_chart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
+	market_chart.historical_data_requested.connect(_on_historical_data_requested)
+
 	# EXPLICITLY disable any tooltip behavior
 	market_chart.tooltip_text = ""
 	market_chart.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -135,7 +137,7 @@ func create_market_chart():
 	chart_vbox.add_child(market_chart)
 
 	# Connect signals
-	market_chart.historical_data_requested.connect(_on_historical_data_requested)
+
 	chart_panel.resized.connect(_on_chart_panel_resized)
 	market_chart.resized.connect(_on_chart_resized)
 
@@ -569,6 +571,8 @@ func update_market_chart(item_data: Dictionary):
 			var timestamp = Time.get_datetime_string_from_system().substr(11, 8)
 			market_chart.add_data_point(price, volume, timestamp)
 
+		market_chart.debug_data_status()
+
 
 func update_order_book(item_data: Dictionary):
 	if not order_book_list:
@@ -640,7 +644,7 @@ func handle_market_data_update(market_data: Dictionary):
 
 func _on_historical_data_requested():
 	"""Handle request for historical data"""
-	print("=== HISTORICAL DATA REQUESTED ===")
+	print("=== HISTORICAL DATA REQUESTED BY CHART ===")
 
 	if not selected_item_data.has("item_id"):
 		print("No item selected, finishing without data")

@@ -57,8 +57,11 @@ func _initialize_components():
 	chart_interaction.setup(self, chart_data, chart_math)
 	analysis_tools.setup(self, chart_data, chart_math)
 	chart_math.setup(self, chart_data)
+	chart_data.setup(self)  # MAKE SURE THIS LINE EXISTS
 
-	# Set up data references for easy access (these are REFERENCES, not copies)
+	print("All components initialized")
+
+	# Set up data references for easy access
 	price_data = chart_data.price_data
 	volume_data = chart_data.volume_data
 	candlestick_data = chart_data.candlestick_data
@@ -259,9 +262,16 @@ func initialize_price_center():
 	# Get current visible price range
 	var price_info = get_visible_price_range()
 
-	if price_info.count > 0 and price_info.range > 0:
+	if price_info.count > 0:
 		chart_center_price = (price_info.min_price + price_info.max_price) / 2.0
-		chart_price_range = price_info.range * 1.2  # Add 20% padding
+
+		# FIX: Handle single point or zero range
+		if price_info.range <= 0:
+			chart_price_range = max(chart_center_price * 0.2, 10000000.0)  # 20% of price or 10M ISK minimum
+			print("Single data point - created artificial range: %.2f" % chart_price_range)
+		else:
+			chart_price_range = price_info.range * 1.2  # Add 20% padding
+
 		print("Set price center to %.2f, range %.2f (from data)" % [chart_center_price, chart_price_range])
 	else:
 		# Fallback: scan all available data
@@ -289,7 +299,15 @@ func initialize_price_center():
 					max_price = price
 
 			chart_center_price = (min_price + max_price) / 2.0
-			chart_price_range = (max_price - min_price) * 1.2  # Add 20% padding
+
+			# FIX: Handle case where all prices are the same
+			var price_range = max_price - min_price
+			if price_range <= 0:
+				chart_price_range = max(chart_center_price * 0.2, 10000000.0)  # 20% of price or 10M ISK
+				print("All prices same - created artificial range: %.2f" % chart_price_range)
+			else:
+				chart_price_range = price_range * 1.2  # Add 20% padding
+
 			print("Set price center to %.2f, range %.2f (from all data)" % [chart_center_price, chart_price_range])
 		else:
 			# Ultimate fallback
@@ -336,6 +354,63 @@ func get_visible_price_range() -> Dictionary:
 	return {"count": visible_prices.size(), "min_price": min_price, "max_price": max_price, "range": max_price - min_price}
 
 
+# Replace the problematic add_historical_data_point method in MarketChart.gd
+func add_historical_data_point(price: float, volume: int, timestamp: float):
+	"""Add a historical data point"""
+	chart_data.add_historical_data_point(price, volume, timestamp)
+
+	# Update the references (since we're using references to the arrays)
+	price_data = chart_data.price_data
+	volume_data = chart_data.volume_data
+
+	if chart_data.price_data.size() == 1:
+		# Initialize chart center for first historical point
+		chart_center_price = price
+		chart_price_range = max(price * 0.2, 10000000.0)
+		chart_center_time = timestamp
+		print("Initialized chart center from historical data: price=%.2f, range=%.2f" % [chart_center_price, chart_price_range])
+
+
+func _rebuild_sorted_volume_data():
+	"""Rebuild volume_data array to match the sorted price_data order"""
+	# Create a temporary array with the correct order
+	var temp_volume_data = []
+	for point in price_data:
+		temp_volume_data.append(point.volume)
+
+	# Clear and refill the original array
+	volume_data.clear()
+	for vol in temp_volume_data:
+		volume_data.append(vol)
+
+
+func finish_historical_data_load():
+	"""Called when historical data loading is complete"""
+	print("=== FINISHING HISTORICAL DATA LOAD ===")
+	chart_data.has_loaded_historical = true
+	chart_data.is_loading_historical = false
+
+	print("Historical data loaded: %d price points, %d volume points, %d candlesticks" % [chart_data.price_data.size(), chart_data.volume_data.size(), chart_data.candlestick_data.size()])
+
+	# Initialize price center based on all data
+	initialize_price_center()
+
+	queue_redraw()
+
+
+func request_historical_data():
+	"""Request historical market data"""
+	if chart_data.is_loading_historical:
+		print("Already loading historical data, skipping...")
+		return
+
+	chart_data.is_loading_historical = true
+	print("Requesting historical data for chart...")
+
+	# Emit signal to request historical data
+	emit_signal("historical_data_requested")
+
+
 # Additional utility methods that were in the original
 func get_timeframe_info() -> String:
 	return "Market Data View"
@@ -355,6 +430,25 @@ func debug_chart_data():
 	print("Has loaded historical: %s" % chart_data.has_loaded_historical)
 	print("Is loading historical: %s" % chart_data.is_loading_historical)
 	print("========================")
+
+
+func debug_data_status():
+	print("=== MARKET CHART DATA STATUS ===")
+	print("Price data points: %d" % chart_data.price_data.size())
+	print("Volume data points: %d" % chart_data.volume_data.size())
+	print("Candlestick data points: %d" % chart_data.candlestick_data.size())
+	print("Chart center time: %.0f" % chart_center_time)
+	print("Chart center price: %.2f" % chart_center_price)
+	print("Chart price range: %.2f" % chart_price_range)
+	print("Chart size: %.1fx%.1f" % [size.x, size.y])
+
+	if chart_data.price_data.size() > 0:
+		print("First price point: %.2f at %.0f" % [chart_data.price_data[0].price, chart_data.price_data[0].timestamp])
+		print("Last price point: %.2f at %.0f" % [chart_data.price_data[-1].price, chart_data.price_data[-1].timestamp])
+
+	var bounds = chart_math.get_current_window_bounds()
+	print("Window bounds: time %.0f-%.0f, price %.2f-%.2f" % [bounds.time_start, bounds.time_end, bounds.price_min, bounds.price_max])
+	print("================================")
 
 
 # Delegate mathematical functions

@@ -219,10 +219,12 @@ func _draw_grid():
 
 
 func _draw_price_line():
-	print("=== DRAWING PRICE LINE (EXACT ORIGINAL) ===")
+	print("=== DRAWING PRICE LINE (DEBUGGING) ===")
+	print("Price data size: %d" % chart_data.price_data.size())
+	print("Chart size: %.1fx%.1f" % [parent_chart.size.x, parent_chart.size.y])
 
 	if chart_data.price_data.size() < 1:
-		print("No price data to draw")
+		print("ERROR: No price data to draw!")
 		return
 
 	var bounds = chart_math.get_current_window_bounds()
@@ -232,41 +234,46 @@ func _draw_price_line():
 	var max_price = bounds.price_max
 	var price_range = max_price - min_price
 
-	# Get visible data (EXACT original logic)
-	var visible_points = []
-	var visible_candles = []
+	print("Window: time %.0f-%.0f (%.0f sec span)" % [window_start, window_end, window_end - window_start])
+	print("Price range: %.2f-%.2f (%.2f range)" % [min_price, max_price, price_range])
 
-	# Extend the window slightly to include adjacent points for line continuation (EXACT original)
+	if price_range <= 0:
+		print("ERROR: Invalid price range!")
+		return
+
+	# Get visible data with buffer
+	var visible_points = []
 	var time_window = window_end - window_start
-	var buffer_time = time_window * 0.1  # 10% buffer on each side
+	var buffer_time = time_window * 0.1
 
 	for point in chart_data.price_data:
 		if point.timestamp >= (window_start - buffer_time) and point.timestamp <= (window_end + buffer_time):
 			visible_points.append(point)
 
-	for candle in chart_data.candlestick_data:
-		if candle.timestamp >= (window_start - buffer_time) and candle.timestamp <= (window_end + buffer_time):
-			visible_candles.append(candle)
+	print("Found %d visible points (with buffer)" % visible_points.size())
 
 	if visible_points.size() < 1:
-		print("No visible points in current window")
+		print("ERROR: No visible points in current window!")
+
+		# Debug: show all data points with their times
+		print("All price data points:")
+		for i in range(min(5, chart_data.price_data.size())):
+			var point = chart_data.price_data[i]
+			print("  Point %d: time %.0f, price %.2f" % [i, point.timestamp, point.price])
 		return
 
 	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
-	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
 	# Use EXACT original chart dimensions
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_height = parent_chart.size.y * 0.6  # EXACT original proportion
-	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT original offset
+	var chart_height = parent_chart.size.y * 0.6
+	var chart_y_offset = parent_chart.size.y * 0.05
 	var chart_top = chart_y_offset
 	var chart_bottom = chart_y_offset + chart_height
 
-	# Draw candlesticks first (if enabled)
-	if parent_chart.show_candlesticks and visible_candles.size() > 0:
-		_draw_candlesticks(visible_candles, window_start, window_end, min_price, price_range, chart_height, chart_y_offset)
+	print("Chart area: bounds left=%.1f right=%.1f top=%.1f bottom=%.1f" % [chart_bounds.left, chart_bounds.right, chart_top, chart_bottom])
 
-	# Draw moving average line (EXACT original)
+	# Generate points
 	var points: PackedVector2Array = []
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
@@ -279,7 +286,13 @@ func _draw_price_line():
 
 		points.append(Vector2(x, y))
 
-	# Draw lines between points with proper clipping (EXACT original)
+		if i < 3:  # Debug first few points
+			print("Point %d: time %.0f, price %.2f -> x %.1f, y %.1f (progress: time=%.3f, price=%.3f)" % [i, point_data.timestamp, point_data.price, x, y, time_progress, price_progress])
+
+	print("Generated %d drawing points" % points.size())
+
+	# Draw lines between points
+	var lines_drawn = 0
 	for i in range(points.size() - 1):
 		var current_point_data = visible_points[i]
 		var next_point_data = visible_points[i + 1]
@@ -289,34 +302,44 @@ func _draw_price_line():
 			var p1 = points[i]
 			var p2 = points[i + 1]
 
-			# Clip line to chart bounds
-			var clip_rect = Rect2(Vector2(chart_bounds.left, chart_top), Vector2(chart_bounds.width, chart_height))
-			var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
+			# Simple line drawing first, no clipping for debugging
+			var current_is_historical = current_point_data.get("is_historical", false)
+			var next_is_historical = next_point_data.get("is_historical", false)
 
-			if clipped_line.has("start") and clipped_line.has("end"):
-				var current_is_historical = current_point_data.get("is_historical", false)
-				var next_is_historical = next_point_data.get("is_historical", false)
+			var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
+			var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
 
-				var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
-				var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
-				parent_chart.draw_line(clipped_line.start, clipped_line.end, line_color, line_width, true)
+			parent_chart.draw_line(p1, p2, line_color, line_width, true)
+			lines_drawn += 1
 
-	# Draw data points (EXACT original)
+			if i < 3:  # Debug first few lines
+				print("Drew line %d: from (%.1f,%.1f) to (%.1f,%.1f) color %s" % [i, p1.x, p1.y, p2.x, p2.y, line_color])
+
+	print("Drew %d lines" % lines_drawn)
+
+	# Draw data points
+	var points_drawn = 0
 	for i in range(points.size()):
 		var point_data = visible_points[i]
 		var point = points[i]
 
-		# Only draw points within chart bounds
-		if point.y >= chart_top and point.y <= chart_bottom and point.x >= chart_bounds.left and point.x <= chart_bounds.right:
-			var is_historical = point_data.get("is_historical", false)
-			var volume = point_data.get("volume", 0)
+		# Draw all points for debugging, regardless of bounds
+		var is_historical = point_data.get("is_historical", false)
+		var volume = point_data.get("volume", 0)
 
-			var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
-			var circle_radius = 4.0
+		var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
+		var circle_radius = 4.0
 
-			if volume > 0:
-				parent_chart.draw_circle(point, circle_radius + 1.0, Color.WHITE, true)
-				parent_chart.draw_circle(point, circle_radius, circle_color, true)
+		if volume > 0:
+			parent_chart.draw_circle(point, circle_radius + 1.0, Color.WHITE, true)
+			parent_chart.draw_circle(point, circle_radius, circle_color, true)
+			points_drawn += 1
+
+		if i < 3:  # Debug first few circles
+			print("Drew point %d at (%.1f,%.1f) color %s volume %d" % [i, point.x, point.y, circle_color, volume])
+
+	print("Drew %d data points" % points_drawn)
+	print("=== PRICE LINE DRAWING COMPLETE ===")
 
 
 func _draw_volume_bars():
