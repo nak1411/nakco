@@ -124,23 +124,42 @@ func _draw_moving_average():
 
 
 func draw_spread_analysis():
+	"""Draw spread analysis visualization"""
+	print("=== DRAWING SPREAD ANALYSIS ===")
+	print("show_spread_analysis: %s" % parent_chart.show_spread_analysis)
+	print("station_trading_data empty: %s" % chart_data.current_station_trading_data.is_empty())
+
 	if chart_data.current_station_trading_data.is_empty():
+		print("No station trading data available for spread analysis")
 		return
 
-	var chart_bounds = chart_math.get_chart_boundaries()
 	var bounds = chart_math.get_current_window_bounds()
+	var chart_bounds = chart_math.get_chart_boundaries()
 	var price_range = bounds.price_max - bounds.price_min
 
+	print("Price bounds: %.2f - %.2f (range: %.2f)" % [bounds.price_min, bounds.price_max, price_range])
+
 	if price_range <= 0:
+		print("Invalid price range for spread analysis")
 		return
 
-	# Get current buy/sell prices from station data
+	# Get current station trading data
 	var buy_orders = chart_data.current_station_trading_data.get("buy_orders", [])
 	var sell_orders = chart_data.current_station_trading_data.get("sell_orders", [])
+
+	print("Buy orders: %d, Sell orders: %d" % [buy_orders.size(), sell_orders.size()])
 
 	if buy_orders.size() > 0 and sell_orders.size() > 0:
 		current_buy_price = buy_orders[0].get("price", 0.0)
 		current_sell_price = sell_orders[0].get("price", 0.0)
+
+		print("Buy price: %.2f, Sell price: %.2f" % [current_buy_price, current_sell_price])
+		print(
+			(
+				"Buy in range: %s, Sell in range: %s"
+				% [current_buy_price >= bounds.price_min and current_buy_price <= bounds.price_max, current_sell_price >= bounds.price_min and current_sell_price <= bounds.price_max]
+			)
+		)
 
 		# Draw buy/sell price lines
 		_draw_spread_lines(current_buy_price, current_sell_price, bounds, chart_bounds, price_range)
@@ -148,39 +167,52 @@ func draw_spread_analysis():
 		# Draw spread zone
 		_draw_spread_zone(current_buy_price, current_sell_price, bounds, chart_bounds, price_range)
 
-		# Draw spread info
-		_draw_spread_info(current_buy_price, current_sell_price)
+		print("Spread analysis drawing complete")
+	else:
+		print("Insufficient buy/sell orders for spread analysis")
 
 
 func _draw_spread_lines(buy_price: float, sell_price: float, bounds: Dictionary, chart_bounds: Dictionary, price_range: float):
+	"""Draw buy and sell price lines"""
+	print("=== DRAWING SPREAD LINES ===")
+	var font = ThemeDB.fallback_font
+	var font_size = 10
+
 	# Draw buy price line
 	if buy_price >= bounds.price_min and buy_price <= bounds.price_max:
 		var buy_progress = (buy_price - bounds.price_min) / price_range
 		var buy_y = chart_bounds.top + chart_bounds.height - (buy_progress * chart_bounds.height)
 
-		parent_chart.draw_line(Vector2(chart_bounds.left, buy_y), Vector2(chart_bounds.right, buy_y), Color.GREEN, 2.0, true)
+		print("Drawing BUY line at y=%.1f (price=%.2f, progress=%.3f)" % [buy_y, buy_price, buy_progress])
+		_draw_dashed_line(Vector2(chart_bounds.left, buy_y), Vector2(chart_bounds.right, buy_y), Color.GREEN, 2.0)
 
 		# Buy label
-		var font = ThemeDB.fallback_font
-		var font_size = 10
-		var buy_text = "BUY: %.2f" % buy_price
+		var buy_text = "BUY: %s" % _format_price_compact(buy_price)
 		parent_chart.draw_string(font, Vector2(chart_bounds.left + 10, buy_y - 5), buy_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.GREEN)
+		print("Drew BUY label: %s" % buy_text)
+	else:
+		print("BUY price %.2f outside visible range %.2f-%.2f" % [buy_price, bounds.price_min, bounds.price_max])
 
 	# Draw sell price line
 	if sell_price >= bounds.price_min and sell_price <= bounds.price_max:
 		var sell_progress = (sell_price - bounds.price_min) / price_range
 		var sell_y = chart_bounds.top + chart_bounds.height - (sell_progress * chart_bounds.height)
 
-		parent_chart.draw_line(Vector2(chart_bounds.left, sell_y), Vector2(chart_bounds.right, sell_y), Color.RED, 2.0, true)
+		print("Drawing SELL line at y=%.1f (price=%.2f, progress=%.3f)" % [sell_y, sell_price, sell_progress])
+		_draw_dashed_line(Vector2(chart_bounds.left, sell_y), Vector2(chart_bounds.right, sell_y), Color.RED, 2.0)
 
 		# Sell label
-		var font = ThemeDB.fallback_font
-		var font_size = 10
-		var sell_text = "SELL: %.2f" % sell_price
+		var sell_text = "SELL: %s" % _format_price_compact(sell_price)
 		parent_chart.draw_string(font, Vector2(chart_bounds.left + 10, sell_y + 15), sell_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.RED)
+		print("Drew SELL label: %s" % sell_text)
+	else:
+		print("SELL price %.2f outside visible range %.2f-%.2f" % [sell_price, bounds.price_min, bounds.price_max])
+
+	print("=== SPREAD LINES DRAWING COMPLETE ===")
 
 
 func _draw_spread_zone(buy_price: float, sell_price: float, bounds: Dictionary, chart_bounds: Dictionary, price_range: float):
+	"""Draw the spread zone between buy and sell prices"""
 	if buy_price >= bounds.price_max or sell_price <= bounds.price_min:
 		return
 
@@ -190,27 +222,74 @@ func _draw_spread_zone(buy_price: float, sell_price: float, bounds: Dictionary, 
 	var buy_y = chart_bounds.top + chart_bounds.height - (buy_progress * chart_bounds.height)
 	var sell_y = chart_bounds.top + chart_bounds.height - (sell_progress * chart_bounds.height)
 
-	# Clamp to chart bounds
-	buy_y = max(chart_bounds.top, min(buy_y, chart_bounds.bottom))
-	sell_y = max(chart_bounds.top, min(sell_y, chart_bounds.bottom))
+	# Calculate spread and margin
+	var spread = sell_price - buy_price
+	var margin_pct = (spread / sell_price) * 100.0 if sell_price > 0 else 0.0
 
-	if sell_y < buy_y:  # Ensure sell is above buy
-		var spread_height = buy_y - sell_y
-		var spread_rect = Rect2(chart_bounds.left, sell_y, chart_bounds.width, spread_height)
+	# Determine the visible portion of the spread zone
+	var zone_top = max(min(buy_y, sell_y), chart_bounds.top)
+	var zone_bottom = min(max(buy_y, sell_y), chart_bounds.bottom)
 
-		# Color based on spread percentage
-		var spread_percent = ((sell_price - buy_price) / buy_price) * 100.0 if buy_price > 0 else 0.0
-		var spread_color: Color
+	# Only draw if there's a visible portion
+	if zone_bottom > zone_top:
+		var zone_color = _get_spread_color(margin_pct)
+		zone_color.a = 0.15  # Make it semi-transparent
 
-		if spread_percent > 5.0:
-			spread_color = profitable_spread_color
-		elif spread_percent > 2.0:
-			spread_color = marginal_spread_color
-		else:
-			spread_color = poor_spread_color
+		var zone_rect = Rect2(Vector2(chart_bounds.left, zone_top), Vector2(chart_bounds.width, zone_bottom - zone_top))
+		parent_chart.draw_rect(zone_rect, zone_color)
 
-		spread_color.a = 0.2  # Semi-transparent
-		parent_chart.draw_rect(spread_rect, spread_color, true)
+		# Store zone info for hover detection
+		_store_spread_zone_info(zone_rect, spread, margin_pct)
+
+
+func _draw_dashed_line(from: Vector2, to: Vector2, color: Color, width: float):
+	"""Draw a dashed line"""
+	print("Drawing dashed line from (%.1f,%.1f) to (%.1f,%.1f) color %s" % [from.x, from.y, to.x, to.y, color])
+
+	var dash_length = 8.0
+	var gap_length = 4.0
+	var direction = (to - from).normalized()
+	var total_length = from.distance_to(to)
+	var current_pos = from
+	var distance_traveled = 0.0
+	var drawing = true
+	var segments_drawn = 0
+
+	while distance_traveled < total_length:
+		var remaining_distance = total_length - distance_traveled
+		var segment_length = min(dash_length if drawing else gap_length, remaining_distance)
+		var end_pos = current_pos + direction * segment_length
+
+		if drawing:
+			parent_chart.draw_line(current_pos, end_pos, color, width, false)
+			segments_drawn += 1
+
+		current_pos = end_pos
+		distance_traveled += segment_length
+		drawing = not drawing
+
+	print("Drew %d dashed line segments" % segments_drawn)
+
+
+func _get_spread_color(margin_pct: float) -> Color:
+	"""Get color based on spread margin percentage"""
+	if margin_pct >= 10.0:
+		return profitable_spread_color  # Excellent - 10%+ margin
+	elif margin_pct >= 5.0:
+		return marginal_spread_color  # Good - 5-10% margin
+	elif margin_pct >= 2.0:
+		return Color.ORANGE  # Marginal - 2-5% margin
+	else:
+		return poor_spread_color  # Poor - <2% margin
+
+
+func _store_spread_zone_info(zone_rect: Rect2, spread: float, margin_pct: float):
+	"""Store spread zone information for hover detection"""
+	# Store in parent chart for hover detection
+	if parent_chart.chart_interaction:
+		parent_chart.chart_interaction.spread_zone_rect = zone_rect
+		parent_chart.chart_interaction.spread_value = spread
+		parent_chart.chart_interaction.spread_margin = margin_pct
 
 
 func _draw_spread_info(buy_price: float, sell_price: float):
@@ -372,21 +451,43 @@ func set_moving_average_period(period: int):
 
 
 func check_spread_zone_hover(mouse_position: Vector2):
-	# Check if mouse is hovering over spread zone
+	"""Check if mouse is hovering over spread zone"""
+	if not parent_chart.show_spread_analysis:
+		return
+
 	if chart_data.current_station_trading_data.is_empty():
+		is_hovering_spread_zone = false
 		return
 
 	var buy_orders = chart_data.current_station_trading_data.get("buy_orders", [])
 	var sell_orders = chart_data.current_station_trading_data.get("sell_orders", [])
 
-	if buy_orders.size() > 0 and sell_orders.size() > 0:
-		var buy_price = buy_orders[0].get("price", 0.0)
-		var sell_price = sell_orders[0].get("price", 0.0)
+	if buy_orders.size() == 0 or sell_orders.size() == 0:
+		is_hovering_spread_zone = false
+		return
 
-		var mouse_price = chart_math.get_price_at_pixel(mouse_position.y)
+	var buy_price = buy_orders[0].get("price", 0.0)
+	var sell_price = sell_orders[0].get("price", 0.0)
+	var mouse_price = chart_math.get_price_at_pixel(mouse_position.y)
 
-		if mouse_price >= buy_price and mouse_price <= sell_price:
-			is_hovering_spread_zone = true
-			spread_tooltip_position = mouse_position
-		else:
-			is_hovering_spread_zone = false
+	var was_hovering = is_hovering_spread_zone
+	is_hovering_spread_zone = mouse_price >= buy_price and mouse_price <= sell_price
+
+	if is_hovering_spread_zone:
+		spread_tooltip_position = mouse_position
+
+	# Redraw if hover state changed
+	if was_hovering != is_hovering_spread_zone:
+		parent_chart.queue_redraw()
+
+
+func _format_price_compact(price: float) -> String:
+	"""Format price in compact form"""
+	if price >= 1000000000:
+		return "%.1fB" % (price / 1000000000.0)
+	elif price >= 1000000:
+		return "%.1fM" % (price / 1000000.0)
+	elif price >= 1000:
+		return "%.1fK" % (price / 1000.0)
+	else:
+		return "%.0f" % price

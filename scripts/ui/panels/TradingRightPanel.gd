@@ -106,6 +106,13 @@ func create_market_chart():
 	chart_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	chart_panel.add_child(chart_vbox)
 
+	var controls = create_chart_controls()
+	chart_vbox.add_child(controls)
+
+	var spacer = Control.new()
+	spacer.custom_minimum_size.y = 5
+	chart_vbox.add_child(spacer)
+
 	var chart_header_container = HBoxContainer.new()
 	chart_header_container.custom_minimum_size.y = 30
 	chart_vbox.add_child(chart_header_container)
@@ -140,6 +147,54 @@ func create_market_chart():
 
 	chart_panel.resized.connect(_on_chart_panel_resized)
 	market_chart.resized.connect(_on_chart_resized)
+
+	return chart_panel
+
+
+func create_chart_controls():
+	"""Create chart control buttons"""
+	var controls_container = HBoxContainer.new()
+	controls_container.name = "ChartControls"
+
+	# Spread Analysis Toggle Button
+	var spread_toggle = Button.new()
+	spread_toggle.name = "SpreadToggle"
+	spread_toggle.text = "Spread Analysis: ON"
+	spread_toggle.custom_minimum_size = Vector2(150, 25)
+	spread_toggle.pressed.connect(_on_spread_toggle_pressed)
+	controls_container.add_child(spread_toggle)
+
+	# Support/Resistance Toggle Button (for future use)
+	var sr_toggle = Button.new()
+	sr_toggle.name = "SRToggle"
+	sr_toggle.text = "S/R Lines: OFF"
+	sr_toggle.custom_minimum_size = Vector2(120, 25)
+	sr_toggle.pressed.connect(_on_sr_toggle_pressed)
+	controls_container.add_child(sr_toggle)
+
+	return controls_container
+
+
+func _on_spread_toggle_pressed():
+	"""Toggle spread analysis on/off"""
+	if market_chart and market_chart.analysis_tools:
+		market_chart.analysis_tools.toggle_spread_analysis()
+
+		# Update button text
+		var spread_toggle = get_node_or_null("./ChartPanel/ChartVBox/ChartControls/SpreadToggle")
+		if spread_toggle:
+			spread_toggle.text = "Spread Analysis: %s" % ("ON" if market_chart.show_spread_analysis else "OFF")
+
+
+func _on_sr_toggle_pressed():
+	"""Toggle support/resistance lines on/off"""
+	if market_chart and market_chart.analysis_tools:
+		market_chart.analysis_tools.toggle_support_resistance()
+
+		# Update button text
+		var sr_toggle = get_node_or_null("./ChartPanel/ChartVBox/ChartControls/SRToggle")
+		if sr_toggle:
+			sr_toggle.text = "S/R Lines: %s" % ("ON" if market_chart.show_support_resistance else "OFF")
 
 
 func _on_chart_panel_resized():
@@ -189,9 +244,9 @@ func update_item_display(item_data: Dictionary):
 
 	selected_item_data = item_data
 
-	# Only clear chart for genuinely NEW items
 	if market_chart:
-		market_chart.clear_data()
+		market_chart.set_station_trading_data(item_data)
+		print("Called set_station_trading_data with keys: %s" % item_data.keys())
 
 		# Set initial spread data if available
 		var max_buy = item_data.get("max_buy", 0.0)
@@ -772,47 +827,36 @@ func parse_eve_date(date_str: String) -> float:
 
 
 func process_market_data_for_item(market_data: Dictionary, target_item_id: int) -> Dictionary:
+	print("=== PROCESSING MARKET DATA FOR ITEM %d ===" % target_item_id)
+
 	var orders = market_data.get("data", [])
+	print("Total orders: %d" % orders.size())
+
 	var buy_orders = []
 	var sell_orders = []
 
 	for order in orders:
-		if order.get("type_id", 0) != target_item_id:
-			continue
+		if order.get("type_id") == target_item_id:
+			if order.get("is_buy_order", false):
+				buy_orders.append(order)
+			else:
+				sell_orders.append(order)
 
-		if order.get("is_buy_order", false):
-			buy_orders.append(order)
-		else:
-			sell_orders.append(order)
-
-	if buy_orders.is_empty() and sell_orders.is_empty():
-		return {}
+	print("Found %d buy orders, %d sell orders for item %d" % [buy_orders.size(), sell_orders.size(), target_item_id])
 
 	# Sort orders
 	buy_orders.sort_custom(func(a, b): return a.get("price", 0) > b.get("price", 0))
 	sell_orders.sort_custom(func(a, b): return a.get("price", 0) < b.get("price", 0))
 
-	# Calculate metrics
-	var max_buy = buy_orders[0].get("price", 0) if not buy_orders.is_empty() else 0
-	var min_sell = sell_orders[0].get("price", 0) if not sell_orders.is_empty() else 0
-	var spread = min_sell - max_buy if max_buy > 0 and min_sell > 0 else 0
-	var margin = (spread / min_sell) * 100.0 if max_buy > 0 else 0
-
-	var total_volume = 0
-	for order in buy_orders + sell_orders:
-		total_volume += order.get("volume_remain", 0)
-
-	return {
+	var result = {
 		"item_id": target_item_id,
-		"item_name": selected_item_data.get("item_name", "Unknown"),
-		"max_buy": max_buy,
-		"min_sell": min_sell,
-		"spread": spread,
-		"margin": margin,
-		"volume": total_volume,
-		"buy_orders": buy_orders.slice(0, 10),  # Top 10 orders
-		"sell_orders": sell_orders.slice(0, 10)
+		"buy_orders": buy_orders,
+		"sell_orders": sell_orders,
+		# ... other existing fields ...
 	}
+
+	print("Returning processed data with keys: %s" % result.keys())
+	return result
 
 
 func create_order_row(order: Dictionary, is_buy: bool):

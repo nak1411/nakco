@@ -65,6 +65,8 @@ func draw_chart():
 	# Only draw one type of tooltip at a time - prioritize data point tooltips
 	if parent_chart.chart_interaction.hovered_point_index != -1 or parent_chart.chart_interaction.hovered_volume_index != -1:
 		_draw_tooltip()  # Data point tooltip takes priority
+	elif parent_chart.show_spread_analysis and analysis_tools.is_hovering_spread_zone:
+		_draw_spread_hover_tooltip()  # Spread hover tooltip
 	elif parent_chart.chart_interaction.show_crosshair:
 		_draw_crosshair()
 
@@ -72,6 +74,93 @@ func draw_chart():
 func _draw_background():
 	"""Draw chart background (EXACT original)"""
 	parent_chart.draw_rect(Rect2(Vector2.ZERO, parent_chart.size), background_color)
+
+
+func _draw_grid():
+	var chart_height = parent_chart.size.y * 0.6
+	var chart_y_offset = parent_chart.size.y * 0.05
+	var chart_bounds = chart_math.get_chart_boundaries()
+	var chart_top = chart_y_offset
+	var chart_bottom = chart_y_offset + chart_height
+
+	var bounds = chart_math.get_current_window_bounds()
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+	var time_window = window_end - window_start
+	var window_days = time_window / 86400.0
+
+	print("Drawing grid: window_days=%.2f" % window_days)
+
+	# Vertical grid lines (time) - EXACT same logic as X-axis labels
+	var grid_interval_seconds: float
+	if window_days <= 1:
+		grid_interval_seconds = 21600.0  # 6 hours (matches labels)
+	elif window_days <= 7:
+		grid_interval_seconds = 86400.0  # 1 day (matches labels)
+	elif window_days <= 30:
+		grid_interval_seconds = 259200.0  # 3 days (matches labels)
+	elif window_days <= 90:
+		grid_interval_seconds = 604800.0  # 1 week (matches labels)
+	else:
+		grid_interval_seconds = 2592000.0  # 1 month (matches labels)
+
+	print("Grid interval: %.0f seconds" % grid_interval_seconds)
+
+	# Use Eve downtime anchor for grid alignment (EXACT same as labels)
+	var current_time = Time.get_unix_time_from_system()
+	var eve_downtime_anchor = _find_most_recent_eve_downtime(current_time)
+
+	# Draw grid lines going backwards from anchor
+	var grid_time = eve_downtime_anchor
+	var grid_lines_drawn = 0
+	while grid_time >= window_start and grid_lines_drawn < 20:
+		if grid_time <= window_end:
+			var time_progress = (grid_time - window_start) / (window_end - window_start)
+			var x = chart_bounds.left + (time_progress * chart_bounds.width)
+
+			if x >= chart_bounds.left and x <= chart_bounds.right:
+				parent_chart.draw_line(Vector2(x, chart_top), Vector2(x, chart_bottom), grid_color, 1.0, false)
+				grid_lines_drawn += 1
+		grid_time -= grid_interval_seconds
+
+	# Draw grid lines going forwards from anchor
+	grid_time = eve_downtime_anchor + grid_interval_seconds
+	while grid_time <= window_end and grid_lines_drawn < 20:
+		if grid_time >= window_start:
+			var time_progress = (grid_time - window_start) / (window_end - window_start)
+			var x = chart_bounds.left + (time_progress * chart_bounds.width)
+
+			if x >= chart_bounds.left and x <= chart_bounds.right:
+				parent_chart.draw_line(Vector2(x, chart_top), Vector2(x, chart_bottom), grid_color, 1.0, false)
+				grid_lines_drawn += 1
+		grid_time += grid_interval_seconds
+
+	print("Drew %d vertical grid lines" % grid_lines_drawn)
+
+	# Horizontal grid lines (price) - use the EXACT same calculation as Y-axis labels
+	var min_price = parent_chart.chart_center_price - (parent_chart.chart_price_range / 2.0)
+	var max_price = parent_chart.chart_center_price + (parent_chart.chart_price_range / 2.0)
+	var price_range = max_price - min_price
+
+	if price_range > 0:
+		# Use the same price interval calculation as Y-axis labels
+		var price_interval = _calculate_price_grid_interval(price_range)
+		var first_price = floor(min_price / price_interval) * price_interval
+
+		var current_price = first_price
+		var price_lines_drawn = 0
+		while current_price <= max_price and price_lines_drawn < 20:
+			if current_price >= min_price:
+				var price_progress = (current_price - min_price) / price_range
+				var y = chart_y_offset + chart_height - (price_progress * chart_height)
+
+				if y >= chart_top and y <= chart_bottom:
+					parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), grid_color, 1.0, false)
+					price_lines_drawn += 1
+
+			current_price += price_interval
+
+		print("Drew %d horizontal grid lines" % price_lines_drawn)
 
 
 func _draw_axis_label_tracks():
@@ -96,9 +185,9 @@ func _draw_axis_label_tracks():
 
 func _draw_y_axis_labels():
 	"""Draw price labels aligned with dynamic price grid lines (EXACT original)"""
-	var bounds = chart_math.get_current_window_bounds()
-	var min_price = bounds.price_min
-	var max_price = bounds.price_max
+	# CRITICAL: Use the chart center price and range directly for Y-axis labels
+	var min_price = parent_chart.chart_center_price - (parent_chart.chart_price_range / 2.0)
+	var max_price = parent_chart.chart_center_price + (parent_chart.chart_price_range / 2.0)
 	var price_range = max_price - min_price
 
 	if price_range <= 0:
@@ -107,6 +196,8 @@ func _draw_y_axis_labels():
 	var chart_height = parent_chart.size.y * 0.6
 	var chart_y_offset = parent_chart.size.y * 0.05
 	var font_size = 10
+
+	print("Drawing Y-axis labels: min=%.2f, max=%.2f, range=%.2f" % [min_price, max_price, price_range])
 
 	# Use the same price interval calculation as the grid
 	var price_interval = _calculate_price_grid_interval(price_range)
@@ -141,90 +232,92 @@ func _draw_y_axis_labels():
 
 
 func _draw_x_axis_labels():
-	"""Draw time labels (EXACT original)"""
-	var font_size = 11
+	"""Draw time labels aligned with Eve Online daily boundaries (EXACT original)"""
+	var font_size = 9
 	var bounds = chart_math.get_current_window_bounds()
-	var chart_bounds = chart_math.get_chart_boundaries()
-
-	# Time labels (X-axis) - EXACT original position
-	var time_window = chart_math.get_current_time_window()
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+	var time_window = window_end - window_start
 	var window_days = time_window / 86400.0
 
-	var time_label_count = 6
-	var time_step = (bounds.time_end - bounds.time_start) / time_label_count
+	print("Drawing X-axis labels: window_days=%.2f, window_start=%.0f, window_end=%.0f" % [window_days, window_start, window_end])
 
-	for i in range(time_label_count + 1):
-		var timestamp = bounds.time_start + (i * time_step)
-		var time_progress = (timestamp - bounds.time_start) / (bounds.time_end - bounds.time_start)
-		var x = chart_bounds.left + (time_progress * chart_bounds.width)
+	# Determine label interval based on zoom level (EXACT original)
+	var label_interval_seconds: float
+	var label_format_type: String
 
-		var time_text = _format_time_label(timestamp, window_days)
-		var text_size = chart_font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-
-		# Position at EXACT original Y position (below chart area)
-		var chart_bottom = parent_chart.size.y * 0.7
-		parent_chart.draw_string(chart_font, Vector2(x - text_size.x / 2, chart_bottom + 15), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
-
-
-func _draw_grid():
-	# Use EXACT original chart dimensions
-	var chart_height = parent_chart.size.y * 0.6
-	var chart_y_offset = parent_chart.size.y * 0.05
-	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_top = chart_y_offset
-	var chart_bottom = chart_y_offset + chart_height
-
-	# Vertical grid lines (time)
-	var time_window = chart_math.get_current_time_window()
-	var window_days = time_window / 86400.0
-
-	var grid_interval: float
 	if window_days <= 1:
-		grid_interval = 3600.0  # 1 hour
+		label_interval_seconds = 21600.0  # 6 hours
+		label_format_type = "time"
 	elif window_days <= 7:
-		grid_interval = 86400.0  # 1 day
+		label_interval_seconds = 86400.0  # 1 day
+		label_format_type = "daily"
 	elif window_days <= 30:
-		grid_interval = 86400.0 * 7  # 1 week
+		label_interval_seconds = 259200.0  # 3 days
+		label_format_type = "multi_day"
+	elif window_days <= 90:
+		label_interval_seconds = 604800.0  # 1 week
+		label_format_type = "weekly"
 	else:
-		grid_interval = 86400.0 * 30  # 1 month
+		label_interval_seconds = 2592000.0  # 1 month
+		label_format_type = "monthly"
 
-	var window_bounds = chart_math.get_current_window_bounds()
-	var start_time = window_bounds.time_start
-	var end_time = window_bounds.time_end
+	print("Label interval: %.0f seconds, format: %s" % [label_interval_seconds, label_format_type])
 
-	var grid_start = floor(start_time / grid_interval) * grid_interval
-	var current_time = grid_start
+	# Find the most recent Eve downtime as anchor (EXACT original)
+	var current_time = Time.get_unix_time_from_system()
+	var eve_downtime_anchor = _find_most_recent_eve_downtime(current_time)
 
-	while current_time <= end_time:
-		var time_progress = (current_time - start_time) / (end_time - start_time)
-		var x = chart_bounds.left + (time_progress * chart_bounds.width)
+	print("Eve downtime anchor: %.0f (%s)" % [eve_downtime_anchor, Time.get_datetime_string_from_unix_time(eve_downtime_anchor)])
 
-		if x >= chart_bounds.left and x <= chart_bounds.right:
-			parent_chart.draw_line(Vector2(x, chart_top), Vector2(x, chart_bottom), grid_color, 1.0, false)
+	# Generate labels (EXACT original)
+	var labels_drawn = 0
+	var max_labels = 8
+	var chart_bottom = parent_chart.size.y * 0.7
 
-		current_time += grid_interval
+	# Draw labels going backwards from anchor
+	var label_timestamp = eve_downtime_anchor
+	while label_timestamp >= window_start and labels_drawn < max_labels:
+		if label_timestamp <= window_end:
+			_draw_x_axis_label_at_timestamp(label_timestamp, window_start, window_end, chart_bottom, label_format_type, font_size)
+			labels_drawn += 1
+		label_timestamp -= label_interval_seconds
 
-	# Horizontal grid lines (price)
-	var price_range = window_bounds.price_max - window_bounds.price_min
-	var price_grid_count = 8
-	var price_step = price_range / price_grid_count
+	# Draw labels going forwards from anchor
+	label_timestamp = eve_downtime_anchor + label_interval_seconds
+	while label_timestamp <= window_end and labels_drawn < max_labels:
+		if label_timestamp >= window_start:
+			_draw_x_axis_label_at_timestamp(label_timestamp, window_start, window_end, chart_bottom, label_format_type, font_size)
+			labels_drawn += 1
+		label_timestamp += label_interval_seconds
 
-	for i in range(price_grid_count + 1):
-		var price = window_bounds.price_min + (i * price_step)
-		var price_progress = (price - window_bounds.price_min) / price_range
-		var y = chart_y_offset + chart_height - (price_progress * chart_height)
+	print("Drew %d X-axis labels" % labels_drawn)
 
-		if y >= chart_top and y <= chart_bottom:
-			parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), grid_color, 1.0, false)
+
+func _draw_x_axis_label_at_timestamp(timestamp: float, window_start: float, window_end: float, chart_bottom: float, format_type: String, font_size: int):
+	"""Draw a single X-axis label at the specified timestamp (EXACT original)"""
+	var time_progress = (timestamp - window_start) / (window_end - window_start)
+	var chart_bounds = chart_math.get_chart_boundaries()
+	var x_pos = chart_bounds.left + (time_progress * chart_bounds.width)
+
+	if x_pos < chart_bounds.left or x_pos > chart_bounds.right:
+		return
+
+	var time_text = _format_eve_time_label(timestamp, format_type)
+	var text_size = chart_font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+
+	# Position text centered on the timestamp
+	var text_x = x_pos - text_size.x / 2
+	var text_y = chart_bottom + 15
+
+	# Draw the label
+	parent_chart.draw_string(chart_font, Vector2(text_x, text_y), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, axis_label_color)
 
 
 func _draw_price_line():
-	print("=== DRAWING PRICE LINE (DEBUGGING) ===")
-	print("Price data size: %d" % chart_data.price_data.size())
-	print("Chart size: %.1fx%.1f" % [parent_chart.size.x, parent_chart.size.y])
+	print("=== DRAWING PRICE LINE (FIXING CLOSE ZOOM CLIPPING) ===")
 
 	if chart_data.price_data.size() < 1:
-		print("ERROR: No price data to draw!")
 		return
 
 	var bounds = chart_math.get_current_window_bounds()
@@ -234,46 +327,48 @@ func _draw_price_line():
 	var max_price = bounds.price_max
 	var price_range = max_price - min_price
 
-	print("Window: time %.0f-%.0f (%.0f sec span)" % [window_start, window_end, window_end - window_start])
-	print("Price range: %.2f-%.2f (%.2f range)" % [min_price, max_price, price_range])
-
-	if price_range <= 0:
-		print("ERROR: Invalid price range!")
-		return
-
-	# Get visible data with buffer
-	var visible_points = []
+	# CRITICAL FIX: Use much larger buffer for close zoom levels
 	var time_window = window_end - window_start
-	var buffer_time = time_window * 0.1
+	var zoom_level = parent_chart.zoom_level
+
+	# Scale buffer based on zoom level - more zoomed in = larger buffer needed
+	var buffer_multiplier = max(0.5, zoom_level / 10.0)  # Minimum 50%, scales up with zoom
+	var buffer_time = time_window * buffer_multiplier
+
+	print("Zoom level: %.1fx, buffer_time: %.0f sec (%.1f%% of window)" % [zoom_level, buffer_time, buffer_multiplier * 100])
+
+	# Get visible data with enhanced buffer
+	var visible_points = []
+	var visible_candles = []
 
 	for point in chart_data.price_data:
 		if point.timestamp >= (window_start - buffer_time) and point.timestamp <= (window_end + buffer_time):
 			visible_points.append(point)
 
-	print("Found %d visible points (with buffer)" % visible_points.size())
+	for candle in chart_data.candlestick_data:
+		if candle.timestamp >= (window_start - buffer_time) and candle.timestamp <= (window_end + buffer_time):
+			visible_candles.append(candle)
+
+	print("Found %d visible points, %d candles (with %.0fs buffer)" % [visible_points.size(), visible_candles.size(), buffer_time])
 
 	if visible_points.size() < 1:
-		print("ERROR: No visible points in current window!")
-
-		# Debug: show all data points with their times
-		print("All price data points:")
-		for i in range(min(5, chart_data.price_data.size())):
-			var point = chart_data.price_data[i]
-			print("  Point %d: time %.0f, price %.2f" % [i, point.timestamp, point.price])
 		return
 
 	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
-	# Use EXACT original chart dimensions
+	# Use EXACT original chart dimensions for clipping
 	var chart_bounds = chart_math.get_chart_boundaries()
 	var chart_height = parent_chart.size.y * 0.6
 	var chart_y_offset = parent_chart.size.y * 0.05
 	var chart_top = chart_y_offset
 	var chart_bottom = chart_y_offset + chart_height
 
-	print("Chart area: bounds left=%.1f right=%.1f top=%.1f bottom=%.1f" % [chart_bounds.left, chart_bounds.right, chart_top, chart_bottom])
+	# Draw candlesticks first (if enabled)
+	if parent_chart.show_candlesticks and visible_candles.size() > 0:
+		_draw_candlesticks(visible_candles, window_start, window_end, min_price, price_range, chart_height, chart_y_offset)
 
-	# Generate points
+	# Draw moving average line with IMPROVED clipping for close zoom
 	var points: PackedVector2Array = []
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
@@ -286,60 +381,103 @@ func _draw_price_line():
 
 		points.append(Vector2(x, y))
 
-		if i < 3:  # Debug first few points
-			print("Point %d: time %.0f, price %.2f -> x %.1f, y %.1f (progress: time=%.3f, price=%.3f)" % [i, point_data.timestamp, point_data.price, x, y, time_progress, price_progress])
+	print("Generated %d points for MA line" % points.size())
 
-	print("Generated %d drawing points" % points.size())
-
-	# Draw lines between points
-	var lines_drawn = 0
+	# CRITICAL FIX: Draw lines with improved clipping that handles close zoom better
 	for i in range(points.size() - 1):
 		var current_point_data = visible_points[i]
 		var next_point_data = visible_points[i + 1]
 		var time_diff = next_point_data.timestamp - current_point_data.timestamp
 
-		if time_diff <= 86400.0 * 2:  # Within 2 days
+		# IMPROVED: Scale max time gap with zoom level
+		var max_time_gap = 86400.0 * 2  # Base: 2 days
+		if zoom_level > 10:  # When zoomed in close
+			max_time_gap = 86400.0 * 30  # Allow much larger gaps (30 days)
+
+		if time_diff <= max_time_gap:
 			var p1 = points[i]
 			var p2 = points[i + 1]
 
-			# Simple line drawing first, no clipping for debugging
-			var current_is_historical = current_point_data.get("is_historical", false)
-			var next_is_historical = next_point_data.get("is_historical", false)
+			# IMPROVED: Use expanded clipping rectangle for better edge handling
+			var clip_margin = 10.0  # Extra pixels around chart area
+			var expanded_clip_rect = Rect2(Vector2(chart_bounds.left - clip_margin, chart_top - clip_margin), Vector2(chart_bounds.width + (clip_margin * 2), chart_height + (clip_margin * 2)))
 
-			var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
-			var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
+			# First check if line is completely outside expanded area (skip it)
+			if _is_point_in_rect(p1, expanded_clip_rect) or _is_point_in_rect(p2, expanded_clip_rect) or _line_intersects_rect(p1, p2, expanded_clip_rect):
+				# Use normal clipping rectangle for actual drawing
+				var clip_rect = Rect2(Vector2(chart_bounds.left, chart_top), Vector2(chart_bounds.width, chart_height))
 
-			parent_chart.draw_line(p1, p2, line_color, line_width, true)
-			lines_drawn += 1
+				var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
 
-			if i < 3:  # Debug first few lines
-				print("Drew line %d: from (%.1f,%.1f) to (%.1f,%.1f) color %s" % [i, p1.x, p1.y, p2.x, p2.y, line_color])
+				if clipped_line.has("start") and clipped_line.has("end"):
+					var current_is_historical = current_point_data.get("is_historical", false)
+					var next_is_historical = next_point_data.get("is_historical", false)
 
-	print("Drew %d lines" % lines_drawn)
+					var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
+					var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
 
-	# Draw data points
-	var points_drawn = 0
+					parent_chart.draw_line(clipped_line.start, clipped_line.end, line_color, line_width, true)
+				else:
+					# FALLBACK: If clipping fails but line should be visible, draw it anyway
+					if _is_point_in_rect(p1, clip_rect) or _is_point_in_rect(p2, clip_rect):
+						var current_is_historical = current_point_data.get("is_historical", false)
+						var next_is_historical = next_point_data.get("is_historical", false)
+
+						var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
+						var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
+
+						parent_chart.draw_line(p1, p2, line_color, line_width, true)
+						print("Drew fallback line %d (clipping failed but points visible)" % i)
+
+	# Draw data points with proper clipping
 	for i in range(points.size()):
 		var point_data = visible_points[i]
 		var point = points[i]
 
-		# Draw all points for debugging, regardless of bounds
-		var is_historical = point_data.get("is_historical", false)
-		var volume = point_data.get("volume", 0)
+		# Only draw points within the chart bounds
+		if point.y >= chart_top and point.y <= chart_bottom and point.x >= chart_bounds.left and point.x <= chart_bounds.right:
+			var is_historical = point_data.get("is_historical", false)
+			var volume = point_data.get("volume", 0)
 
-		var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
-		var circle_radius = 4.0
+			var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
+			var circle_radius = 4.0
 
-		if volume > 0:
-			parent_chart.draw_circle(point, circle_radius + 1.0, Color.WHITE, true)
-			parent_chart.draw_circle(point, circle_radius, circle_color, true)
-			points_drawn += 1
+			if volume > 0:
+				parent_chart.draw_circle(point, circle_radius + 1.0, Color.WHITE, true)
+				parent_chart.draw_circle(point, circle_radius, circle_color, true)
 
-		if i < 3:  # Debug first few circles
-			print("Drew point %d at (%.1f,%.1f) color %s volume %d" % [i, point.x, point.y, circle_color, volume])
+	print("MA line drawing complete with improved close-zoom clipping")
 
-	print("Drew %d data points" % points_drawn)
-	print("=== PRICE LINE DRAWING COMPLETE ===")
+
+# Add helper functions for improved clipping
+func _is_point_in_rect(point: Vector2, rect: Rect2) -> bool:
+	"""Check if a point is inside a rectangle"""
+	return point.x >= rect.position.x and point.x <= rect.position.x + rect.size.x and point.y >= rect.position.y and point.y <= rect.position.y + rect.size.y
+
+
+func _line_intersects_rect(p1: Vector2, p2: Vector2, rect: Rect2) -> bool:
+	"""Check if a line intersects with a rectangle"""
+	# Simple bounding box check first
+	var line_min_x = min(p1.x, p2.x)
+	var line_max_x = max(p1.x, p2.x)
+	var line_min_y = min(p1.y, p2.y)
+	var line_max_y = max(p1.y, p2.y)
+
+	var rect_min_x = rect.position.x
+	var rect_max_x = rect.position.x + rect.size.x
+	var rect_min_y = rect.position.y
+	var rect_max_y = rect.position.y + rect.size.y
+
+	# If line bounding box doesn't overlap rect, no intersection
+	if line_max_x < rect_min_x or line_min_x > rect_max_x or line_max_y < rect_min_y or line_min_y > rect_max_y:
+		return false
+
+	# If either point is inside rect, there's intersection
+	if _is_point_in_rect(p1, rect) or _is_point_in_rect(p2, rect):
+		return true
+
+	# Line passes through rect
+	return true
 
 
 func _draw_volume_bars():
@@ -585,10 +723,10 @@ func _draw_tooltip():
 
 	var tooltip_size = Vector2(max_width + padding.x * 2, lines.size() * line_height + padding.y * 2)
 
-	# Position tooltip near cursor, but keep it on screen
+	# Position tooltip near cursor, but keep it on screen (EXACT original)
 	var tooltip_pos = tooltip_position + Vector2(15, -tooltip_size.y / 2)
 
-	# Keep tooltip within screen bounds
+	# Keep tooltip within screen bounds (EXACT original)
 	if tooltip_pos.x + tooltip_size.x > parent_chart.size.x:
 		tooltip_pos.x = tooltip_position.x - tooltip_size.x - 15
 	if tooltip_pos.y < 0:
@@ -596,7 +734,7 @@ func _draw_tooltip():
 	if tooltip_pos.y + tooltip_size.y > parent_chart.size.y:
 		tooltip_pos.y = parent_chart.size.y - tooltip_size.y
 
-	# Draw tooltip background with subtle gradient
+	# Draw tooltip background with subtle gradient (EXACT original)
 	var tooltip_rect = Rect2(tooltip_pos, tooltip_size)
 	var bg_color = Color(0.08, 0.1, 0.12, 0.95)
 	var border_color = Color(0.4, 0.45, 0.5, 1.0)
@@ -605,7 +743,7 @@ func _draw_tooltip():
 	# Main background
 	parent_chart.draw_rect(tooltip_rect, bg_color)
 
-	# Header background for first line
+	# Header background for first line (EXACT original)
 	if lines.size() > 0:
 		var header_rect = Rect2(tooltip_pos, Vector2(tooltip_size.x, line_height + 4))
 		parent_chart.draw_rect(header_rect, header_color)
@@ -613,24 +751,134 @@ func _draw_tooltip():
 	# Border
 	parent_chart.draw_rect(tooltip_rect, border_color, false, 1.5)
 
-	# Draw tooltip text with color coding
+	# Draw tooltip text with color coding (EXACT original)
 	var text_pos = tooltip_pos + padding
 	for i in range(lines.size()):
 		var line = lines[i]
 		var line_pos = text_pos + Vector2(0, i * line_height + 10)
 		var text_color = Color.WHITE
 
-		# Color code different types of information
+		# Color code different types of information (EXACT original)
 		if i == 0:  # Header line
 			text_color = Color.CYAN
-		elif line.contains("Price:"):
+		elif line.contains("Open:") or line.contains("MA Price:"):
 			text_color = Color.LIGHT_GREEN
+		elif line.contains("High:") or line.contains("Raw Price:"):
+			text_color = Color.GREEN
+		elif line.contains("Low:"):
+			text_color = Color.RED
+		elif line.contains("Close:") or line.contains("Current Price:"):
+			text_color = Color.YELLOW
 		elif line.contains("Volume:"):
 			text_color = Color.LIGHT_BLUE
 		elif line.contains("Time:"):
-			text_color = Color.YELLOW
+			text_color = Color.GRAY
+		elif line.contains("Station Trading:"):
+			text_color = Color.ORANGE
+		elif line.contains("Your Buy:"):
+			text_color = Color.GREEN
+		elif line.contains("Your Sell:"):
+			text_color = Color.RED
+		elif line.contains("Potential Profit:"):
+			var profit_text = line
+			if profit_text.contains("-"):
+				text_color = Color.RED  # Negative profit
+			else:
+				text_color = Color.GREEN  # Positive profit
+		elif line.contains("📈") or line.contains("Historical Low"):
+			text_color = Color.LIGHT_GREEN
+		elif line.contains("📉") or line.contains("Historical High"):
+			text_color = Color.ORANGE
 
 		parent_chart.draw_string(chart_font, line_pos, line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
+
+func _draw_spread_hover_tooltip():
+	"""Draw spread analysis hover tooltip"""
+	if not parent_chart.analysis_tools.is_hovering_spread_zone:
+		return
+
+	if chart_data.current_station_trading_data.is_empty():
+		return
+
+	var font_size = 11
+	var font = chart_font
+	var lines = []
+
+	# Get station trading data for detailed tooltip
+	var data = chart_data.current_station_trading_data
+	if data.has("profit_margin"):
+		lines = [
+			"STATION TRADING OPPORTUNITY",
+			"",
+			"Your Buy Order: %s ISK" % _format_price_label(data.get("your_buy_price", 0)),
+			"Your Sell Order: %s ISK" % _format_price_label(data.get("your_sell_price", 0)),
+			"",
+			"Cost (with fees): %s ISK" % _format_price_label(data.get("cost_with_fees", 0)),
+			"Income (after taxes): %s ISK" % _format_price_label(data.get("income_after_taxes", 0)),
+			"",
+			"Profit: %s ISK per unit" % _format_price_label(data.get("profit_per_unit", 0)),
+			"Margin: %.2f%%" % data.get("profit_margin", 0),
+			"",
+			_get_station_trading_quality_text(data.get("profit_margin", 0))
+		]
+	else:
+		# Fallback to basic spread info
+		var spread = parent_chart.analysis_tools.current_sell_price - parent_chart.analysis_tools.current_buy_price
+		var margin_pct = (spread / parent_chart.analysis_tools.current_sell_price) * 100.0 if parent_chart.analysis_tools.current_sell_price > 0 else 0.0
+		lines = ["SPREAD ANALYSIS", "Spread: %s ISK" % _format_price_label(spread), "Margin: %.2f%%" % margin_pct, _get_spread_quality_text(margin_pct)]
+
+	var max_width = 0.0
+	var line_height = 14
+
+	# Calculate tooltip dimensions
+	for line in lines:
+		if line.length() > 0:
+			var text_size = font.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+			max_width = max(max_width, text_size.x)
+
+	var padding = Vector2(12, 8)
+	var tooltip_width = max_width + padding.x * 2
+	var tooltip_height = lines.size() * line_height + padding.y * 2
+
+	# Position tooltip
+	var tooltip_pos = parent_chart.analysis_tools.spread_tooltip_position + Vector2(15, -tooltip_height / 2)
+
+	# Keep tooltip within screen bounds
+	if tooltip_pos.x + tooltip_width > parent_chart.size.x:
+		tooltip_pos.x = parent_chart.analysis_tools.spread_tooltip_position.x - tooltip_width - 15
+	if tooltip_pos.y < 0:
+		tooltip_pos.y = 5
+	if tooltip_pos.y + tooltip_height > parent_chart.size.y:
+		tooltip_pos.y = parent_chart.size.y - tooltip_height - 5
+
+	# Draw tooltip background
+	var bg_color = Color(0.05, 0.08, 0.12, 0.95)
+	var border_color = Color.CYAN
+
+	parent_chart.draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), bg_color)
+	parent_chart.draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), border_color, false, 2.0)
+
+	# Draw text lines
+	for i in range(lines.size()):
+		var line = lines[i]
+		if line.length() == 0:
+			continue
+
+		var text_pos = tooltip_pos + Vector2(padding.x, padding.y + (i + 1) * line_height)
+		var text_color = Color.WHITE
+
+		# Color code different lines
+		if i == 0:  # Header
+			text_color = Color.CYAN
+		elif line.contains("Profit:") or line.contains("Margin:"):
+			text_color = Color.YELLOW
+		elif line.contains("Your Buy Order:"):
+			text_color = Color.GREEN
+		elif line.contains("Your Sell Order:"):
+			text_color = Color.RED
+
+		parent_chart.draw_string(font, text_pos, line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
 
 func _draw_zoom_indicator():
@@ -858,22 +1106,20 @@ func _format_price_label_for_axis(price: float) -> String:
 		return "%.2f" % price
 
 
-func _format_time_label(timestamp: float, window_days: float) -> String:
-	"""Format time labels for axis"""
-	var datetime = Time.get_datetime_dict_from_unix_time(timestamp)
-
-	if window_days <= 1:
-		return "%02d:%02d" % [datetime.hour, datetime.minute]
-	elif window_days <= 7:
-		return "%d/%d" % [datetime.month, datetime.day]
-	elif window_days <= 30:
-		return "%d/%d" % [datetime.month, datetime.day]
+func _format_price_label(price: float) -> String:
+	"""Format price labels for display"""
+	if price >= 1000000000:
+		return "%.1fB" % (price / 1000000000.0)
+	elif price >= 1000000:
+		return "%.1fM" % (price / 1000000.0)
+	elif price >= 1000:
+		return "%.1fK" % (price / 1000.0)
 	else:
-		return "%d/%d" % [datetime.month, datetime.year % 100]
+		return "%.2f" % price
 
 
 func _format_eve_time_label(timestamp: float, format_type: String) -> String:
-	"""Format EVE time labels"""
+	"""Format EVE time labels (EXACT original)"""
 	var datetime = Time.get_datetime_dict_from_unix_time(timestamp)
 
 	match format_type:
@@ -881,10 +1127,28 @@ func _format_eve_time_label(timestamp: float, format_type: String) -> String:
 			return "%02d:%02d" % [datetime.hour, datetime.minute]
 		"daily":
 			return "%d/%d" % [datetime.month, datetime.day]
+		"multi_day":
+			return "%d/%d" % [datetime.month, datetime.day]
+		"weekly":
+			return "%d/%d" % [datetime.month, datetime.day]
 		"monthly":
 			return "%d/%d" % [datetime.month, datetime.year % 100]
 		_:
 			return "%d/%d" % [datetime.month, datetime.day]
+
+
+func _find_most_recent_eve_downtime(current_time: float) -> float:
+	"""Find the most recent EVE downtime (11:00 UTC) (EXACT original)"""
+	var current_datetime = Time.get_datetime_dict_from_unix_time(current_time)
+
+	# Today's downtime
+	var today_downtime = Time.get_unix_time_from_datetime_dict({"year": current_datetime.year, "month": current_datetime.month, "day": current_datetime.day, "hour": 11, "minute": 0, "second": 0})
+
+	if today_downtime <= current_time:
+		return today_downtime
+	else:
+		# Yesterday's downtime
+		return today_downtime - 86400.0
 
 
 func set_chart_style(style: String):
@@ -900,3 +1164,27 @@ func set_chart_style(style: String):
 			background_color = Color(0.1, 0.12, 0.15, 1)
 
 	parent_chart.queue_redraw()
+
+
+func _get_station_trading_quality_text(margin_pct: float) -> String:
+	"""Get text description of trading opportunity quality"""
+	if margin_pct >= 10.0:
+		return "EXCELLENT OPPORTUNITY"
+	elif margin_pct >= 5.0:
+		return "GOOD OPPORTUNITY"
+	elif margin_pct >= 2.0:
+		return "MARGINAL OPPORTUNITY"
+	else:
+		return "POOR OPPORTUNITY"
+
+
+func _get_spread_quality_text(margin_pct: float) -> String:
+	"""Get text description of spread quality"""
+	if margin_pct >= 10.0:
+		return "Wide Spread"
+	elif margin_pct >= 5.0:
+		return "Good Spread"
+	elif margin_pct >= 2.0:
+		return "Narrow Spread"
+	else:
+		return "Very Narrow Spread"

@@ -6,7 +6,7 @@ var parent_chart: MarketChart
 var chart_data: ChartData
 var chart_math: ChartMath
 
-# Mouse interaction state
+# Mouse interaction state (EXACT original)
 var mouse_position: Vector2 = Vector2.ZERO
 var show_crosshair: bool = false
 var hovered_point_index: int = -1
@@ -14,7 +14,7 @@ var hovered_volume_index: int = -1
 var is_dragging: bool = false
 var drag_start_position: Vector2 = Vector2.ZERO
 
-# Hover detection
+# Hover detection (EXACT original)
 var point_hover_radius: float = 8.0
 var point_visual_radius: float = 4.0
 
@@ -24,6 +24,11 @@ var tooltip_position: Vector2 = Vector2.ZERO
 
 # Volume bar positions for hover detection
 var current_volume_bar_positions: Array = []
+
+# Spread zone for hover detection
+var spread_zone_rect: Rect2 = Rect2()
+var spread_value: float = 0.0
+var spread_margin: float = 0.0
 
 
 func setup(chart: MarketChart, data: ChartData, math: ChartMath):
@@ -62,6 +67,118 @@ func handle_input(event):
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_zoom_out_at_mouse(event.position)
 			parent_chart.get_viewport().set_input_as_handled()
+		else:
+			parent_chart.get_viewport().set_input_as_handled()
+
+
+func _handle_simple_drag(event: InputEventMouseMotion):
+	"""Handle simple chart panning (EXACT original with debug)"""
+	var drag_delta = event.position - drag_start_position
+
+	# Calculate how much to move based on current zoom level (EXACT original)
+	var time_window = chart_math.get_current_time_window()
+	var time_per_pixel = time_window / parent_chart.size.x
+	var price_per_pixel = parent_chart.chart_price_range / (parent_chart.size.y * 0.6)
+
+	# Move chart center (opposite direction of drag for natural feel) (EXACT original)
+	var time_delta = drag_delta.x * time_per_pixel
+	var price_delta = drag_delta.y * price_per_pixel
+
+	# DEBUG: Show what's happening
+	print("Drag delta: x=%.1f, y=%.1f" % [drag_delta.x, drag_delta.y])
+	print("Time delta: %.2f, Price delta: %.2f" % [time_delta, price_delta])
+	print("Before: center_time=%.0f, center_price=%.2f" % [parent_chart.chart_center_time, parent_chart.chart_center_price])
+
+	parent_chart.chart_center_time -= time_delta
+	parent_chart.chart_center_price += price_delta  # This affects Y-axis labels
+
+	print("After: center_time=%.0f, center_price=%.2f" % [parent_chart.chart_center_time, parent_chart.chart_center_price])
+	print("Price range: %.2f" % parent_chart.chart_price_range)
+
+	# Clamp to reasonable limits (EXACT original)
+	var current_time = Time.get_unix_time_from_system()
+	var max_history = _get_max_historical_time()
+
+	parent_chart.chart_center_time = clamp(parent_chart.chart_center_time, max_history + time_window / 2, current_time)
+
+	# Reset drag start for smooth continuous dragging (EXACT original)
+	drag_start_position = event.position
+
+	# Update support/resistance levels immediately when panning (if enabled) (EXACT original)
+	if parent_chart.show_support_resistance:
+		parent_chart.analysis_tools.update_price_levels()
+
+	parent_chart.queue_redraw()  # This will redraw everything including spread analysis with new bounds
+
+
+func _zoom_in_at_mouse(mouse_pos: Vector2):
+	"""Zoom in toward the mouse position (EXACT original)"""
+	var old_zoom = parent_chart.zoom_level
+	parent_chart.zoom_level = min(parent_chart.zoom_level * chart_math.zoom_sensitivity, chart_math.max_zoom)
+
+	if parent_chart.zoom_level != old_zoom:
+		# Adjust chart center to zoom toward mouse position (EXACT original)
+		_adjust_center_for_zoom(mouse_pos, old_zoom, parent_chart.zoom_level)
+
+		# Update support/resistance levels immediately when zooming (if enabled) (EXACT original)
+		if parent_chart.show_support_resistance:
+			parent_chart.analysis_tools.update_price_levels()
+
+		parent_chart.queue_redraw()  # This will redraw everything including spread analysis with new bounds
+		print("Zoomed in to %.1fx at mouse position" % parent_chart.zoom_level)
+
+
+func _zoom_out_at_mouse(mouse_pos: Vector2):
+	"""Zoom out from the mouse position (EXACT original)"""
+	var old_zoom = parent_chart.zoom_level
+	parent_chart.zoom_level = max(parent_chart.zoom_level / chart_math.zoom_sensitivity, chart_math.min_zoom)
+
+	if parent_chart.zoom_level != old_zoom:
+		# Adjust chart center to zoom from mouse position (EXACT original)
+		_adjust_center_for_zoom(mouse_pos, old_zoom, parent_chart.zoom_level)
+
+		# Update support/resistance levels immediately when zooming (if enabled) (EXACT original)
+		if parent_chart.show_support_resistance:
+			parent_chart.analysis_tools.update_price_levels()
+
+		parent_chart.queue_redraw()  # This will redraw everything including spread analysis with new bounds
+		print("Zoomed out to %.1fx from mouse position" % parent_chart.zoom_level)
+
+
+func _adjust_center_for_zoom(mouse_pos: Vector2, old_zoom: float, new_zoom: float):
+	"""Adjust chart center so zoom appears to happen at mouse position (EXACT original)"""
+	# Calculate what time/price the mouse was pointing at before zoom (EXACT original)
+	var mouse_time = chart_math.get_time_at_pixel(mouse_pos.x)
+	var mouse_price = chart_math.get_price_at_pixel(mouse_pos.y)
+
+	# Calculate zoom factor (EXACT original)
+	var zoom_factor = new_zoom / old_zoom
+
+	# Adjust time center (EXACT original)
+	var time_offset = mouse_time - parent_chart.chart_center_time
+	parent_chart.chart_center_time = mouse_time - (time_offset / zoom_factor)
+
+	# Adjust price center (this affects Y-axis labels) (EXACT original)
+	var price_offset = mouse_price - parent_chart.chart_center_price
+	parent_chart.chart_center_price = mouse_price - (price_offset / zoom_factor)
+
+	# Also adjust price range for zoom (EXACT original)
+	parent_chart.chart_price_range = parent_chart.chart_price_range / zoom_factor
+
+
+func _reset_to_current():
+	"""Reset chart to current time and auto-fit price (EXACT original)"""
+	parent_chart.chart_center_time = Time.get_unix_time_from_system()
+	parent_chart.zoom_level = 1.0
+	parent_chart.initialize_price_center()
+	parent_chart.queue_redraw()
+	print("Reset to current time and auto price range")
+
+
+func _get_max_historical_time() -> float:
+	"""Get the maximum historical time (EXACT original)"""
+	var current_time = Time.get_unix_time_from_system()
+	return current_time - chart_data.max_data_retention
 
 
 func _check_point_hover(mouse_pos: Vector2):
@@ -77,7 +194,7 @@ func _check_point_hover(mouse_pos: Vector2):
 			parent_chart.queue_redraw()
 		return
 
-	# Check volume bar hover first (using stored positions)
+	# Check volume bar hover first (using stored positions) (EXACT original)
 	if current_volume_bar_positions.size() > 0:
 		for bar_data in current_volume_bar_positions:
 			var bar_rect = bar_data.rect
@@ -92,13 +209,17 @@ func _check_point_hover(mouse_pos: Vector2):
 				var time_text = _format_time_ago(time_diff / 3600.0)
 
 				tooltip_content = "Volume: %s\nTime: %s" % [_format_number(volume), time_text]
+
+				print("Volume bar hover: index=%d, volume=%d" % [hovered_volume_index, volume])
 				break
 
-	# If not hovering volume, check price points
+	# If not hovering volume, check price points (EXACT original)
 	if hovered_volume_index == -1:
+		# Get zoom scaling for consistent hover detection (EXACT original)
 		var scale_factors = chart_math.get_zoom_scale_factor()
 		var scaled_hover_radius = max(point_hover_radius * scale_factors.volume_scale, 6.0)
 
+		# Use new window bounds system (EXACT original)
 		var bounds = chart_math.get_current_window_bounds()
 		var window_start = bounds.time_start
 		var window_end = bounds.time_end
@@ -106,24 +227,32 @@ func _check_point_hover(mouse_pos: Vector2):
 		var max_price = bounds.price_max
 		var price_range = max_price - min_price
 
-		# Get visible points
+		# Get visible points and candlesticks (EXACT original)
 		var visible_points = []
+		var visible_candles = []
+
 		for point in chart_data.price_data:
 			if point.timestamp >= window_start and point.timestamp <= window_end:
 				visible_points.append(point)
 
-		if visible_points.size() == 0:
+		for candle in chart_data.candlestick_data:
+			if candle.timestamp >= window_start and candle.timestamp <= window_end:
+				visible_candles.append(candle)
+
+		if visible_points.size() == 0 and visible_candles.size() == 0:
 			if old_hovered_index != hovered_point_index or old_hovered_volume != hovered_volume_index:
 				parent_chart.queue_redraw()
 			return
 
+		# Sort data (EXACT original)
 		visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+		visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
 		var chart_bounds = chart_math.get_chart_boundaries()
 		var chart_height = parent_chart.size.y * 0.6  # EXACT original
 		var chart_y_offset = parent_chart.size.y * 0.05  # EXACT original
 
-		# Point hover detection
+		# Moving average point hover detection (EXACT original)
 		var closest_distance = scaled_hover_radius + 1
 		var closest_index = -1
 
@@ -150,7 +279,18 @@ func _check_point_hover(mouse_pos: Vector2):
 
 			var point = visible_points[closest_index]
 			var lines = []
-			lines.append("Price: %s ISK" % _format_price_label(point.price))
+
+			# EXACT original tooltip format
+			var is_historical = point.get("is_historical", false)
+			var point_type = "Historical" if is_historical else "Real-time"
+			var price_label = "MA Price" if is_historical else "Current Price"
+
+			lines.append("%s Data Point" % point_type)
+			lines.append("%s: %s ISK" % [price_label, _format_price_label(point.price)])
+
+			# Add raw price for real-time points (EXACT original)
+			if not is_historical and point.has("raw_price"):
+				lines.append("Raw Price: %s ISK" % _format_price_label(point.raw_price))
 
 			var current_time = Time.get_unix_time_from_system()
 			var time_diff = current_time - point.timestamp
@@ -159,11 +299,104 @@ func _check_point_hover(mouse_pos: Vector2):
 			if point.has("volume"):
 				lines.append("Volume: %s" % _format_number(point.volume))
 
+			# Add spread analysis if available (EXACT original)
+			if parent_chart.show_spread_analysis and not chart_data.current_station_trading_data.is_empty():
+				var station_data = chart_data.current_station_trading_data
+				if station_data.has("profit_margin"):
+					lines.append("")  # Empty line for separation
+					lines.append("Station Trading:")
+					lines.append("Your Buy: %s ISK" % _format_price_label(station_data.your_buy_price))
+					lines.append("Your Sell: %s ISK" % _format_price_label(station_data.your_sell_price))
+					lines.append("Potential Profit: %.2f%%" % station_data.profit_margin)
+
+			# Historical context - show if this is a good entry point (EXACT original)
+			var price_percentile = _calculate_price_percentile(point.price, visible_points)
+			if price_percentile <= 20.0:
+				lines.append("📈 Near Historical Low (%.0f%%)" % price_percentile)
+			elif price_percentile >= 80.0:
+				lines.append("📉 Near Historical High (%.0f%%)" % price_percentile)
+
 			tooltip_content = "\n".join(lines)
 
-	# Redraw if hover state changed
+	# Check spread zone hover if enabled (EXACT original)
+	if parent_chart.show_spread_analysis and hovered_point_index == -1 and hovered_volume_index == -1:
+		_check_spread_zone_hover(mouse_pos)
+
+	# Redraw if hover state changed (EXACT original)
 	if old_hovered_index != hovered_point_index or old_hovered_volume != hovered_volume_index:
 		parent_chart.queue_redraw()
+
+
+func _calculate_price_percentile(price: float, visible_points: Array) -> float:
+	"""Calculate what percentile this price is in the visible data (EXACT original)"""
+	if visible_points.size() < 2:
+		return 50.0  # Default to 50th percentile if not enough data
+
+	var prices = []
+	for point in visible_points:
+		if point.get("is_historical", false):  # Only use historical data for percentile
+			prices.append(point.price)
+
+	if prices.size() < 2:
+		return 50.0
+
+	prices.sort()
+
+	# Find where this price ranks
+	var rank = 0
+	for p in prices:
+		if price >= p:
+			rank += 1
+
+	return (float(rank) / float(prices.size())) * 100.0
+
+
+func _format_time_ago(hours: float) -> String:
+	"""Format time ago text (EXACT original)"""
+	var time_window = chart_math.get_current_time_window()
+	var window_hours = time_window / 3600.0
+
+	if window_hours <= 24:  # Up to a day - show minutes/hours
+		if hours < 1.0:
+			return "%.0fm ago" % (hours * 60.0)
+		return "%.1fh ago" % hours
+	if window_hours <= 168:  # Up to a week - show hours/days
+		if hours < 24:
+			return "%.1fh ago" % hours
+		return "%.1fd ago" % (hours / 24.0)
+
+	if hours < 24:
+		return "%.1fd ago" % (hours / 24.0)
+
+	var days = hours / 24.0
+	if days < 7:
+		return "%.1fd ago" % days
+
+	return "%.1fw ago" % (days / 7.0)
+
+
+func _format_number(value: int) -> String:
+	"""Format numbers for display (EXACT original)"""
+	if value >= 1000000000:
+		return "%.1fB" % (value / 1000000000.0)
+	elif value >= 1000000:
+		return "%.1fM" % (value / 1000000.0)
+	elif value >= 1000:
+		return "%.1fK" % (value / 1000.0)
+	else:
+		return str(value)
+
+
+func _format_price_label(price: float) -> String:
+	"""Format price labels (EXACT original)"""
+	if price >= 1000000000:
+		return "%.1fB" % (price / 1000000000.0)
+	elif price >= 1000000:
+		return "%.1fM" % (price / 1000000.0)
+	elif price >= 1000:
+		return "%.1fK" % (price / 1000.0)
+	else:
+		return "%.2f" % price
 
 
 func _check_spread_zone_hover(mouse_position: Vector2):
@@ -187,106 +420,27 @@ func _on_mouse_exited():
 
 func _on_chart_resized():
 	print("Chart resized to: %.1f x %.1f" % [parent_chart.size.x, parent_chart.size.y])
+
+	# Update cached chart boundaries (EXACT original)
+	var boundaries = chart_math.get_chart_boundaries()
+	print("New chart boundaries: top=%.1f, bottom=%.1f, height=%.1f" % [boundaries.top, boundaries.bottom, boundaries.height])
+
+	# Update support/resistance levels if enabled (EXACT original)
+	if parent_chart.show_support_resistance:
+		parent_chart.analysis_tools.update_price_levels()
+
+	# Force complete redraw with new dimensions (EXACT original)
 	parent_chart.queue_redraw()
 
 
 func _start_simple_drag(position: Vector2):
+	"""Start simple dragging (EXACT original)"""
 	is_dragging = true
 	drag_start_position = position
+	print("Started dragging")
 
 
 func _stop_simple_drag():
+	"""Stop dragging (EXACT original)"""
 	is_dragging = false
-
-
-func _handle_simple_drag(event: InputEventMouseMotion):
-	var drag_delta = event.position - drag_start_position
-
-	var time_window = chart_math.get_current_time_window()
-	var time_per_pixel = time_window / parent_chart.size.x
-	var price_per_pixel = parent_chart.chart_price_range / (parent_chart.size.y * 0.6)
-
-	var time_delta = drag_delta.x * time_per_pixel
-	var price_delta = drag_delta.y * price_per_pixel
-
-	parent_chart.chart_center_time -= time_delta
-	parent_chart.chart_center_price += price_delta
-
-	var current_time = Time.get_unix_time_from_system()
-	var max_history = current_time - chart_data.max_data_retention
-
-	parent_chart.chart_center_time = clamp(parent_chart.chart_center_time, max_history + time_window / 2, current_time)
-
-	drag_start_position = event.position
-	parent_chart.queue_redraw()
-
-
-func _zoom_in_at_mouse(mouse_pos: Vector2):
-	var old_zoom = parent_chart.zoom_level
-	parent_chart.zoom_level = min(parent_chart.zoom_level * chart_math.zoom_sensitivity, chart_math.max_zoom)
-
-	if parent_chart.zoom_level != old_zoom:
-		_adjust_center_for_zoom(mouse_pos, old_zoom, parent_chart.zoom_level)
-		parent_chart.queue_redraw()
-
-
-func _zoom_out_at_mouse(mouse_pos: Vector2):
-	var old_zoom = parent_chart.zoom_level
-	parent_chart.zoom_level = max(parent_chart.zoom_level / chart_math.zoom_sensitivity, chart_math.min_zoom)
-
-	if parent_chart.zoom_level != old_zoom:
-		_adjust_center_for_zoom(mouse_pos, old_zoom, parent_chart.zoom_level)
-		parent_chart.queue_redraw()
-
-
-func _adjust_center_for_zoom(mouse_pos: Vector2, old_zoom: float, new_zoom: float):
-	var mouse_time = chart_math.get_time_at_pixel(mouse_pos.x)
-	var mouse_price = chart_math.get_price_at_pixel(mouse_pos.y)
-
-	var zoom_factor = new_zoom / old_zoom
-
-	var time_offset = mouse_time - parent_chart.chart_center_time
-	parent_chart.chart_center_time = mouse_time - (time_offset / zoom_factor)
-
-	var price_offset = mouse_price - parent_chart.chart_center_price
-	parent_chart.chart_center_price = mouse_price - (price_offset / zoom_factor)
-
-	parent_chart.chart_price_range = parent_chart.chart_price_range / zoom_factor
-
-
-func _reset_to_current():
-	parent_chart.chart_center_time = Time.get_unix_time_from_system()
-	parent_chart.zoom_level = 1.0
-	parent_chart.queue_redraw()
-
-
-# Helper functions
-func _format_time_ago(hours: float) -> String:
-	if hours < 1.0:
-		return "%.0fm ago" % (hours * 60.0)
-	elif hours < 24.0:
-		return "%.1fh ago" % hours
-	else:
-		return "%.1fd ago" % (hours / 24.0)
-
-
-func _format_number(value: int) -> String:
-	if value >= 1000000000:
-		return "%.1fB" % (value / 1000000000.0)
-	elif value >= 1000000:
-		return "%.1fM" % (value / 1000000.0)
-	elif value >= 1000:
-		return "%.1fK" % (value / 1000.0)
-	else:
-		return str(value)
-
-
-func _format_price_label(price: float) -> String:
-	if price >= 1000000000:
-		return "%.1fB" % (price / 1000000000.0)
-	elif price >= 1000000:
-		return "%.1fM" % (price / 1000000.0)
-	elif price >= 1000:
-		return "%.1fK" % (price / 1000.0)
-	else:
-		return "%.2f" % price
+	print("Stopped dragging")

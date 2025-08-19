@@ -93,14 +93,30 @@ func add_candlestick_data_point(open: float, high: float, low: float, close: flo
 
 func set_station_trading_data(data: Dictionary):
 	"""Set station trading data for spread analysis"""
+	print("=== SETTING STATION TRADING DATA ===")
+	print("Data keys: ", data.keys())  # Use comma instead of %s to avoid formatting issues
+
+	if data.has("buy_orders") and data.has("sell_orders"):
+		var buy_orders = data.get("buy_orders", [])
+		var sell_orders = data.get("sell_orders", [])
+		print("Buy orders: ", buy_orders.size(), ", Sell orders: ", sell_orders.size())
+		if buy_orders.size() > 0:
+			print("Top buy price: ", buy_orders[0].get("price", 0))
+		if sell_orders.size() > 0:
+			print("Top sell price: ", sell_orders[0].get("price", 0))
+
 	# Properly delegate to the chart_data component
 	chart_data.set_station_trading_data(data)
 
 	# Update spread analysis if enabled
 	if show_spread_analysis:
 		analysis_tools.update_spread_analysis(data)
+		print("Spread analysis updated")
+	else:
+		print("Spread analysis is disabled")
 
 	print("MarketChart: Station trading data set and analysis updated")
+	queue_redraw()
 
 
 func update_spread_data(buy_price: float, sell_price: float):
@@ -484,3 +500,9 @@ func get_max_volume() -> int:
 func get_station_trading_data() -> Dictionary:
 	"""Get the current station trading data"""
 	return chart_data.current_station_trading_data
+
+
+func get_max_historical_time() -> float:
+	"""Get the maximum historical time (EXACT original)"""
+	var current_time = Time.get_unix_time_from_system()
+	return current_time - chart_data.max_data_retention

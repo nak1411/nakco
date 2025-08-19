@@ -125,7 +125,18 @@ func add_candlestick_data_point(open: float, high: float, low: float, close: flo
 
 
 func set_station_trading_data(data: Dictionary):
-	current_station_trading_data = data
+	print("=== ChartData.set_station_trading_data() CALLED ===")
+	print("Received data keys: ", data.keys())
+	print("Data size: ", data.size())
+
+	if data.has("buy_orders"):
+		print("Buy orders count: ", data.buy_orders.size())
+	if data.has("sell_orders"):
+		print("Sell orders count: ", data.sell_orders.size())
+
+	current_station_trading_data = data.duplicate()  # Make sure we store a copy
+	print("Stored station trading data, new size: ", current_station_trading_data.size())
+	print("=== STATION TRADING DATA SET COMPLETE ===")
 
 
 func cleanup_old_data():

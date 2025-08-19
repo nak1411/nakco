@@ -27,7 +27,7 @@ func get_time_at_pixel(x_pixel: float) -> float:
 
 
 func get_price_at_pixel(y_pixel: float) -> float:
-	# EXACT ORIGINAL PROPORTIONS
+	# EXACT ORIGINAL PROPORTIONS - must match drawing coordinates exactly
 	var chart_height = parent_chart.size.y * 0.6
 	var chart_y_offset = parent_chart.size.y * 0.05
 	var relative_y = y_pixel - chart_y_offset
@@ -57,48 +57,57 @@ func get_current_window_bounds() -> Dictionary:
 	var window_start = parent_chart.chart_center_time - (time_window / 2.0)
 	var window_end = parent_chart.chart_center_time + (time_window / 2.0)
 
-	var visible_points = []
-	var visible_candles = []
-
-	for point in chart_data.price_data:
-		if point.timestamp >= window_start and point.timestamp <= window_end:
-			visible_points.append(point)
-
-	for candle in chart_data.candlestick_data:
-		if candle.timestamp >= window_start and candle.timestamp <= window_end:
-			visible_candles.append(candle)
-
+	# CRITICAL FIX: Use the chart_center_price and chart_price_range directly for panning
+	# Don't recalculate from data when user is actively panning
 	var min_price = parent_chart.chart_center_price - (parent_chart.chart_price_range / 2.0)
 	var max_price = parent_chart.chart_center_price + (parent_chart.chart_price_range / 2.0)
 
-	if visible_points.size() > 0 or visible_candles.size() > 0:
-		var all_prices = []
+	# Only recalculate price bounds from data if we haven't initialized properly
+	if parent_chart.chart_price_range <= 0:
+		var visible_points = []
+		var visible_candles = []
 
-		for point in visible_points:
-			all_prices.append(point.price)
+		for point in chart_data.price_data:
+			if point.timestamp >= window_start and point.timestamp <= window_end:
+				visible_points.append(point)
 
-		for candle in visible_candles:
-			if candle.get("high", 0) > 0:
-				all_prices.append(candle.high)
-			if candle.get("low", 0) > 0:
-				all_prices.append(candle.low)
+		for candle in chart_data.candlestick_data:
+			if candle.timestamp >= window_start and candle.timestamp <= window_end:
+				visible_candles.append(candle)
 
-		if all_prices.size() > 0:
-			min_price = all_prices[0]
-			max_price = all_prices[0]
-			for price in all_prices:
-				if price < min_price:
-					min_price = price
-				if price > max_price:
-					max_price = price
+		if visible_points.size() > 0 or visible_candles.size() > 0:
+			var all_prices = []
 
-			# FIX: If all prices are the same, create an artificial range
-			if max_price - min_price < 0.01:  # Essentially zero range
-				var center_price = min_price
-				var artificial_range = max(center_price * 0.1, 1000000.0)  # 10% of price or 1M ISK minimum
-				min_price = center_price - (artificial_range / 2.0)
-				max_price = center_price + (artificial_range / 2.0)
-				print("Created artificial price range: %.2f - %.2f (center: %.2f)" % [min_price, max_price, center_price])
+			for point in visible_points:
+				all_prices.append(point.price)
+
+			for candle in visible_candles:
+				if candle.get("high", 0) > 0:
+					all_prices.append(candle.high)
+				if candle.get("low", 0) > 0:
+					all_prices.append(candle.low)
+
+			if all_prices.size() > 0:
+				var data_min_price = all_prices[0]
+				var data_max_price = all_prices[0]
+				for price in all_prices:
+					if price < data_min_price:
+						data_min_price = price
+					if price > data_max_price:
+						data_max_price = price
+
+				# Handle single point case
+				if data_max_price - data_min_price < 0.01:
+					var center_price = data_min_price
+					var artificial_range = max(center_price * 0.1, 1000000.0)
+					min_price = center_price - (artificial_range / 2.0)
+					max_price = center_price + (artificial_range / 2.0)
+				else:
+					min_price = data_min_price
+					max_price = data_max_price
+
+	# DEBUG: Show what bounds we're using
+	print("Using bounds: price %.2f - %.2f (center=%.2f, range=%.2f)" % [min_price, max_price, parent_chart.chart_center_price, parent_chart.chart_price_range])
 
 	return {"time_start": window_start, "time_end": window_end, "price_min": min_price, "price_max": max_price}
 
