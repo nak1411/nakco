@@ -96,22 +96,48 @@ func create_item_info_header():
 
 
 func create_real_time_chart():
-	# Instead of creating a chart here, just create a reference panel
-	var chart_reference_panel = PanelContainer.new()
-	chart_reference_panel.name = "ChartReferencePanel"
-	chart_reference_panel.custom_minimum_size.y = 100
-	add_child(chart_reference_panel)
+	var chart_panel = PanelContainer.new()
+	chart_panel.name = "ChartPanel"
+	chart_panel.custom_minimum_size.y = 300  # Larger minimum since it has more space
+	chart_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Takes all remaining space
+	add_child(chart_panel)
 
-	var reference_label = Label.new()
-	reference_label.text = "Charts are now displayed in center panels"
-	reference_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	reference_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	chart_reference_panel.add_child(reference_label)
+	var chart_vbox = VBoxContainer.new()
+	chart_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	chart_panel.add_child(chart_vbox)
 
-	# Get reference to the main scene's chart
-	var main_scene = get_tree().current_scene
-	if main_scene:
-		real_time_chart = main_scene.get_center_price_chart()
+	var chart_header_container = HBoxContainer.new()
+	chart_header_container.custom_minimum_size.y = 30
+	chart_vbox.add_child(chart_header_container)
+
+	var chart_header = Label.new()
+	chart_header.text = "Station Trading Analysis"
+	chart_header.add_theme_color_override("font_color", Color.CYAN)
+	chart_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chart_header_container.add_child(chart_header)
+
+	var timeframe_label = Label.new()
+	timeframe_label.name = "TimeframeLabel"
+	timeframe_label.text = "24H Rolling"
+	timeframe_label.add_theme_color_override("font_color", Color.YELLOW)
+	timeframe_label.add_theme_font_size_override("font_size", 10)
+	chart_header_container.add_child(timeframe_label)
+
+	real_time_chart = RealtimeChart.new()
+	real_time_chart.name = "RealtimeChart"
+	real_time_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	real_time_chart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	# EXPLICITLY disable any tooltip behavior
+	real_time_chart.tooltip_text = ""
+	real_time_chart.mouse_filter = Control.MOUSE_FILTER_PASS
+
+	chart_vbox.add_child(real_time_chart)
+
+	# Connect signals
+	real_time_chart.historical_data_requested.connect(_on_historical_data_requested)
+	chart_panel.resized.connect(_on_chart_panel_resized)
+	real_time_chart.resized.connect(_on_chart_resized)
 
 
 func _on_chart_panel_resized():

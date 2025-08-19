@@ -4,8 +4,6 @@ extends Control
 
 const SpreadsheetGrid = preload("res://scripts/ui/components/SpreadsheetGrid.gd")
 const TradingRightPanel = preload("res://scripts/ui/panels/TradingRightPanel.gd")
-const RealtimeChart = preload("res://scripts/ui/components/RealtimeChart.gd")
-const VolumeChart = preload("res://scripts/ui/components/VolumeChart.gd")  # If it exists
 
 # Constants
 const VERSION = "1.0.0"
@@ -150,8 +148,6 @@ func setup_ui():
 
 	# Create market grid
 	setup_market_grid()
-
-	setup_chart_panels()
 
 	setup_status_bar_with_progress()
 
@@ -425,11 +421,10 @@ func populate_region_selector():
 func setup_market_grid():
 	print("Setting up Excel-like market grid...")
 
-	# Updated path to the new MarketGridPanel
-	var market_grid_panel = center_panel.get_node("MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel")
+	var market_overview = center_panel.get_node("MarketOverview")
 
 	# Remove existing grid
-	var existing_grid = market_grid_panel.get_node_or_null("MarketGrid")
+	var existing_grid = market_overview.get_node_or_null("MarketGrid")
 	if existing_grid:
 		existing_grid.queue_free()
 		await existing_grid.tree_exited
@@ -445,8 +440,7 @@ func setup_market_grid():
 	# Set initial region info
 	update_market_grid_region_info()
 
-	# Add to the MarketGridPanel instead of MarketOverview directly
-	market_grid_panel.add_child(market_grid)
+	market_overview.add_child(market_grid)
 
 	# Connect signals
 	market_grid.item_selected.connect(_on_market_item_selected)
@@ -454,77 +448,6 @@ func setup_market_grid():
 	market_grid.column_resized.connect(_on_column_resized)
 
 	print("Excel-like market grid setup complete")
-
-
-func setup_chart_panels():
-	"""Setup the price chart and volume chart panels"""
-
-	# Get references to the new chart areas
-	var price_chart_area = center_panel.get_node("MarketOverview/MarketSplitContainer/TopSplitContainer/PriceChartPanel/PriceChartContainer/PriceChartArea")
-	var volume_chart_area = center_panel.get_node("MarketOverview/MarketSplitContainer/VolumePanel/VolumeContainer/VolumeChartArea")
-
-	# Create the price chart in the center panel
-	create_price_chart_in_center(price_chart_area)
-
-	# Create the volume chart in the bottom panel
-	create_volume_chart_in_center(volume_chart_area)
-
-	print("Chart panels setup complete")
-
-
-func create_price_chart_in_center(chart_area: Control):
-	"""Create the real-time price chart in the center panel"""
-
-	# Create RealtimeChart instance (you'll need to import this)
-	var real_time_chart = RealtimeChart.new()
-	real_time_chart.name = "CenterPriceChart"
-	real_time_chart.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-
-	chart_area.add_child(real_time_chart)
-
-	# Store reference for access from other functions
-	set_meta("center_price_chart", real_time_chart)
-
-
-func create_volume_chart_in_center(chart_area: Control):
-	"""Create the volume bars chart in the bottom panel"""
-
-	var volume_chart = VolumeChart.new()
-	volume_chart.name = "CenterVolumeChart"
-	volume_chart.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-
-	chart_area.add_child(volume_chart)
-
-	# Connect signals
-	volume_chart.volume_bar_clicked.connect(_on_volume_bar_clicked)
-
-	# Store reference for access from other functions
-	set_meta("center_volume_chart", volume_chart)
-
-
-func _on_volume_bar_clicked(timestamp: float, volume: int):
-	"""Handle clicking on volume bars"""
-	var time_str = Time.get_datetime_string_from_unix_time(timestamp)
-	print("Clicked volume bar: %s - Volume: %d" % [time_str, volume])
-
-
-# Helper functions to get chart references
-func get_center_price_chart():
-	return get_meta("center_price_chart", null)
-
-
-func get_center_volume_chart():
-	return get_meta("center_volume_chart", null)
-
-
-func get_price_chart_area() -> Control:
-	"""Get reference to price chart area for other scripts"""
-	return center_panel.get_node("MarketOverview/MarketSplitContainer/TopSplitContainer/PriceChartPanel/PriceChartContainer/PriceChartArea")
-
-
-func get_volume_chart_area() -> Control:
-	"""Get reference to volume chart area for other scripts"""
-	return center_panel.get_node("MarketOverview/MarketSplitContainer/VolumePanel/VolumeContainer/VolumeChartArea")
 
 
 func setup_status_bar_with_progress():
@@ -1085,34 +1008,26 @@ func update_market_display(data: Dictionary):
 
 
 func update_realtime_item_display(data: Dictionary):
-	"""Update real-time individual item data in center charts"""
-	print("Updating real-time item data in center charts")
+	"""Handle real-time data updates for selected item"""
+	print("Main: Processing real-time item data...")
 
-	var center_price_chart = get_center_price_chart()
-	if center_price_chart:
-		# Update the center price chart with new data
-		var market_price = calculate_market_price(data)
-		var volume = data.get("volume", 0)
-		var time_label = Time.get_datetime_string_from_system().substr(11, 8)
-		center_price_chart.add_data_point(market_price, volume, time_label)
+	var raw_orders = data.get("data", [])
+	var context = data.get("context", {})
+	var type_id = context.get("type_id", 0)
 
-	var center_volume_chart = get_center_volume_chart()
-	if center_volume_chart and center_volume_chart.has_method("update_volume_data"):
-		center_volume_chart.update_volume_data(data)
+	if type_id != selected_item_id:
+		print("Real-time data is for different item, ignoring")
+		return
 
+	# Process the raw orders into structured data
+	var processed_data = process_individual_item_orders(raw_orders, type_id, context)
 
-func calculate_market_price(data: Dictionary) -> float:
-	var max_buy = data.get("max_buy", 0.0)
-	var min_sell = data.get("min_sell", 0.0)
-
-	if max_buy > 0 and min_sell > 0:
-		return (max_buy + min_sell) / 2.0
-	elif max_buy > 0:
-		return max_buy
-	elif min_sell > 0:
-		return min_sell
-	else:
-		return 0.0
+	# Update the right panel with fresh data - use the real-time update method
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel:
+		# Use update_with_realtime_data instead of update_item_display
+		trading_panel.update_with_realtime_data(processed_data)
+		print("Updated trading panel with real-time data (chart preserved)")
 
 
 func update_market_grid_region_info():

@@ -241,25 +241,7 @@ current_tab = 0
 layout_mode = 2
 metadata/_tab_index = 0
 
-[node name="MarketSplitContainer" type="VSplitContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-split_offset = 200
-
-[node name="TopSplitContainer" type="VSplitContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-split_offset = 300
-
-[node name="MarketGridPanel" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="MarketGrid" type="ScrollContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel"]
+[node name="MarketGrid" type="ScrollContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -267,100 +249,52 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="GridContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid"]
+[node name="GridContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid"]
 layout_mode = 2
 size_flags_horizontal = 3
 
-[node name="GridHeader" type="HBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid/GridContainer"]
+[node name="GridHeader" type="HBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer"]
 layout_mode = 2
 
-[node name="ItemNameHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid/GridContainer/GridHeader"]
+[node name="ItemNameHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(200, 0)
 layout_mode = 2
 text = "Item"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="BuyPriceHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid/GridContainer/GridHeader"]
+[node name="BuyPriceHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 text = "Buy Price"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="SellPriceHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid/GridContainer/GridHeader"]
+[node name="SellPriceHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(100, 0)
 layout_mode = 2
 text = "Sell Price"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="SpreadHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid/GridContainer/GridHeader"]
+[node name="SpreadHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 text = "Spread"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="VolumeHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid/GridContainer/GridHeader"]
+[node name="VolumeHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 text = "Volume"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="MarginHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid/GridContainer/GridHeader"]
+[node name="MarginHeader" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer/GridHeader"]
 custom_minimum_size = Vector2(80, 0)
 layout_mode = 2
 text = "Margin %"
 label_settings = SubResource("LabelSettings_1")
 
-[node name="GridData" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/MarketGridPanel/MarketGrid/GridContainer"]
+[node name="GridData" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketGrid/GridContainer"]
 layout_mode = 2
 size_flags_horizontal = 3
-
-[node name="PriceChartPanel" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="PriceChartContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/PriceChartPanel"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="ChartHeader" type="HBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/PriceChartPanel/PriceChartContainer"]
-layout_mode = 2
-
-[node name="PriceChartLabel" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/PriceChartPanel/PriceChartContainer/ChartHeader"]
-layout_mode = 2
-text = "Price Chart"
-label_settings = SubResource("LabelSettings_1")
-
-[node name="PriceChartArea" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/TopSplitContainer/PriceChartPanel/PriceChartContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="VolumePanel" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer"]
-layout_mode = 2
-custom_minimum_size = Vector2(0, 150)
-
-[node name="VolumeContainer" type="VBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/VolumePanel"]
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
-
-[node name="VolumeHeader" type="HBoxContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/VolumePanel/VolumeContainer"]
-layout_mode = 2
-
-[node name="VolumeLabel" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/VolumePanel/VolumeContainer/VolumeHeader"]
-layout_mode = 2
-text = "Volume Bars"
-label_settings = SubResource("LabelSettings_1")
-
-[node name="VolumeChartArea" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/MarketSplitContainer/VolumePanel/VolumeContainer"]
-layout_mode = 2
-size_flags_vertical = 3
 
 [node name="Charts" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel"]
 visible = false
@@ -408,7 +342,17 @@ popup/item_2/id = 2
 popup/item_3/text = "90 Days"
 popup/item_3/id = 3
 
-[node name="ChartArea" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer"]
+[node name="ChartSplitContainer" type="VSplitContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+split_offset = 300
+
+[node name="PriceChartArea" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer/ChartSplitContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="VolumeChartArea" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/Charts/ChartContainer/ChartSplitContainer"]
+custom_minimum_size = Vector2(0, 100)
 layout_mode = 2
 size_flags_vertical = 3
 
