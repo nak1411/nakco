@@ -208,7 +208,7 @@ func _draw_spread_lines(buy_price: float, sell_price: float, bounds: Dictionary,
 		var buy_y = chart_bounds.top + chart_bounds.height - (buy_progress * chart_bounds.height)
 
 		print("Drawing BUY line at y=%.1f (price=%.2f, progress=%.3f)" % [buy_y, buy_price, buy_progress])
-		_draw_dashed_line(Vector2(chart_bounds.left, buy_y), Vector2(chart_bounds.right, buy_y), Color.GREEN, 2.0)
+		_draw_dashed_line(Vector2(chart_bounds.left, buy_y), Vector2(chart_bounds.right, buy_y), Color.GREEN, 1.0)
 
 		# Buy label
 		var buy_text = "BUY: %s" % _format_price_compact(buy_price)
@@ -223,7 +223,7 @@ func _draw_spread_lines(buy_price: float, sell_price: float, bounds: Dictionary,
 		var sell_y = chart_bounds.top + chart_bounds.height - (sell_progress * chart_bounds.height)
 
 		print("Drawing SELL line at y=%.1f (price=%.2f, progress=%.3f)" % [sell_y, sell_price, sell_progress])
-		_draw_dashed_line(Vector2(chart_bounds.left, sell_y), Vector2(chart_bounds.right, sell_y), Color.RED, 2.0)
+		_draw_dashed_line(Vector2(chart_bounds.left, sell_y), Vector2(chart_bounds.right, sell_y), Color.RED, 1.0)
 
 		# Sell label
 		var sell_text = "SELL: %s" % _format_price_compact(sell_price)

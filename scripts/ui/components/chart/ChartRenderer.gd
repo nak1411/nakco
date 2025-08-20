@@ -77,11 +77,11 @@ func _draw_background():
 
 
 func _draw_grid():
-	var chart_height = parent_chart.size.y * 0.6
-	var chart_y_offset = parent_chart.size.y * 0.05
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_top = chart_y_offset
-	var chart_bottom = chart_y_offset + chart_height
+	var chart_height = chart_bounds.height
+	var chart_y_offset = chart_bounds.top
+	var chart_top = chart_bounds.top
+	var chart_bottom = chart_bounds.bottom
 
 	var bounds = chart_math.get_current_window_bounds()
 	var window_start = bounds.time_start
@@ -1007,7 +1007,7 @@ func _draw_no_data_message():
 func _draw_candlesticks(visible_candles: Array, window_start: float, window_end: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
 	var scale_factors = chart_math.get_zoom_scale_factor()
 	var scaled_candle_width = candle_width * scale_factors.volume_scale
-	var scaled_wick_width = max(2.0, wick_width * scale_factors.volume_scale)
+	var scaled_wick_width = max(1.0, wick_width * scale_factors.volume_scale)
 
 	var chart_bounds = chart_math.get_chart_boundaries()
 	var chart_top = chart_y_offset
