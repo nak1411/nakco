@@ -13,6 +13,9 @@ var quick_trade_panel: VBoxContainer
 
 @onready var data_manager: DataManager
 
+var sr_toggle: Button = null
+var spread_toggle: Button = null
+
 
 func _ready():
 	setup_panels()
@@ -157,44 +160,46 @@ func create_chart_controls():
 	controls_container.name = "ChartControls"
 
 	# Spread Analysis Toggle Button
-	var spread_toggle = Button.new()
+	spread_toggle = Button.new()
 	spread_toggle.name = "SpreadToggle"
-	spread_toggle.text = "Spread Analysis: ON"
+	spread_toggle.text = "Spread Analysis: OFF"
 	spread_toggle.custom_minimum_size = Vector2(150, 25)
-	spread_toggle.pressed.connect(_on_spread_toggle_pressed)
+	spread_toggle.pressed.connect(_on_spread_analysis_toggle)
 	controls_container.add_child(spread_toggle)
 
 	# Support/Resistance Toggle Button (for future use)
-	var sr_toggle = Button.new()
+	sr_toggle = Button.new()
 	sr_toggle.name = "SRToggle"
 	sr_toggle.text = "S/R Lines: OFF"
 	sr_toggle.custom_minimum_size = Vector2(120, 25)
-	sr_toggle.pressed.connect(_on_sr_toggle_pressed)
+	sr_toggle.pressed.connect(_on_support_resistance_toggle)
 	controls_container.add_child(sr_toggle)
 
 	return controls_container
 
 
-func _on_spread_toggle_pressed():
-	"""Toggle spread analysis on/off"""
-	if market_chart and market_chart.analysis_tools:
-		market_chart.analysis_tools.toggle_spread_analysis()
-
-		# Update button text
-		var spread_toggle = get_node_or_null("./ChartPanel/ChartVBox/ChartControls/SpreadToggle")
-		if spread_toggle:
-			spread_toggle.text = "Spread Analysis: %s" % ("ON" if market_chart.show_spread_analysis else "OFF")
+func _on_support_resistance_toggle():
+	if market_chart:
+		market_chart.toggle_support_resistance()
+		_update_button_texts()
 
 
-func _on_sr_toggle_pressed():
-	"""Toggle support/resistance lines on/off"""
-	if market_chart and market_chart.analysis_tools:
-		market_chart.analysis_tools.toggle_support_resistance()
+func _on_spread_analysis_toggle():
+	if market_chart:
+		market_chart.toggle_spread_analysis()
+		_update_button_texts()
 
-		# Update button text
-		var sr_toggle = get_node_or_null("./ChartPanel/ChartVBox/ChartControls/SRToggle")
-		if sr_toggle:
-			sr_toggle.text = "S/R Lines: %s" % ("ON" if market_chart.show_support_resistance else "OFF")
+
+func _update_button_texts():
+	"""Update button text to reflect current toggle states"""
+	if not market_chart:
+		return
+
+	if sr_toggle:
+		sr_toggle.text = "S/R Lines: %s" % ("ON" if market_chart.show_support_resistance else "OFF")
+
+	if spread_toggle:
+		spread_toggle.text = "Spread Analysis: %s" % ("ON" if market_chart.show_spread_analysis else "OFF")
 
 
 func _on_chart_panel_resized():
@@ -427,7 +432,7 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	if market_gap <= 0:
 		print("  No market gap - orders overlap, no station trading opportunity")
 		# Clear trading opportunity data but keep the market spread visible
-		market_chart.current_station_trading_data = {}
+		market_chart.set_station_trading_data({})
 		return
 
 	# Calculate your competitive prices

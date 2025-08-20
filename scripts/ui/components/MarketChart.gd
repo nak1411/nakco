@@ -21,7 +21,7 @@ var time_labels: Array[String] = []
 # Display settings
 var show_candlesticks: bool = true
 var show_support_resistance: bool = false
-var show_spread_analysis: bool = true
+var show_spread_analysis: bool = false
 
 # Chart view state (delegated to ChartInteraction)
 var zoom_level: float = 1.0

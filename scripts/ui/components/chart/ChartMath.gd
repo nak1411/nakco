@@ -43,7 +43,7 @@ func get_chart_boundaries() -> Dictionary:
 	var chart_left = y_track_width
 	var chart_right = parent_chart.size.x
 	var chart_top = 0.0
-	var chart_bottom = parent_chart.size.y * 0.7  # This stays the same as X-axis track starts here
+	var chart_bottom = parent_chart.size.y * 0.75  # This stays the same as X-axis track starts here
 
 	var chart_width = chart_right - chart_left
 	var chart_height = chart_bottom - chart_top
@@ -51,81 +51,80 @@ func get_chart_boundaries() -> Dictionary:
 	return {"left": chart_left, "right": chart_right, "top": chart_top, "bottom": chart_bottom, "width": chart_width, "height": chart_height}
 
 
-# Update scripts/ui/components/chart/ChartMath.gd
 func get_current_window_bounds() -> Dictionary:
+	"""Get the current time and price window bounds (EXACT same as chart rendering)"""
 	var time_window = get_current_time_window()
-	var window_start = parent_chart.chart_center_time - (time_window / 2.0)
-	var window_end = parent_chart.chart_center_time + (time_window / 2.0)
+	var half_time = time_window / 2.0
+	var half_price = parent_chart.chart_price_range / 2.0
 
-	# CRITICAL FIX: Use the chart_center_price and chart_price_range directly for panning
-	# Don't recalculate from data when user is actively panning
-	var min_price = parent_chart.chart_center_price - (parent_chart.chart_price_range / 2.0)
-	var max_price = parent_chart.chart_center_price + (parent_chart.chart_price_range / 2.0)
+	# Use EXACT same bounds calculation as the original chart system
+	var bounds = {
+		"time_start": parent_chart.chart_center_time - half_time,
+		"time_end": parent_chart.chart_center_time + half_time,
+		"price_min": parent_chart.chart_center_price - half_price,
+		"price_max": parent_chart.chart_center_price + half_price
+	}
 
-	# Only recalculate price bounds from data if we haven't initialized properly
-	if parent_chart.chart_price_range <= 0:
-		var visible_points = []
-		var visible_candles = []
-
-		for point in chart_data.price_data:
-			if point.timestamp >= window_start and point.timestamp <= window_end:
-				visible_points.append(point)
-
-		for candle in chart_data.candlestick_data:
-			if candle.timestamp >= window_start and candle.timestamp <= window_end:
-				visible_candles.append(candle)
-
-		if visible_points.size() > 0 or visible_candles.size() > 0:
-			var all_prices = []
-
-			for point in visible_points:
-				all_prices.append(point.price)
-
-			for candle in visible_candles:
-				if candle.get("high", 0) > 0:
-					all_prices.append(candle.high)
-				if candle.get("low", 0) > 0:
-					all_prices.append(candle.low)
-
-			if all_prices.size() > 0:
-				var data_min_price = all_prices[0]
-				var data_max_price = all_prices[0]
-				for price in all_prices:
-					if price < data_min_price:
-						data_min_price = price
-					if price > data_max_price:
-						data_max_price = price
-
-				# Handle single point case
-				if data_max_price - data_min_price < 0.01:
-					var center_price = data_min_price
-					var artificial_range = max(center_price * 0.1, 1000000.0)
-					min_price = center_price - (artificial_range / 2.0)
-					max_price = center_price + (artificial_range / 2.0)
-				else:
-					min_price = data_min_price
-					max_price = data_max_price
-
-	# DEBUG: Show what bounds we're using
-	print("Using bounds: price %.2f - %.2f (center=%.2f, range=%.2f)" % [min_price, max_price, parent_chart.chart_center_price, parent_chart.chart_price_range])
-
-	return {"time_start": window_start, "time_end": window_end, "price_min": min_price, "price_max": max_price}
+	return bounds
 
 
 func get_zoom_scale_factor() -> Dictionary:
+	"""Calculate improved adaptive scale factors that prevent overlap at all zoom levels"""
 	var time_window_days = get_current_time_window() / 86400.0
 
-	var volume_scale: float
-	if time_window_days <= 1.0:
-		volume_scale = 2.0
-	elif time_window_days <= 7.0:
-		volume_scale = 1.5
-	elif time_window_days <= 30.0:
-		volume_scale = 1.2
-	else:
-		volume_scale = 1.0
+	# Calculate how many data points are visible
+	var visible_data_points = 0
+	var bounds = get_current_window_bounds()
+	for point in chart_data.price_data:
+		if point.timestamp >= bounds.time_start and point.timestamp <= bounds.time_end:
+			visible_data_points += 1
 
-	return {"volume_scale": volume_scale}
+	# Calculate available space per data point
+	var chart_bounds = get_chart_boundaries()
+	var available_width = chart_bounds.width
+	var space_per_point = available_width / max(visible_data_points, 1) if visible_data_points > 0 else available_width
+
+	# More aggressive volume scaling to prevent overlap
+	var volume_scale: float
+
+	# The key insight: we need much more aggressive scaling in the problem zone
+	if space_per_point > 100.0:
+		# Very zoomed in - large bars
+		volume_scale = min(3.0, space_per_point / 40.0)
+	elif space_per_point > 50.0:
+		# Zoomed in - normal to large bars
+		volume_scale = min(2.0, space_per_point / 30.0)
+	elif space_per_point > 25.0:
+		# Medium zoom - normal bars
+		volume_scale = 1.0
+	elif space_per_point > 15.0:
+		# Getting tight - smaller bars
+		volume_scale = space_per_point / 25.0
+	elif space_per_point > 8.0:
+		# Tight space - much smaller bars (this covers the problematic 2.8 month range)
+		volume_scale = space_per_point / 35.0
+	elif space_per_point > 4.0:
+		# Very tight - very small bars
+		volume_scale = space_per_point / 50.0
+	elif space_per_point > 2.0:
+		# Extremely tight - minimal bars
+		volume_scale = space_per_point / 80.0
+	else:
+		# Ultra zoomed out - tiny bars
+		volume_scale = max(0.05, space_per_point / 100.0)
+
+	# Ensure bars never get larger than the available space
+	var max_allowed_scale = space_per_point / 10.0  # Never use more than 10% of available space
+	volume_scale = min(volume_scale, max_allowed_scale)
+
+	# Absolute limits
+	volume_scale = clamp(volume_scale, 0.05, 3.0)
+
+	# Debug output for problematic ranges
+	if time_window_days > 14.0 and time_window_days < 90.0:
+		print("PROBLEM ZONE - Days: %.1f, Points: %d, Space: %.1f, Scale: %.3f" % [time_window_days, visible_data_points, space_per_point, volume_scale])
+
+	return {"volume_scale": volume_scale, "space_per_point": space_per_point}
 
 
 func clip_line_to_rect(p1: Vector2, p2: Vector2, rect: Rect2) -> Dictionary:

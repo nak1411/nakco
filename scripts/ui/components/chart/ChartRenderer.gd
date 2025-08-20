@@ -359,10 +359,10 @@ func _draw_price_line():
 
 	# Use EXACT original chart dimensions for clipping
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_height = parent_chart.size.y * 0.6
-	var chart_y_offset = parent_chart.size.y * 0.05
-	var chart_top = chart_y_offset
-	var chart_bottom = chart_y_offset + chart_height
+	var chart_height = parent_chart.size.y * 0.7
+	var chart_y_offset = 0.0
+	var chart_top = parent_chart.size.y * 0.05
+	var chart_bottom = parent_chart.size.y * 0.7
 
 	# Draw candlesticks first (if enabled)
 	if parent_chart.show_candlesticks and visible_candles.size() > 0:
@@ -399,8 +399,7 @@ func _draw_price_line():
 			var p2 = points[i + 1]
 
 			# IMPROVED: Use expanded clipping rectangle for better edge handling
-			var clip_margin = 10.0  # Extra pixels around chart area
-			var expanded_clip_rect = Rect2(Vector2(chart_bounds.left - clip_margin, chart_top - clip_margin), Vector2(chart_bounds.width + (clip_margin * 2), chart_height + (clip_margin * 2)))
+			var expanded_clip_rect = Rect2(Vector2(chart_bounds.left, chart_top), Vector2(chart_bounds.width, chart_height))
 
 			# First check if line is completely outside expanded area (skip it)
 			if _is_point_in_rect(p1, expanded_clip_rect) or _is_point_in_rect(p2, expanded_clip_rect) or _line_intersects_rect(p1, p2, expanded_clip_rect):
@@ -481,8 +480,6 @@ func _line_intersects_rect(p1: Vector2, p2: Vector2, rect: Rect2) -> bool:
 
 
 func _draw_volume_bars():
-	print("=== DRAWING VOLUME BARS WITH EXACT ORIGINAL LAYOUT ===")
-
 	if chart_data.volume_data.size() == 0 or chart_data.price_data.size() == 0:
 		return
 
@@ -490,25 +487,25 @@ func _draw_volume_bars():
 	var window_start = bounds.time_start
 	var window_end = bounds.time_end
 
-	# Get zoom-based scaling (EXACT original)
+	# Get improved zoom-based scaling
 	var scale_factors = chart_math.get_zoom_scale_factor()
 	var volume_scale = scale_factors.volume_scale
+	var space_per_point = scale_factors.get("space_per_point", 30.0)
 
-	# Get EXACT original chart boundaries
+	# Get chart boundaries
 	var chart_bounds = chart_math.get_chart_boundaries()
 	var chart_bottom = chart_bounds.bottom
 
-	# EXACT original volume area calculation
+	# Volume area calculation
 	var x_track_height = 25
 	var volume_area_height = parent_chart.size.y - chart_bottom
 	var volume_base_y = chart_bottom
 
-	# Ensure minimum volume area (EXACT original)
 	if volume_area_height < 20:
 		volume_area_height = 20
 		volume_base_y = parent_chart.size.y - x_track_height - volume_area_height
 
-	# Collect visible volume data (EXACT original logic)
+	# Collect visible volume data
 	var visible_volume_data = []
 	var visible_timestamps = []
 	var visible_historical_flags = []
@@ -535,19 +532,60 @@ func _draw_volume_bars():
 	if visible_volume_data.size() == 0:
 		return
 
-	# Use historical max for scaling, fall back to all max if no historical data (EXACT original)
+	# Calculate CONSISTENT bar width based on zoom level only
+	var base_bar_width: float
+
+	if space_per_point > 50.0:
+		base_bar_width = 25.0 * volume_scale
+	elif space_per_point > 25.0:
+		base_bar_width = 18.0 * volume_scale
+	elif space_per_point > 15.0:
+		base_bar_width = 12.0 * volume_scale
+	elif space_per_point > 10.0:
+		base_bar_width = 8.0 * volume_scale
+	elif space_per_point > 6.0:
+		base_bar_width = 5.0 * volume_scale
+	elif space_per_point > 4.0:
+		base_bar_width = 3.0 * volume_scale
+	elif space_per_point > 2.0:
+		base_bar_width = 2.0 * volume_scale
+	else:
+		base_bar_width = 1.0 * volume_scale
+
+	# Absolute minimum for visibility
+	base_bar_width = max(base_bar_width, 0.5)
+
+	# Calculate precise sampling rate to prevent overlap
+	var sampling_rate = 1
+	var required_space_per_bar = base_bar_width + 1.0  # Bar width + minimum 1px gap
+
+	if space_per_point < required_space_per_bar:
+		# Calculate how many bars we need to skip to prevent overlap
+		sampling_rate = max(1, int(ceil(required_space_per_bar / space_per_point)))
+
+	# Special handling for the problematic 4-week to 1-week zoom range
+	var time_window_days = (window_end - window_start) / 86400.0
+	if time_window_days > 7.0 and time_window_days < 28.0:
+		# Force more aggressive sampling in this range
+		var overlap_factor = required_space_per_bar / space_per_point
+		if overlap_factor > 0.8:  # If we're close to overlapping
+			sampling_rate = max(sampling_rate, int(ceil(overlap_factor * 1.2)))
+		print("PROBLEM RANGE - Days: %.1f, overlap_factor: %.2f, sampling_rate: %d" % [time_window_days, overlap_factor, sampling_rate])
+
+	# Use historical max for scaling
 	var scaling_max = historical_max if historical_max > 0 else all_max
 	var volume_percentile_95 = _calculate_volume_percentile(visible_volume_data, 95.0)
-	var volume_cap = volume_percentile_95 * 1.5  # EXACT original cap
+	var volume_cap = volume_percentile_95 * 1.5
 
-	# EXACT original volume area height calculation
-	var volume_height_scale = volume_area_height * 0.8  # Use 80% of available volume area
-	var base_bar_width = 30.0 * volume_scale  # Apply zoom scaling to bar width
-
-	# Store volume bar positions for hover detection (EXACT original)
+	var volume_height_scale = volume_area_height * 0.8
 	var volume_bar_positions = []
 
-	# Draw all visible volume bars (EXACT original logic)
+	print("Volume bar drawing: space=%.1f, bar_width=%.1f, required_space=%.1f, sampling_rate=%d" % [space_per_point, base_bar_width, required_space_per_bar, sampling_rate])
+
+	# Track last drawn bar position to enforce gaps
+	var last_bar_x = -999999.0
+
+	# Draw volume bars with strict overlap prevention
 	for i in range(visible_volume_data.size()):
 		var volume = visible_volume_data[i]
 		var timestamp = visible_timestamps[i]
@@ -557,42 +595,56 @@ func _draw_volume_bars():
 		if not is_historical:
 			continue
 
-		# EXACT original X calculation
+		# Apply sampling to prevent overlap
+		if i % sampling_rate != 0:
+			continue
+
+		# Calculate X position
 		var time_progress = (timestamp - window_start) / (window_end - window_start)
 		var chart_width = chart_bounds.right - chart_bounds.left
 		var x = chart_bounds.left + (time_progress * chart_width)
 
 		# Skip if outside visible area
-		if x < -base_bar_width or x > parent_chart.size.x + base_bar_width:
+		if x < chart_bounds.left - base_bar_width or x > chart_bounds.right + base_bar_width:
 			continue
 
-		# Cap extreme volumes for display consistency (EXACT original)
-		var display_volume = volume
-		if not is_historical and volume > volume_cap:
-			display_volume = volume_cap
+		# Additional overlap check - ensure minimum distance from last bar
+		var bar_left = x - base_bar_width / 2
+		var bar_right = x + base_bar_width / 2
 
-		# Scale volume to bar height using volume area (EXACT original)
+		if bar_left <= last_bar_x + 1.0:  # 1px minimum gap
+			continue  # Skip this bar to prevent overlap
+
+		# Cap extreme volumes
+		var display_volume = min(volume, volume_cap)
+
+		# Scale volume to bar height
 		var normalized_volume = float(display_volume) / scaling_max if scaling_max > 0 else 0.0
 		var bar_height = normalized_volume * volume_height_scale
 
-		# Ensure minimum visibility (EXACT original)
-		if bar_height < 2.0:
-			bar_height = 2.0
+		# Ensure minimum visibility when zoomed in
+		if space_per_point > 20.0 and bar_height < 3.0:
+			bar_height = 3.0
+		elif bar_height < 1.0:
+			bar_height = 1.0
 
-		# Cap maximum height to available volume area (EXACT original)
+		# Cap maximum height
 		if bar_height > volume_area_height:
 			bar_height = volume_area_height
 
-		# Position bar in the volume area below chart (EXACT original)
+		# Position bar
 		var y = volume_base_y + (volume_area_height - bar_height)
-		y = max(y, volume_base_y)
-		y = min(y + bar_height, volume_base_y + volume_area_height) - bar_height
-		var bar_rect = Rect2(x - base_bar_width / 2, y, base_bar_width, bar_height)
+		y = clamp(y, volume_base_y, volume_base_y + volume_area_height - bar_height)
 
-		# Store position for hover detection (EXACT original)
+		var bar_rect = Rect2(bar_left, y, base_bar_width, bar_height)
+
+		# Update last bar position
+		last_bar_x = bar_right
+
+		# Store for hover detection
 		volume_bar_positions.append({"rect": bar_rect, "original_index": original_index, "volume": volume, "timestamp": timestamp})
 
-		# EXACT original color coding
+		# Color coding
 		var bar_color: Color
 		if is_historical:
 			var volume_intensity = clamp(normalized_volume + 0.4, 0.5, 1.0)
@@ -604,7 +656,7 @@ func _draw_volume_bars():
 		# Draw the volume bar
 		parent_chart.draw_rect(bar_rect, bar_color)
 
-		# Add highlight when hovered (EXACT original)
+		# Add highlight when hovered
 		if parent_chart.chart_interaction.hovered_volume_index == original_index:
 			var highlight_color = Color(1.0, 1.0, 1.0, 0.3)
 			parent_chart.draw_rect(bar_rect, highlight_color)
@@ -613,13 +665,15 @@ func _draw_volume_bars():
 			var border_width = max(1.0, 2.0 * volume_scale)
 			parent_chart.draw_rect(bar_rect, border_color, false, border_width)
 
-		# Add subtle border (EXACT original)
-		elif bar_height > 2:
+		# Add subtle border for visibility when bars are very thin
+		elif base_bar_width < 3.0 and bar_height > 2:
 			var border_height = max(1.0, 1.0 * volume_scale)
 			parent_chart.draw_rect(Rect2(bar_rect.position, Vector2(bar_rect.size.x, border_height)), Color.WHITE * 0.2)
 
-	# Store volume bar positions for hover detection in chart interaction
+	# Store positions for hover detection
 	parent_chart.chart_interaction.current_volume_bar_positions = volume_bar_positions
+
+	print("Drew %d volume bars (from %d visible) with width %.1f, sampling %d" % [volume_bar_positions.size(), visible_volume_data.size(), base_bar_width, sampling_rate])
 
 
 func _draw_crosshair():
@@ -1048,7 +1102,7 @@ func _draw_candlesticks(visible_candles: Array, window_start: float, window_end:
 
 # Helper functions
 func _calculate_volume_percentile(volume_data: Array, percentile: float) -> float:
-	"""Calculate the Nth percentile of volume data for outlier detection (EXACT original)"""
+	"""Calculate the Nth percentile of volume data for outlier detection"""
 	if volume_data.is_empty():
 		return 0.0
 
