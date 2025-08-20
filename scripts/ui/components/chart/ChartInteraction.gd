@@ -72,15 +72,16 @@ func handle_input(event):
 
 
 func _handle_simple_drag(event: InputEventMouseMotion):
-	"""Handle simple chart panning (EXACT original with debug)"""
+	"""Handle simple chart panning (FIXED to use proper chart boundaries)"""
 	var drag_delta = event.position - drag_start_position
 
-	# Calculate how much to move based on current zoom level (EXACT original)
+	# FIX: Use proper chart boundaries instead of full screen dimensions
+	var chart_bounds = chart_math.get_chart_boundaries()
 	var time_window = chart_math.get_current_time_window()
-	var time_per_pixel = time_window / parent_chart.size.x
-	var price_per_pixel = parent_chart.chart_price_range / (parent_chart.size.y * 0.6)
+	var time_per_pixel = time_window / chart_bounds.width  # ← FIXED: was parent_chart.size.x
+	var price_per_pixel = parent_chart.chart_price_range / chart_bounds.height  # ← FIXED: was (parent_chart.size.y * 0.6)
 
-	# Move chart center (opposite direction of drag for natural feel) (EXACT original)
+	# Move chart center (opposite direction of drag for natural feel)
 	var time_delta = drag_delta.x * time_per_pixel
 	var price_delta = drag_delta.y * price_per_pixel
 
@@ -95,20 +96,20 @@ func _handle_simple_drag(event: InputEventMouseMotion):
 	print("After: center_time=%.0f, center_price=%.2f" % [parent_chart.chart_center_time, parent_chart.chart_center_price])
 	print("Price range: %.2f" % parent_chart.chart_price_range)
 
-	# Clamp to reasonable limits (EXACT original)
+	# Clamp to reasonable limits
 	var current_time = Time.get_unix_time_from_system()
 	var max_history = _get_max_historical_time()
 
 	parent_chart.chart_center_time = clamp(parent_chart.chart_center_time, max_history + time_window / 2, current_time)
 
-	# Reset drag start for smooth continuous dragging (EXACT original)
+	# Reset drag start for smooth continuous dragging
 	drag_start_position = event.position
 
-	# Update support/resistance levels immediately when panning (if enabled) (EXACT original)
+	# Update support/resistance levels immediately when panning (if enabled)
 	if parent_chart.show_support_resistance:
 		parent_chart.analysis_tools.update_price_levels()
 
-	parent_chart.queue_redraw()  # This will redraw everything including spread analysis with new bounds
+	parent_chart.queue_redraw()
 
 
 func _zoom_in_at_mouse(mouse_pos: Vector2):

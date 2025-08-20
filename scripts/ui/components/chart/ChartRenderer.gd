@@ -719,7 +719,7 @@ func _draw_crosshair():
 			var padding = Vector2(4, 2)
 
 			# Position with same +4 vertical offset as Y-axis labels
-			var price_bg_rect = Rect2(Vector2(2, mouse_pos.y - padding.y), Vector2(price_text_size.x + padding.x * 2, price_text_size.y + padding.y * 2))
+			var price_bg_rect = Rect2(Vector2(2, mouse_pos.y - price_text_size.y / 2 - padding.y), Vector2(price_text_size.x + padding.x * 2, price_text_size.y + padding.y * 2))
 
 			parent_chart.draw_rect(price_bg_rect, Color(0.1, 0.1, 0.15, 0.9))
 			parent_chart.draw_rect(price_bg_rect, axis_label_color, false, 1.0)
