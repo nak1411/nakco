@@ -82,7 +82,11 @@ func draw_support_resistance_lines():
 	if support_levels.is_empty() and resistance_levels.is_empty():
 		update_price_levels()
 
-	var chart_bounds = chart_math.get_chart_boundaries()
+	# Use EXACT same coordinate system as grid and Y-axis labels
+	var chart_height = parent_chart.size.y * 0.7  # EXACT same as grid
+	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT same as grid
+	var chart_bounds = chart_math.get_chart_boundaries()  # Only for left/right bounds
+
 	var bounds = chart_math.get_current_window_bounds()
 	var price_range = bounds.price_max - bounds.price_min
 
@@ -93,7 +97,7 @@ func draw_support_resistance_lines():
 	for level in support_levels:
 		if level >= bounds.price_min and level <= bounds.price_max:
 			var price_progress = (level - bounds.price_min) / price_range
-			var y = chart_bounds.top + chart_bounds.height - (price_progress * chart_bounds.height)
+			var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
 			parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), support_color, 2.0, false)
 
@@ -107,7 +111,7 @@ func draw_support_resistance_lines():
 	for level in resistance_levels:
 		if level >= bounds.price_min and level <= bounds.price_max:
 			var price_progress = (level - bounds.price_min) / price_range
-			var y = chart_bounds.top + chart_bounds.height - (price_progress * chart_bounds.height)
+			var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
 			parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), resistance_color, 2.0, false)
 
@@ -126,7 +130,12 @@ func _draw_moving_average():
 		return
 
 	var bounds = chart_math.get_current_window_bounds()
-	var chart_bounds = chart_math.get_chart_boundaries()
+
+	# Use EXACT same coordinate system as grid and Y-axis labels
+	var chart_height = parent_chart.size.y * 0.6  # EXACT same as grid
+	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT same as grid
+	var chart_bounds = chart_math.get_chart_boundaries()  # Only for left/right bounds
+
 	var price_range = bounds.price_max - bounds.price_min
 
 	if price_range <= 0:
@@ -146,7 +155,7 @@ func _draw_moving_average():
 			var x = chart_bounds.left + (time_progress * chart_bounds.width)
 
 			var price_progress = (ma_value - bounds.price_min) / price_range
-			var y = chart_bounds.top + chart_bounds.height - (price_progress * chart_bounds.height)
+			var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
 			ma_points.append(Vector2(x, y))
 
@@ -156,7 +165,7 @@ func _draw_moving_average():
 			var p1 = ma_points[i]
 			var p2 = ma_points[i + 1]
 
-			var clip_rect = Rect2(Vector2(chart_bounds.left, chart_bounds.top), Vector2(chart_bounds.width, chart_bounds.height))
+			var clip_rect = Rect2(Vector2(chart_bounds.left, chart_y_offset), Vector2(chart_bounds.width, chart_height))
 			var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
 
 			if clipped_line.has("start") and clipped_line.has("end"):

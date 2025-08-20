@@ -78,10 +78,9 @@ func _draw_background():
 
 func _draw_grid():
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_height = chart_bounds.height
-	var chart_y_offset = chart_bounds.top
 	var chart_top = chart_bounds.top
 	var chart_bottom = chart_bounds.bottom
+	var chart_height = chart_bounds.height
 
 	var bounds = chart_math.get_current_window_bounds()
 	var window_start = bounds.time_start
@@ -152,7 +151,7 @@ func _draw_grid():
 		while current_price <= max_price and price_lines_drawn < 20:
 			if current_price >= min_price:
 				var price_progress = (current_price - min_price) / price_range
-				var y = chart_y_offset + chart_height - (price_progress * chart_height)
+				var y = chart_top + chart_height - (price_progress * chart_height)
 
 				if y >= chart_top and y <= chart_bottom:
 					parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), grid_color, 1.0, false)
@@ -184,8 +183,6 @@ func _draw_axis_label_tracks():
 
 
 func _draw_y_axis_labels():
-	"""Draw price labels aligned with dynamic price grid lines (EXACT original)"""
-	# CRITICAL: Use the chart center price and range directly for Y-axis labels
 	var min_price = parent_chart.chart_center_price - (parent_chart.chart_price_range / 2.0)
 	var max_price = parent_chart.chart_center_price + (parent_chart.chart_price_range / 2.0)
 	var price_range = max_price - min_price
@@ -193,38 +190,32 @@ func _draw_y_axis_labels():
 	if price_range <= 0:
 		return
 
-	var chart_height = parent_chart.size.y * 0.6
-	var chart_y_offset = parent_chart.size.y * 0.05
+	# Use chart boundaries for consistent coordinate system
+	var chart_bounds = chart_math.get_chart_boundaries()
+	var chart_top = chart_bounds.top
+	var chart_height = chart_bounds.height
 	var font_size = 10
 
-	print("Drawing Y-axis labels: min=%.2f, max=%.2f, range=%.2f" % [min_price, max_price, price_range])
-
-	# Use the same price interval calculation as the grid
 	var price_interval = _calculate_price_grid_interval(price_range)
-
-	# Find the first label price (round down to nearest interval)
 	var first_price = floor(min_price / price_interval) * price_interval
 
-	# Draw labels at the same positions as grid lines
 	var current_price = first_price
 	var labels_drawn = 0
-	var max_labels = 20  # Prevent too many labels
+	var max_labels = 20
 
 	while current_price <= max_price and labels_drawn < max_labels:
 		if current_price >= min_price:
-			# Calculate Y position (same logic as grid lines)
 			var price_progress = (current_price - min_price) / price_range
-			var y_pos = chart_y_offset + chart_height - (price_progress * chart_height)
+			var y_pos = chart_top + chart_height - (price_progress * chart_height)
 
-			# Format price based on magnitude and make it readable
 			var price_text = _format_price_label_for_axis(current_price)
-
-			# Check if this is a major price level for styling
 			var is_major = _is_major_price_level(current_price, price_interval)
 			var text_color = axis_label_color.lightened(0.1) if is_major else axis_label_color
 
-			# Draw price label
-			parent_chart.draw_string(chart_font, Vector2(5, y_pos + 4), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+			# Center text vertically on grid line
+			var text_size = chart_font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
+			var label_y = y_pos + text_size.y / 2 - 2
+			parent_chart.draw_string(chart_font, Vector2(5, label_y), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
 			labels_drawn += 1
 
@@ -323,8 +314,8 @@ func _draw_price_line():
 	var bounds = chart_math.get_current_window_bounds()
 	var window_start = bounds.time_start
 	var window_end = bounds.time_end
-	var min_price = bounds.price_min
-	var max_price = bounds.price_max
+	var min_price = parent_chart.chart_center_price - (parent_chart.chart_price_range / 2.0)
+	var max_price = parent_chart.chart_center_price + (parent_chart.chart_price_range / 2.0)
 	var price_range = max_price - min_price
 
 	# CRITICAL FIX: Use much larger buffer for close zoom levels
@@ -1007,11 +998,11 @@ func _draw_no_data_message():
 func _draw_candlesticks(visible_candles: Array, window_start: float, window_end: float, min_price: float, price_range: float, chart_height: float, chart_y_offset: float):
 	var scale_factors = chart_math.get_zoom_scale_factor()
 	var scaled_candle_width = candle_width * scale_factors.volume_scale
-	var scaled_wick_width = max(1.0, wick_width * scale_factors.volume_scale)
+	var scaled_wick_width = max(1.0, wick_width)
 
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_top = chart_y_offset
-	var chart_bottom = chart_y_offset + chart_height
+	var chart_top = chart_bounds.top
+	var chart_bottom = chart_bounds.bottom
 
 	for i in range(visible_candles.size()):
 		var candle = visible_candles[i]
@@ -1149,11 +1140,11 @@ func _is_major_price_level(price: float, interval: float) -> bool:
 func _format_price_label_for_axis(price: float) -> String:
 	"""Format price for axis labels"""
 	if price >= 1000000000:
-		return "%.1fB" % (price / 1000000000.0)
+		return "%.2fB" % (price / 1000000000.0)
 	elif price >= 1000000:
-		return "%.1fM" % (price / 1000000.0)
+		return "%.2fM" % (price / 1000000.0)
 	elif price >= 1000:
-		return "%.1fK" % (price / 1000.0)
+		return "%.2fK" % (price / 1000.0)
 	elif price >= 10:
 		return "%.0f" % price
 	else:
@@ -1163,11 +1154,11 @@ func _format_price_label_for_axis(price: float) -> String:
 func _format_price_label(price: float) -> String:
 	"""Format price labels for display"""
 	if price >= 1000000000:
-		return "%.1fB" % (price / 1000000000.0)
+		return "%.2fB" % (price / 1000000000.0)
 	elif price >= 1000000:
-		return "%.1fM" % (price / 1000000.0)
+		return "%.2fM" % (price / 1000000.0)
 	elif price >= 1000:
-		return "%.1fK" % (price / 1000.0)
+		return "%.2fK" % (price / 1000.0)
 	else:
 		return "%.2f" % price
 

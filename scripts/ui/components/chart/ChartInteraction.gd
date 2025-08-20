@@ -288,9 +288,11 @@ func _check_point_hover(mouse_pos: Vector2):
 			lines.append("%s Data Point" % point_type)
 			lines.append("%s: %s ISK" % [price_label, _format_price_label(point.price)])
 
-			# Add raw price for real-time points (EXACT original)
-			if not is_historical and point.has("raw_price"):
-				lines.append("Raw Price: %s ISK" % _format_price_label(point.raw_price))
+			# Find and show high/low for this time period
+			var extremes = _find_recent_extremes(visible_points, visible_candles, closest_index)
+			if extremes.has("high") and extremes.has("low"):
+				lines.append("High: %s ISK" % _format_price_label(extremes.high))
+				lines.append("Low: %s ISK" % _format_price_label(extremes.low))
 
 			var current_time = Time.get_unix_time_from_system()
 			var time_diff = current_time - point.timestamp
@@ -390,11 +392,11 @@ func _format_number(value: int) -> String:
 func _format_price_label(price: float) -> String:
 	"""Format price labels (EXACT original)"""
 	if price >= 1000000000:
-		return "%.1fB" % (price / 1000000000.0)
+		return "%.2fB" % (price / 1000000000.0)
 	elif price >= 1000000:
-		return "%.1fM" % (price / 1000000.0)
+		return "%.2fM" % (price / 1000000.0)
 	elif price >= 1000:
-		return "%.1fK" % (price / 1000.0)
+		return "%.2fK" % (price / 1000.0)
 	else:
 		return "%.2f" % price
 
@@ -431,6 +433,35 @@ func _on_chart_resized():
 
 	# Force complete redraw with new dimensions (EXACT original)
 	parent_chart.queue_redraw()
+
+
+func _find_recent_extremes(points: Array, candles: Array, point_index: int) -> Dictionary:
+	"""Find high/low for the specific day being hovered over"""
+	var result = {}
+
+	if point_index >= 0 and point_index < points.size():
+		var hovered_point = points[point_index]
+		var hover_timestamp = hovered_point.timestamp
+
+		# Find the candlestick that matches this day (within 24 hours)
+		var matching_candle = null
+		var closest_time_diff = 999999999.0
+
+		for candle in candles:
+			var time_diff = abs(candle.timestamp - hover_timestamp)
+			# If within same day (12 hours tolerance)
+			if time_diff < 43200.0 and time_diff < closest_time_diff:  # 12 hours
+				closest_time_diff = time_diff
+				matching_candle = candle
+
+		if matching_candle:
+			var high = matching_candle.get("high", 0.0)
+			var low = matching_candle.get("low", 0.0)
+			if high > 0 and low > 0:
+				result["high"] = high
+				result["low"] = low
+
+	return result
 
 
 func _start_simple_drag(position: Vector2):

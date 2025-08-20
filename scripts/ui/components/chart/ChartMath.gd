@@ -38,15 +38,14 @@ func get_price_at_pixel(y_pixel: float) -> float:
 
 
 func get_chart_boundaries() -> Dictionary:
-	# EXACT ORIGINAL BOUNDARIES from RealtimeChart.gd
-	var y_track_width = 50  # Must match the original
+	var y_track_width = 50
 	var chart_left = y_track_width
 	var chart_right = parent_chart.size.x
-	var chart_top = 0.0
-	var chart_bottom = parent_chart.size.y * 0.70  # This stays the same as X-axis track starts here
+	var chart_top = parent_chart.size.y * 0.05  # ← Fix this from 0.0 to 0.05
+	var chart_bottom = parent_chart.size.y * 0.7  # ← Keep this as 0.7
 
 	var chart_width = chart_right - chart_left
-	var chart_height = chart_bottom - chart_top
+	var chart_height = chart_bottom - chart_top  # This will be 0.65 of screen height
 
 	return {"left": chart_left, "right": chart_right, "top": chart_top, "bottom": chart_bottom, "width": chart_width, "height": chart_height}
 
