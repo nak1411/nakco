@@ -43,7 +43,7 @@ func get_chart_boundaries() -> Dictionary:
 	var chart_left = y_track_width
 	var chart_right = parent_chart.size.x
 	var chart_top = 0.0
-	var chart_bottom = parent_chart.size.y * 0.75  # This stays the same as X-axis track starts here
+	var chart_bottom = parent_chart.size.y * 0.70  # This stays the same as X-axis track starts here
 
 	var chart_width = chart_right - chart_left
 	var chart_height = chart_bottom - chart_top

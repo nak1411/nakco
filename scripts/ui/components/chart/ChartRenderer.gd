@@ -359,10 +359,10 @@ func _draw_price_line():
 
 	# Use EXACT original chart dimensions for clipping
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_height = parent_chart.size.y * 0.7
-	var chart_y_offset = 0.0
-	var chart_top = parent_chart.size.y * 0.05
-	var chart_bottom = parent_chart.size.y * 0.7
+	var chart_height = chart_bounds.height
+	var chart_y_offset = chart_bounds.top
+	var chart_top = chart_bounds.top
+	var chart_bottom = chart_bounds.bottom
 
 	# Draw candlesticks first (if enabled)
 	if parent_chart.show_candlesticks and visible_candles.size() > 0:
@@ -377,7 +377,7 @@ func _draw_price_line():
 		var x = chart_bounds.left + (time_progress * chart_width)
 
 		var price_progress = (point_data.price - min_price) / price_range
-		var y = chart_y_offset + chart_height - (price_progress * chart_height)
+		var y = chart_top + chart_height - (price_progress * chart_height)
 
 		points.append(Vector2(x, y))
 
