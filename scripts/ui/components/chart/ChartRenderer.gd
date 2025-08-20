@@ -676,8 +676,8 @@ func _draw_crosshair():
 	var mouse_pos = parent_chart.chart_interaction.mouse_position
 
 	# Use EXACT original chart boundaries
-	var chart_top = parent_chart.size.y * 0.05
-	var chart_bottom = parent_chart.size.y * 0.7
+	var chart_top = chart_bounds.top
+	var chart_bottom = chart_bounds.bottom
 
 	if mouse_pos.x < chart_bounds.left or mouse_pos.x > chart_bounds.right or mouse_pos.y < chart_top or mouse_pos.y > chart_bottom:
 		return
@@ -1141,26 +1141,26 @@ func _format_price_label_for_axis(price: float) -> String:
 	"""Format price for axis labels"""
 	if price >= 1000000000:
 		return "%.2fB" % (price / 1000000000.0)
-	elif price >= 1000000:
+	if price >= 1000000:
 		return "%.2fM" % (price / 1000000.0)
-	elif price >= 1000:
+	if price >= 1000:
 		return "%.2fK" % (price / 1000.0)
-	elif price >= 10:
+	if price >= 10:
 		return "%.0f" % price
-	else:
-		return "%.2f" % price
+
+	return "%.2f" % price
 
 
 func _format_price_label(price: float) -> String:
 	"""Format price labels for display"""
 	if price >= 1000000000:
 		return "%.2fB" % (price / 1000000000.0)
-	elif price >= 1000000:
+	if price >= 1000000:
 		return "%.2fM" % (price / 1000000.0)
-	elif price >= 1000:
+	if price >= 1000:
 		return "%.2fK" % (price / 1000.0)
-	else:
-		return "%.2f" % price
+
+	return "%.2f" % price
 
 
 func _format_eve_time_label(timestamp: float, format_type: String) -> String:
@@ -1191,9 +1191,9 @@ func _find_most_recent_eve_downtime(current_time: float) -> float:
 
 	if today_downtime <= current_time:
 		return today_downtime
-	else:
-		# Yesterday's downtime
-		return today_downtime - 86400.0
+
+	# Yesterday's downtime
+	return today_downtime - 86400.0
 
 
 func set_chart_style(style: String):
@@ -1215,21 +1215,21 @@ func _get_station_trading_quality_text(margin_pct: float) -> String:
 	"""Get text description of trading opportunity quality"""
 	if margin_pct >= 10.0:
 		return "EXCELLENT OPPORTUNITY"
-	elif margin_pct >= 5.0:
+	if margin_pct >= 5.0:
 		return "GOOD OPPORTUNITY"
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return "MARGINAL OPPORTUNITY"
-	else:
-		return "POOR OPPORTUNITY"
+
+	return "POOR OPPORTUNITY"
 
 
 func _get_spread_quality_text(margin_pct: float) -> String:
 	"""Get text description of spread quality"""
 	if margin_pct >= 10.0:
 		return "Wide Spread"
-	elif margin_pct >= 5.0:
+	if margin_pct >= 5.0:
 		return "Good Spread"
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return "Narrow Spread"
-	else:
-		return "Very Narrow Spread"
+
+	return "Very Narrow Spread"

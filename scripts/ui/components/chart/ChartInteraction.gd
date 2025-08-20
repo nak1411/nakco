@@ -294,29 +294,20 @@ func _check_point_hover(mouse_pos: Vector2):
 				lines.append("High: %s ISK" % _format_price_label(extremes.high))
 				lines.append("Low: %s ISK" % _format_price_label(extremes.low))
 
+			# Add volume analysis at different price levels
+			var volume_analysis = _analyze_volume_at_price_levels(point.price)
+			if not volume_analysis.is_empty():
+				lines.append("")  # Empty line separator
+				lines.append("VOLUME ANALYSIS:")
+				for level_info in volume_analysis:
+					lines.append(level_info)
+
 			var current_time = Time.get_unix_time_from_system()
 			var time_diff = current_time - point.timestamp
 			lines.append("Time: %s" % _format_time_ago(time_diff / 3600.0))
 
-			if point.has("volume"):
+			if point.has("volume") and is_historical:
 				lines.append("Volume: %s" % _format_number(point.volume))
-
-			# Add spread analysis if available (EXACT original)
-			if parent_chart.show_spread_analysis and not chart_data.current_station_trading_data.is_empty():
-				var station_data = chart_data.current_station_trading_data
-				if station_data.has("profit_margin"):
-					lines.append("")  # Empty line for separation
-					lines.append("Station Trading:")
-					lines.append("Your Buy: %s ISK" % _format_price_label(station_data.your_buy_price))
-					lines.append("Your Sell: %s ISK" % _format_price_label(station_data.your_sell_price))
-					lines.append("Potential Profit: %.2f%%" % station_data.profit_margin)
-
-			# Historical context - show if this is a good entry point (EXACT original)
-			var price_percentile = _calculate_price_percentile(point.price, visible_points)
-			if price_percentile <= 20.0:
-				lines.append("📈 Near Historical Low (%.0f%%)" % price_percentile)
-			elif price_percentile >= 80.0:
-				lines.append("📉 Near Historical High (%.0f%%)" % price_percentile)
 
 			tooltip_content = "\n".join(lines)
 
@@ -327,6 +318,52 @@ func _check_point_hover(mouse_pos: Vector2):
 	# Redraw if hover state changed (EXACT original)
 	if old_hovered_index != hovered_point_index or old_hovered_volume != hovered_volume_index:
 		parent_chart.queue_redraw()
+
+
+func _analyze_volume_at_price_levels(current_price: float) -> Array:
+	"""Analyze volume at different price levels around the current price"""
+	var analysis = []
+
+	# Get current market data
+	var market_data = parent_chart.chart_data.current_station_trading_data
+	if market_data.is_empty():
+		return analysis
+
+	var buy_orders = market_data.get("buy_orders", [])
+	var sell_orders = market_data.get("sell_orders", [])
+
+	if buy_orders.is_empty() and sell_orders.is_empty():
+		return analysis
+
+	# Analyze volume within price ranges around current price
+	var price_ranges = [{"range": "±1%", "multiplier": 0.01}, {"range": "±5%", "multiplier": 0.05}, {"range": "±10%", "multiplier": 0.10}]
+
+	for range_info in price_ranges:
+		var range_text = range_info.range
+		var price_tolerance = current_price * range_info.multiplier
+		var min_price = current_price - price_tolerance
+		var max_price = current_price + price_tolerance
+
+		var buy_volume = 0
+		var sell_volume = 0
+
+		# Count buy volume in this price range
+		for order in buy_orders:
+			var price = order.get("price", 0.0)
+			if price >= min_price and price <= max_price:
+				buy_volume += order.get("volume", 0)
+
+		# Count sell volume in this price range
+		for order in sell_orders:
+			var price = order.get("price", 0.0)
+			if price >= min_price and price <= max_price:
+				sell_volume += order.get("volume", 0)
+
+		if buy_volume > 0 or sell_volume > 0:
+			var total_volume = buy_volume + sell_volume
+			analysis.append("%s: %s units (%s buy, %s sell)" % [range_text, _format_number(total_volume), _format_number(buy_volume), _format_number(sell_volume)])
+
+	return analysis
 
 
 func _calculate_price_percentile(price: float, visible_points: Array) -> float:
@@ -381,24 +418,24 @@ func _format_number(value: int) -> String:
 	"""Format numbers for display (EXACT original)"""
 	if value >= 1000000000:
 		return "%.1fB" % (value / 1000000000.0)
-	elif value >= 1000000:
+	if value >= 1000000:
 		return "%.1fM" % (value / 1000000.0)
-	elif value >= 1000:
+	if value >= 1000:
 		return "%.1fK" % (value / 1000.0)
-	else:
-		return str(value)
+
+	return str(value)
 
 
 func _format_price_label(price: float) -> String:
 	"""Format price labels (EXACT original)"""
 	if price >= 1000000000:
 		return "%.2fB" % (price / 1000000000.0)
-	elif price >= 1000000:
+	if price >= 1000000:
 		return "%.2fM" % (price / 1000000.0)
-	elif price >= 1000:
+	if price >= 1000:
 		return "%.2fK" % (price / 1000.0)
-	else:
-		return "%.2f" % price
+
+	return "%.2f" % price
 
 
 func _check_spread_zone_hover(mouse_position: Vector2):

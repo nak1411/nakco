@@ -11,10 +11,10 @@ var market_chart: MarketChart
 var order_book_list: VBoxContainer
 var quick_trade_panel: VBoxContainer
 
-@onready var data_manager: DataManager
-
 var sr_toggle: Button = null
 var spread_toggle: Button = null
+
+@onready var data_manager: DataManager
 
 
 func _ready():
@@ -462,24 +462,29 @@ func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
 	# Store the station trading opportunity data for tooltips
 	if profit_margin > 2.0:  # At least 2% profit to be worth the effort
 		print("  ✅ PROFITABLE station trading opportunity!")
-
-		market_chart.set_station_trading_data(
-			{
-				"your_buy_price": your_buy_order_price,
-				"your_sell_price": your_sell_order_price,
-				"cost_with_fees": cost_per_unit,
-				"income_after_taxes": income_per_unit,
-				"profit_per_unit": profit_per_unit,
-				"profit_margin": profit_margin,
-				"market_gap": market_gap,
-				"actual_best_buy": current_highest_buy,
-				"actual_best_sell": current_lowest_sell
-			}
+		(
+			market_chart
+			. set_station_trading_data(
+				{
+					"your_buy_price": your_buy_order_price,
+					"your_sell_price": your_sell_order_price,
+					"cost_with_fees": cost_per_unit,
+					"income_after_taxes": income_per_unit,
+					"profit_per_unit": profit_per_unit,
+					"profit_margin": profit_margin,
+					"market_gap": market_gap,
+					"actual_best_buy": current_highest_buy,
+					"actual_best_sell": current_lowest_sell,
+					# ADD THE ORDER BOOK DATA:
+					"buy_orders": sorted_buy_orders,
+					"sell_orders": sorted_sell_orders
+				}
+			)
 		)
 	else:
 		print("  ❌ Not profitable after fees (%.2f%% margin too low)" % profit_margin)
-		# Clear the station trading data but keep the spread visible
-		market_chart.set_station_trading_data({})
+		# Even for unprofitable trades, include order book for volume analysis
+		market_chart.set_station_trading_data({"buy_orders": sorted_buy_orders, "sell_orders": sorted_sell_orders})
 
 
 func update_order_book_realtime(data: Dictionary):

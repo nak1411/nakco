@@ -7,7 +7,7 @@ const TradingRightPanel = preload("res://scripts/ui/panels/TradingRightPanel.gd"
 
 # Constants
 const VERSION = "1.0.0"
-const APP_NAME = "EVE Trader"
+const APP_NAME = "NakCo Logistics"
 
 # Application state
 var current_region_id: int = 10000002  # Jita by default
@@ -356,22 +356,22 @@ func format_isk_compact(value: float) -> String:
 	"""Compact ISK formatting for narrow displays"""
 	if value >= 1000000000:
 		return "%.1fB" % (value / 1000000000.0)
-	elif value >= 1000000:
+	if value >= 1000000:
 		return "%.1fM" % (value / 1000000.0)
-	elif value >= 1000:
+	if value >= 1000:
 		return "%.0fK" % (value / 1000.0)
-	else:
-		return "%.0f" % value
+
+	return "%.0f" % value
 
 
 func format_number_compact(value: int) -> String:
 	"""Compact number formatting"""
 	if value >= 1000000:
 		return "%.0fM" % (value / 1000000.0)
-	elif value >= 1000:
+	if value >= 1000:
 		return "%.0fK" % (value / 1000.0)
-	else:
-		return str(value)
+
+	return str(value)
 
 
 func setup_right_panel():
@@ -1372,42 +1372,3 @@ func format_number(value: float) -> String:
 	if value >= 1000:
 		return "%.2fK" % (value / 1000.0)
 	return "%.2f" % value
-
-
-func debug_data_structure(data, depth: int = 0):
-	var indent = "  ".repeat(depth)
-
-	match typeof(data):
-		TYPE_ARRAY:
-			print(indent, "Array[", data.size(), "]:")
-			if data.size() > 0:
-				print(indent, "  First item type: ", typeof(data[0]))
-				if data.size() > 0 and typeof(data[0]) == TYPE_DICTIONARY:
-					print(indent, "  First item keys: ", data[0].keys())
-		TYPE_DICTIONARY:
-			print(indent, "Dictionary keys: ", data.keys())
-			for key in data.keys():
-				print(indent, "  ", key, ": ", typeof(data[key]))
-		_:
-			print(indent, "Type: ", typeof(data), " Value: ", str(data).substr(0, 100))
-
-
-func test_status_bar():
-	print("=== TESTING STATUS BAR ===")
-
-	if connection_status:
-		connection_status.text = "TEST CONNECTION"
-		connection_status.add_theme_color_override("font_color", Color.RED)
-		print("Set connection status to TEST")
-
-	if api_status:
-		api_status.text = "TEST API STATUS"
-		api_status.add_theme_color_override("font_color", Color.YELLOW)
-		print("Set API status to TEST")
-
-	if last_update:
-		last_update.text = "TEST LAST UPDATE"
-		last_update.add_theme_color_override("font_color", Color.CYAN)
-		print("Set last update to TEST")
-
-	print("========================")

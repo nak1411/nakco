@@ -309,12 +309,12 @@ func _get_spread_color(margin_pct: float) -> Color:
 	"""Get color based on spread margin percentage"""
 	if margin_pct >= 10.0:
 		return profitable_spread_color  # Excellent - 10%+ margin
-	elif margin_pct >= 5.0:
+	if margin_pct >= 5.0:
 		return marginal_spread_color  # Good - 5-10% margin
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return Color.ORANGE  # Marginal - 2-5% margin
-	else:
-		return poor_spread_color  # Poor - <2% margin
+
+	return poor_spread_color  # Poor - <2% margin
 
 
 func _store_spread_zone_info(zone_rect: Rect2, spread: float, margin_pct: float):
@@ -487,96 +487,109 @@ func _draw_dotted_horizontal_line(y_pos: float, line_color: Color, label_text: S
 
 
 func update_price_levels():
-	var bounds = chart_math.get_current_window_bounds()
-	var window_start = bounds.time_start
-	var window_end = bounds.time_end
+	"""Calculate support and resistance levels from ALL available data, not just visible data"""
+	print("Calculating S/R levels from all available data...")
 
 	# ALWAYS clear previous levels first
 	support_levels.clear()
 	resistance_levels.clear()
 
-	var visible_points = []
-	var visible_candles = []
+	# Use ALL available data, not just visible data
+	var all_points = chart_data.price_data
+	var all_candles = chart_data.candlestick_data
 
-	for point in chart_data.price_data:
-		if point.timestamp >= window_start and point.timestamp <= window_end:
-			visible_points.append(point)
-
-	for candle in chart_data.candlestick_data:
-		if candle.timestamp >= window_start and candle.timestamp <= window_end:
-			visible_candles.append(candle)
-
-	if visible_points.size() < 5:
+	if all_points.size() < 10:  # Need minimum data for meaningful levels
+		print("Not enough total data points (%d) for support/resistance calculation" % all_points.size())
 		return
 
-	visible_points.sort_custom(func(a, b): return a.timestamp < b.timestamp)
-	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
-
-	# Collect all prices with volume weighting
+	# Collect ALL prices from the entire dataset
 	var all_prices = []
 	var volume_weighted_prices = {}
 
-	for point in visible_points:
+	# Get all price data
+	for point in all_points:
 		all_prices.append(point.price)
 		var volume = point.get("volume", 1)
-		var price_key = int(point.price / 5.0) * 5.0  # Group into 5 ISK buckets
+		var price_key = int(point.price / 100.0) * 100.0  # Group into 100 ISK buckets
 		if not volume_weighted_prices.has(price_key):
 			volume_weighted_prices[price_key] = 0
 		volume_weighted_prices[price_key] += volume
 
-	for candle in visible_candles:
+	# Add all candlestick data
+	for candle in all_candles:
 		var high = candle.get("high", 0.0)
 		var low = candle.get("low", 0.0)
 		var volume = candle.get("volume", 1)
 
 		if high > 0:
 			all_prices.append(high)
-			var price_key = int(high / 5.0) * 5.0
+			var price_key = int(high / 100.0) * 100.0
 			if not volume_weighted_prices.has(price_key):
 				volume_weighted_prices[price_key] = 0
 			volume_weighted_prices[price_key] += volume
 
 		if low > 0:
 			all_prices.append(low)
-			var price_key = int(low / 5.0) * 5.0
+			var price_key = int(low / 100.0) * 100.0
 			if not volume_weighted_prices.has(price_key):
 				volume_weighted_prices[price_key] = 0
 			volume_weighted_prices[price_key] += volume
 
-	if all_prices.size() < 5:
+	if all_prices.size() == 0:
 		return
 
-	# Get current price for classification
-	var current_price = chart_data.get_latest_price()
-	if current_price <= 0 and all_prices.size() > 0:
-		current_price = all_prices[-1]
+	all_prices.sort()
 
-	# Find the SINGLE best support and resistance levels
-	var best_support_price = 0.0
-	var best_support_volume = 0
-	var best_resistance_price = 0.0
-	var best_resistance_volume = 0
+	# Calculate stable support/resistance using percentiles of ALL data
+	var support_candidates = []
+	var resistance_candidates = []
 
-	# Find the highest volume level below current price (support)
-	# and highest volume level above current price (resistance)
-	for price_key in volume_weighted_prices.keys():
-		var volume = volume_weighted_prices[price_key]
+	# Use 20th and 80th percentiles as base levels (more stable than visible-only data)
+	var percentile_20_idx = int(all_prices.size() * 0.2)
+	var percentile_80_idx = int(all_prices.size() * 0.8)
 
-		if price_key < current_price and volume > best_support_volume:
-			best_support_price = price_key
-			best_support_volume = volume
-		elif price_key > current_price and volume > best_resistance_volume:
-			best_resistance_price = price_key
-			best_resistance_volume = volume
+	support_candidates.append(all_prices[percentile_20_idx])
+	resistance_candidates.append(all_prices[percentile_80_idx])
 
-	# Add only ONE support and ONE resistance level
-	if best_support_price > 0:
-		support_levels.append(best_support_price)
+	# Add volume-weighted significant levels from ALL data
+	var total_volume = 0
+	for volume in volume_weighted_prices.values():
+		total_volume += volume
 
-	if best_resistance_price > 0:
-		resistance_levels.append(best_resistance_price)
+	if total_volume > 0:
+		var global_min_price = all_prices[0]
+		var global_max_price = all_prices[-1]
+		var global_midpoint = (global_min_price + global_max_price) / 2.0
 
-	print("Updated S/R levels - Support: %.2f, Resistance: %.2f" % [support_levels[0] if support_levels.size() > 0 else 0.0, resistance_levels[0] if resistance_levels.size() > 0 else 0.0])
+		for price_key in volume_weighted_prices.keys():
+			var volume = volume_weighted_prices[price_key]
+			var volume_percentage = float(volume) / total_volume
+
+			if volume_percentage > 0.05:  # Significant volume (5%+) from ALL data
+				if price_key < global_midpoint:  # Lower half = support candidate
+					support_candidates.append(price_key)
+				else:  # Upper half = resistance candidate
+					resistance_candidates.append(price_key)
+
+	# Select best stable levels
+	if support_candidates.size() > 0:
+		support_candidates.sort()
+		# Use the highest support level that has significant volume
+		var best_support = support_candidates[-1]  # Highest support
+		support_levels.append(best_support)
+
+	if resistance_candidates.size() > 0:
+		resistance_candidates.sort()
+		# Use the lowest resistance level that has significant volume
+		var best_resistance = resistance_candidates[0]  # Lowest resistance
+		resistance_levels.append(best_resistance)
+
+	print(
+		(
+			"Stable S/R levels calculated - Support: %.2f, Resistance: %.2f (from %d total price points)"
+			% [support_levels[0] if support_levels.size() > 0 else 0.0, resistance_levels[0] if resistance_levels.size() > 0 else 0.0, all_prices.size()]
+		)
+	)
 
 
 func update_spread_analysis(data: Dictionary):
@@ -676,57 +689,57 @@ func _format_price_compact(price: float) -> String:
 	"""Format price in compact form"""
 	if price >= 1000000000:
 		return "%.1fB" % (price / 1000000000.0)
-	elif price >= 1000000:
+	if price >= 1000000:
 		return "%.1fM" % (price / 1000000.0)
-	elif price >= 1000:
+	if price >= 1000:
 		return "%.1fK" % (price / 1000.0)
-	else:
-		return "%.0f" % price
+
+	return "%.0f" % price
 
 
 func _format_price_label(price: float) -> String:
 	"""Format price with appropriate scale (K, M, B)"""
 	if price >= 1000000000:
 		return "%.1fB" % (price / 1000000000.0)
-	elif price >= 1000000:
+	if price >= 1000000:
 		return "%.1fM" % (price / 1000000.0)
-	elif price >= 1000:
+	if price >= 1000:
 		return "%.1fK" % (price / 1000.0)
-	else:
-		return "%.2f" % price
+
+	return "%.2f" % price
 
 
 func _get_station_trading_color(margin_pct: float) -> Color:
 	"""Get color based on station trading profit quality"""
 	if margin_pct >= 10.0:
 		return Color.GREEN  # Excellent - 10%+ profit
-	elif margin_pct >= 5.0:
+	if margin_pct >= 5.0:
 		return Color.YELLOW  # Good - 5-10% profit
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return Color.ORANGE  # Marginal - 2-5% profit
-	else:
-		return Color.RED  # Poor - <2% profit
+
+	return Color.RED  # Poor - <2% profit
 
 
 func _get_station_trading_quality_text(margin_pct: float) -> String:
 	"""Get text description of station trading opportunity quality"""
 	if margin_pct >= 10.0:
 		return "EXCELLENT OPPORTUNITY"
-	elif margin_pct >= 5.0:
+	if margin_pct >= 5.0:
 		return "GOOD OPPORTUNITY"
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return "MARGINAL OPPORTUNITY"
-	else:
-		return "POOR OPPORTUNITY"
+
+	return "POOR OPPORTUNITY"
 
 
 func _get_spread_quality_text(margin_pct: float) -> String:
 	"""Get text description of spread quality"""
 	if margin_pct >= 5.0:
 		return "EXCELLENT"
-	elif margin_pct >= 2.0:
+	if margin_pct >= 2.0:
 		return "DECENT"
-	elif margin_pct >= 1.0:
+	if margin_pct >= 1.0:
 		return "MARGINAL"
-	else:
-		return "POOR"
+
+	return "POOR"

@@ -10,10 +10,11 @@ config_version=5
 
 [application]
 
-config/name="EVE Trader"
+config/name="NakCo Logistics"
 run/main_scene="res://scenes/main/Main.tscn"
 config/features=PackedStringArray("4.4", "Forward Plus")
-config/icon="res://icon.svg"
+boot_splash/image="uid://dymsju0w8bmvb"
+config/icon="res://nakco_titlebar_logo.png"
 
 [display]
 
