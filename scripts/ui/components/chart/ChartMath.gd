@@ -21,17 +21,30 @@ func get_current_time_window() -> float:
 
 
 func get_time_at_pixel(x_pixel: float) -> float:
+	"""Get the timestamp at a specific pixel position using proper chart boundaries"""
+	var chart_bounds = get_chart_boundaries()
+
+	# FIXED: Use actual chart boundaries instead of full screen width
+	if x_pixel < chart_bounds.left or x_pixel > chart_bounds.right:
+		# Clamp to chart area
+		x_pixel = clamp(x_pixel, chart_bounds.left, chart_bounds.right)
+
 	var time_window = get_current_time_window()
-	var progress = x_pixel / parent_chart.size.x
+	var progress = (x_pixel - chart_bounds.left) / chart_bounds.width
 	return parent_chart.chart_center_time - (time_window / 2.0) + (progress * time_window)
 
 
 func get_price_at_pixel(y_pixel: float) -> float:
-	# EXACT ORIGINAL PROPORTIONS - must match drawing coordinates exactly
-	var chart_height = parent_chart.size.y * 0.6
-	var chart_y_offset = parent_chart.size.y * 0.05
-	var relative_y = y_pixel - chart_y_offset
-	var progress = 1.0 - (relative_y / chart_height)  # Invert Y (top = high price)
+	"""Get the price at a specific pixel position using proper chart boundaries"""
+	var chart_bounds = get_chart_boundaries()
+
+	# FIXED: Use actual chart boundaries instead of hardcoded percentages
+	if y_pixel < chart_bounds.top or y_pixel > chart_bounds.bottom:
+		# Clamp to chart area
+		y_pixel = clamp(y_pixel, chart_bounds.top, chart_bounds.bottom)
+
+	var relative_y = y_pixel - chart_bounds.top
+	var progress = 1.0 - (relative_y / chart_bounds.height)  # Invert Y (top = high price)
 
 	var half_range = parent_chart.chart_price_range / 2.0
 	return parent_chart.chart_center_price - half_range + (progress * parent_chart.chart_price_range)
@@ -41,7 +54,7 @@ func get_chart_boundaries() -> Dictionary:
 	var y_track_width = 50
 	var chart_left = y_track_width
 	var chart_right = parent_chart.size.x
-	var chart_top = parent_chart.size.y * 0.05  # ← Fix this from 0.0 to 0.05
+	var chart_top = parent_chart.size.y * 0.00  # ← Fix this from 0.0 to 0.05
 	var chart_bottom = parent_chart.size.y * 0.7  # ← Keep this as 0.7
 
 	var chart_width = chart_right - chart_left

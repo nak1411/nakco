@@ -249,8 +249,8 @@ func _check_point_hover(mouse_pos: Vector2):
 		visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
 
 		var chart_bounds = chart_math.get_chart_boundaries()
-		var chart_height = parent_chart.size.y * 0.6  # EXACT original
-		var chart_y_offset = parent_chart.size.y * 0.05  # EXACT original
+		var chart_height = chart_bounds.height
+		var chart_y_offset = chart_bounds.top
 
 		# Moving average point hover detection (EXACT original)
 		var closest_distance = scaled_hover_radius + 1

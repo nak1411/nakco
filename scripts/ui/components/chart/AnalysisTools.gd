@@ -84,7 +84,7 @@ func draw_support_resistance_lines():
 
 	# Use EXACT same coordinate system as grid and Y-axis labels
 	var chart_height = parent_chart.size.y * 0.7  # EXACT same as grid
-	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT same as grid
+	var chart_y_offset = parent_chart.size.y * 0.00  # EXACT same as grid
 	var chart_bounds = chart_math.get_chart_boundaries()  # Only for left/right bounds
 
 	var bounds = chart_math.get_current_window_bounds()
@@ -99,7 +99,7 @@ func draw_support_resistance_lines():
 			var price_progress = (level - bounds.price_min) / price_range
 			var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
-			parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), support_color, 2.0, false)
+			parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), support_color, 1.0, false)
 
 			# Draw support label
 			var label_text = "S: %.2f" % level
@@ -113,63 +113,13 @@ func draw_support_resistance_lines():
 			var price_progress = (level - bounds.price_min) / price_range
 			var y = chart_y_offset + chart_height - (price_progress * chart_height)
 
-			parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), resistance_color, 2.0, false)
+			parent_chart.draw_line(Vector2(chart_bounds.left, y), Vector2(chart_bounds.right, y), resistance_color, 1.0, false)
 
 			# Draw resistance label
 			var label_text = "R: %.2f" % level
 			var font = ThemeDB.fallback_font
 			var font_size = 10
 			parent_chart.draw_string(font, Vector2(chart_bounds.right - 80, y + 15), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, resistance_color)
-
-	# Draw moving average
-	_draw_moving_average()
-
-
-func _draw_moving_average():
-	if chart_data.price_history.size() < moving_average_period:
-		return
-
-	var bounds = chart_math.get_current_window_bounds()
-
-	# Use EXACT same coordinate system as grid and Y-axis labels
-	var chart_height = parent_chart.size.y * 0.6  # EXACT same as grid
-	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT same as grid
-	var chart_bounds = chart_math.get_chart_boundaries()  # Only for left/right bounds
-
-	var price_range = bounds.price_max - bounds.price_min
-
-	if price_range <= 0:
-		return
-
-	var ma_points: PackedVector2Array = []
-
-	# Calculate moving average points
-	for i in range(moving_average_period - 1, chart_data.price_data.size()):
-		var point_data = chart_data.price_data[i]
-
-		# Check if point is in visible window
-		if point_data.timestamp >= bounds.time_start and point_data.timestamp <= bounds.time_end:
-			var ma_value = _calculate_moving_average_at_index(i)
-
-			var time_progress = (point_data.timestamp - bounds.time_start) / (bounds.time_end - bounds.time_start)
-			var x = chart_bounds.left + (time_progress * chart_bounds.width)
-
-			var price_progress = (ma_value - bounds.price_min) / price_range
-			var y = chart_y_offset + chart_height - (price_progress * chart_height)
-
-			ma_points.append(Vector2(x, y))
-
-	# Draw moving average line
-	if ma_points.size() > 1:
-		for i in range(ma_points.size() - 1):
-			var p1 = ma_points[i]
-			var p2 = ma_points[i + 1]
-
-			var clip_rect = Rect2(Vector2(chart_bounds.left, chart_y_offset), Vector2(chart_bounds.width, chart_height))
-			var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
-
-			if clipped_line.has("start") and clipped_line.has("end"):
-				parent_chart.draw_line(clipped_line.start, clipped_line.end, moving_average_color, 2.0, true)
 
 
 func draw_spread_analysis():
@@ -249,19 +199,15 @@ func _draw_spread_zone(buy_price: float, sell_price: float, bounds: Dictionary, 
 	if buy_price >= bounds.price_max or sell_price <= bounds.price_min:
 		return
 
-	# Use EXACT same coordinate system as grid and Y-axis labels
-	var chart_height = parent_chart.size.y * 0.6  # EXACT same as grid
-	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT same as grid
-
 	var buy_progress = (buy_price - bounds.price_min) / price_range
 	var sell_progress = (sell_price - bounds.price_min) / price_range
 
-	var buy_y = chart_y_offset + chart_height - (buy_progress * chart_height)  # EXACT same formula as grid
-	var sell_y = chart_y_offset + chart_height - (sell_progress * chart_height)  # EXACT same formula as grid
+	var buy_y = chart_bounds.top + chart_bounds.height - (buy_progress * chart_bounds.height)
+	var sell_y = chart_bounds.top + chart_bounds.height - (sell_progress * chart_bounds.height)
 
 	# Determine the visible portion of the spread zone
-	var zone_top = max(min(buy_y, sell_y), chart_y_offset)
-	var zone_bottom = min(max(buy_y, sell_y), chart_y_offset + chart_height)
+	var zone_top = max(min(buy_y, sell_y), chart_bounds.top)
+	var zone_bottom = min(max(buy_y, sell_y), chart_bounds.bottom)
 
 	# Only draw if there's a visible portion
 	if zone_bottom > zone_top:
@@ -333,24 +279,21 @@ func _draw_spread_hover_tooltip(spread: float, margin_pct: float):
 
 	var lines = []
 
-	if chart_data.current_station_trading_data.size() > 0:
-		var data = chart_data.current_station_trading_data
-		lines = [
-			"STATION TRADING OPPORTUNITY",
-			"",
-			"Your Buy Order: %s ISK" % _format_price_label(data.get("your_buy_price", current_buy_price)),
-			"Your Sell Order: %s ISK" % _format_price_label(data.get("your_sell_price", current_sell_price)),
-			"",
-			"Cost (with fees): %s ISK" % _format_price_label(data.get("cost_with_fees", current_buy_price)),
-			"Income (after taxes): %s ISK" % _format_price_label(data.get("income_after_taxes", current_sell_price)),
-			"",
-			"Profit: %s ISK per unit" % _format_price_label(data.get("profit_per_unit", spread)),
-			"Margin: %.2f%%" % data.get("profit_margin", margin_pct),
-			"",
-			_get_station_trading_quality_text(data.get("profit_margin", margin_pct))
-		]
-	else:
-		lines = ["SPREAD ANALYSIS", "Spread: %s ISK" % _format_price_label(spread), "Margin: %.2f%%" % margin_pct, _get_spread_quality_text(margin_pct)]
+	# Always show the larger detailed tooltip format
+	lines = [
+		"STATION TRADING OPPORTUNITY",
+		"",
+		"Your Buy Order: %s ISK" % _format_price_label(current_buy_price),
+		"Your Sell Order: %s ISK" % _format_price_label(current_sell_price),
+		"",
+		"Cost (with fees): %s ISK" % _format_price_label(current_buy_price),
+		"Income (after taxes): %s ISK" % _format_price_label(current_sell_price),
+		"",
+		"Profit: %s ISK per unit" % _format_price_label(spread),
+		"Margin: %.2f%%" % margin_pct,
+		"",
+		_get_station_trading_quality_text(margin_pct)
+	]
 
 	var max_width = 0.0
 	var line_height = 16
@@ -431,24 +374,20 @@ func _draw_spread_info(buy_price: float, sell_price: float):
 	parent_chart.draw_string(font, Vector2(bg_rect.position.x + 8, bg_rect.position.y + text_size.y + 2), info_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.WHITE)
 
 
-func _draw_spread_lines_with_dashes(buy_price: float, sell_price: float, bounds: Dictionary, _chart_bounds: Dictionary, price_range: float):
+func _draw_spread_lines_with_dashes(buy_price: float, sell_price: float, bounds: Dictionary, chart_bounds: Dictionary, price_range: float):
 	"""Draw dashed lines for buy and sell prices using EXACT same coordinate system as grid"""
-
-	# Use EXACT same coordinate system as grid and Y-axis labels
-	var chart_height = parent_chart.size.y * 0.6  # EXACT same as grid
-	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT same as grid
 
 	# Draw buy price line (dashed)
 	if buy_price >= bounds.price_min and buy_price <= bounds.price_max:
 		var buy_progress = (buy_price - bounds.price_min) / price_range
-		var buy_y = chart_y_offset + chart_height - (buy_progress * chart_height)  # EXACT same formula as grid
+		var buy_y = chart_bounds.top + chart_bounds.height - (buy_progress * chart_bounds.height)
 
 		_draw_dotted_horizontal_line(buy_y, Color.GREEN, "BUY: %s" % _format_price_label(buy_price))
 
 	# Draw sell price line (dashed)
 	if sell_price >= bounds.price_min and sell_price <= bounds.price_max:
 		var sell_progress = (sell_price - bounds.price_min) / price_range
-		var sell_y = chart_y_offset + chart_height - (sell_progress * chart_height)  # EXACT same formula as grid
+		var sell_y = chart_bounds.top + chart_bounds.height - (sell_progress * chart_bounds.height)
 
 		_draw_dotted_horizontal_line(sell_y, Color.RED, "SELL: %s" % _format_price_label(sell_price))
 
@@ -653,19 +592,17 @@ func check_spread_zone_hover(mouse_position: Vector2):
 		return
 
 	# Use EXACT same coordinate system as grid and Y-axis labels
-	var chart_height = parent_chart.size.y * 0.6  # EXACT same as grid
-	var chart_y_offset = parent_chart.size.y * 0.05  # EXACT same as grid
 	var chart_bounds = chart_math.get_chart_boundaries()
 
 	# Calculate Y positions using EXACT same formula as grid
 	var buy_ratio = (current_buy_price - min_price) / price_range
 	var sell_ratio = (current_sell_price - min_price) / price_range
-	var buy_y = chart_y_offset + chart_height - (buy_ratio * chart_height)  # EXACT same formula as grid
-	var sell_y = chart_y_offset + chart_height - (sell_ratio * chart_height)  # EXACT same formula as grid
+	var buy_y = chart_bounds.top + chart_bounds.height - (buy_ratio * chart_bounds.height)
+	var sell_y = chart_bounds.top + chart_bounds.height - (sell_ratio * chart_bounds.height)
 
 	# Determine the visible portion of the spread zone
-	var zone_top = max(min(buy_y, sell_y), chart_y_offset)
-	var zone_bottom = min(max(buy_y, sell_y), chart_y_offset + chart_height)
+	var zone_top = max(min(buy_y, sell_y), chart_bounds.top)
+	var zone_bottom = min(max(buy_y, sell_y), chart_bounds.bottom)
 
 	# Only check hover if there's a visible portion
 	if zone_bottom <= zone_top:

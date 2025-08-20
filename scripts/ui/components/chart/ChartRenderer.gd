@@ -64,9 +64,7 @@ func draw_chart():
 
 	# Only draw one type of tooltip at a time - prioritize data point tooltips
 	if parent_chart.chart_interaction.hovered_point_index != -1 or parent_chart.chart_interaction.hovered_volume_index != -1:
-		_draw_tooltip()  # Data point tooltip takes priority
-	elif parent_chart.show_spread_analysis and analysis_tools.is_hovering_spread_zone:
-		_draw_spread_hover_tooltip()  # Spread hover tooltip
+		_draw_tooltip()  # Data point tooltip
 	elif parent_chart.chart_interaction.show_crosshair:
 		_draw_crosshair()
 
@@ -183,39 +181,47 @@ func _draw_axis_label_tracks():
 
 
 func _draw_y_axis_labels():
-	var min_price = parent_chart.chart_center_price - (parent_chart.chart_price_range / 2.0)
-	var max_price = parent_chart.chart_center_price + (parent_chart.chart_price_range / 2.0)
+	"""Draw price labels aligned with dynamic price grid lines using proper boundaries"""
+	var bounds = chart_math.get_current_window_bounds()
+	var min_price = bounds.price_min
+	var max_price = bounds.price_max
 	var price_range = max_price - min_price
 
 	if price_range <= 0:
 		return
 
-	# Use chart boundaries for consistent coordinate system
+	# FIXED: Use actual chart boundaries instead of hardcoded percentages
 	var chart_bounds = chart_math.get_chart_boundaries()
-	var chart_top = chart_bounds.top
-	var chart_height = chart_bounds.height
 	var font_size = 10
 
+	print("Drawing Y-axis labels: min=%.2f, max=%.2f, range=%.2f" % [min_price, max_price, price_range])
+
+	# Use the same price interval calculation as the grid
 	var price_interval = _calculate_price_grid_interval(price_range)
+
+	# Find the first label price (round down to nearest interval)
 	var first_price = floor(min_price / price_interval) * price_interval
 
+	# Draw labels at the same positions as grid lines
 	var current_price = first_price
 	var labels_drawn = 0
 	var max_labels = 20
 
 	while current_price <= max_price and labels_drawn < max_labels:
 		if current_price >= min_price:
+			# FIXED: Calculate Y position using same system as crosshair and grid
 			var price_progress = (current_price - min_price) / price_range
-			var y_pos = chart_top + chart_height - (price_progress * chart_height)
+			var y_pos = chart_bounds.top + chart_bounds.height - (price_progress * chart_bounds.height)
 
+			# Format price based on magnitude and make it readable
 			var price_text = _format_price_label_for_axis(current_price)
+
+			# Check if this is a major price level for styling
 			var is_major = _is_major_price_level(current_price, price_interval)
 			var text_color = axis_label_color.lightened(0.1) if is_major else axis_label_color
 
-			# Center text vertically on grid line
-			var text_size = chart_font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-			var label_y = y_pos + text_size.y / 2 - 2
-			parent_chart.draw_string(chart_font, Vector2(5, label_y), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+			# FIXED: Draw price label with consistent vertical alignment
+			parent_chart.draw_string(chart_font, Vector2(5, y_pos + 4), price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 
 			labels_drawn += 1
 
@@ -523,35 +529,37 @@ func _draw_volume_bars():
 	if visible_volume_data.size() == 0:
 		return
 
-	# Calculate CONSISTENT bar width based on zoom level only
-	var base_bar_width: float
+	# FIXED: Calculate bar width based on available space and number of bars
+	var chart_width = chart_bounds.right - chart_bounds.left
+	var visible_historical_count = 0
+	for flag in visible_historical_flags:
+		if flag:
+			visible_historical_count += 1
 
-	if space_per_point > 50.0:
-		base_bar_width = 25.0 * volume_scale
+	# Calculate maximum bar width to prevent overlap
+	var max_bar_width = chart_width / visible_historical_count if visible_historical_count > 0 else 30.0
+	max_bar_width = max_bar_width * 0.8  # Use 80% of available space for gaps
+
+	# Set reasonable limits
+	var base_bar_width = clamp(max_bar_width, 1.0, 25.0)
+
+	# Fine-tune based on zoom level
+	if space_per_point > 100.0:
+		base_bar_width = min(base_bar_width, 20.0)
+	elif space_per_point > 50.0:
+		base_bar_width = min(base_bar_width, 15.0)
 	elif space_per_point > 25.0:
-		base_bar_width = 18.0 * volume_scale
-	elif space_per_point > 15.0:
-		base_bar_width = 12.0 * volume_scale
+		base_bar_width = min(base_bar_width, 10.0)
 	elif space_per_point > 10.0:
-		base_bar_width = 8.0 * volume_scale
-	elif space_per_point > 6.0:
-		base_bar_width = 5.0 * volume_scale
-	elif space_per_point > 4.0:
-		base_bar_width = 3.0 * volume_scale
-	elif space_per_point > 2.0:
-		base_bar_width = 2.0 * volume_scale
+		base_bar_width = min(base_bar_width, 6.0)
 	else:
-		base_bar_width = 1.0 * volume_scale
-
-	# Absolute minimum for visibility
-	base_bar_width = max(base_bar_width, 0.5)
+		base_bar_width = min(base_bar_width, 3.0)
 
 	# Calculate precise sampling rate to prevent overlap
 	var sampling_rate = 1
 	var required_space_per_bar = base_bar_width + 1.0  # Bar width + minimum 1px gap
 
 	if space_per_point < required_space_per_bar:
-		# Calculate how many bars we need to skip to prevent overlap
 		sampling_rate = max(1, int(ceil(required_space_per_bar / space_per_point)))
 
 	# Special handling for the problematic 4-week to 1-week zoom range
@@ -592,7 +600,6 @@ func _draw_volume_bars():
 
 		# Calculate X position
 		var time_progress = (timestamp - window_start) / (window_end - window_start)
-		var chart_width = chart_bounds.right - chart_bounds.left
 		var x = chart_bounds.left + (time_progress * chart_width)
 
 		# Skip if outside visible area
@@ -668,23 +675,19 @@ func _draw_volume_bars():
 
 
 func _draw_crosshair():
-	"""Draw crosshair with price and time labels (EXACT original)"""
+	"""Draw crosshair with price and time labels using proper chart boundaries"""
 	if not parent_chart.chart_interaction.show_crosshair:
 		return
 
 	var chart_bounds = chart_math.get_chart_boundaries()
 	var mouse_pos = parent_chart.chart_interaction.mouse_position
 
-	# Use EXACT original chart boundaries
-	var chart_top = chart_bounds.top
-	var chart_bottom = chart_bounds.bottom
-
-	if mouse_pos.x < chart_bounds.left or mouse_pos.x > chart_bounds.right or mouse_pos.y < chart_top or mouse_pos.y > chart_bottom:
+	if mouse_pos.x < chart_bounds.left or mouse_pos.x > chart_bounds.right or mouse_pos.y < chart_bounds.top or mouse_pos.y > chart_bounds.bottom:
 		return
 
-	# Draw crosshair lines
+	# Draw crosshair lines using proper chart boundaries
 	parent_chart.draw_line(Vector2(chart_bounds.left, mouse_pos.y), Vector2(chart_bounds.right, mouse_pos.y), Color.DIM_GRAY, 1.0, false)
-	parent_chart.draw_line(Vector2(mouse_pos.x, chart_top), Vector2(mouse_pos.x, chart_bottom), Color.DIM_GRAY, 1.0, false)
+	parent_chart.draw_line(Vector2(mouse_pos.x, chart_bounds.top), Vector2(mouse_pos.x, chart_bounds.bottom), Color.DIM_GRAY, 1.0, false)
 
 	# Use the SAME coordinate system as axis labels
 	if chart_data.price_data.size() > 0:
@@ -710,12 +713,13 @@ func _draw_crosshair():
 			var price_text = _format_price_label_for_axis(price_at_mouse)
 			var time_text = _format_eve_time_label(time_at_mouse, time_format_type)
 
-			# Draw price text clamped to Y-axis (EXACT original)
+			# FIXED: Draw price text with same +4 offset as Y-axis labels
 			var font_size = 11
 			var price_text_size = chart_font.get_string_size(price_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 			var padding = Vector2(4, 2)
 
-			var price_bg_rect = Rect2(Vector2(2, mouse_pos.y - price_text_size.y / 2 - padding.y), Vector2(price_text_size.x + padding.x * 2, price_text_size.y + padding.y * 2))
+			# Position with same +4 vertical offset as Y-axis labels
+			var price_bg_rect = Rect2(Vector2(2, mouse_pos.y - padding.y), Vector2(price_text_size.x + padding.x * 2, price_text_size.y + padding.y * 2))
 
 			parent_chart.draw_rect(price_bg_rect, Color(0.1, 0.1, 0.15, 0.9))
 			parent_chart.draw_rect(price_bg_rect, axis_label_color, false, 1.0)
@@ -729,13 +733,13 @@ func _draw_crosshair():
 				Color.WHITE
 			)
 
-			# Draw time text clamped to X-axis (EXACT original)
+			# Draw time text using proper chart boundaries
 			var time_text_size = chart_font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
 
 			var time_x = mouse_pos.x - time_text_size.x / 2
 			time_x = max(0, min(time_x, parent_chart.size.x - time_text_size.x))
 
-			var time_bg_rect = Rect2(Vector2(time_x - padding.x, chart_bottom + 2), Vector2(time_text_size.x + padding.x * 2, time_text_size.y + padding.y * 2))
+			var time_bg_rect = Rect2(Vector2(time_x - padding.x, chart_bounds.bottom + 2), Vector2(time_text_size.x + padding.x * 2, time_text_size.y + padding.y * 2))
 
 			parent_chart.draw_rect(time_bg_rect, Color(0.1, 0.1, 0.15, 0.9))
 			parent_chart.draw_rect(time_bg_rect, axis_label_color, false, 1.0)
