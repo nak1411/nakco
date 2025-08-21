@@ -112,12 +112,8 @@ func create_market_chart():
 	var controls = create_chart_controls()
 	chart_vbox.add_child(controls)
 
-	var spacer = Control.new()
-	spacer.custom_minimum_size.y = 5
-	chart_vbox.add_child(spacer)
-
 	var chart_header_container = HBoxContainer.new()
-	chart_header_container.custom_minimum_size.y = 30
+	chart_header_container.custom_minimum_size.y = 5
 	chart_vbox.add_child(chart_header_container)
 
 	market_chart = MarketChart.new()
