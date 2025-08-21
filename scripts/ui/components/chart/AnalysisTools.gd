@@ -207,7 +207,7 @@ func _calculate_donchian_lines(candles: Array, bounds: Dictionary, chart_bounds:
 	var buffer_multiplier = max(0.5, zoom_level / 10.0)
 	var calculation_buffer = time_window * buffer_multiplier
 
-	for i in range(donchian_period - 1, candles.size()):
+	for i in range(candles.size()):
 		var current_candle = candles[i]
 
 		# IMPROVED: Use zoom-aware range checking
@@ -219,8 +219,10 @@ func _calculate_donchian_lines(candles: Array, bounds: Dictionary, chart_bounds:
 		# Find highest high and lowest low in the period
 		var highest_high = 0.0
 		var lowest_low = 999999999999.0
+		var lookback_start = max(0, i - donchian_period + 1)
+		var lookback_end = i + 1
 
-		for j in range(max(0, i - donchian_period + 1), min(candles.size(), i + 1)):
+		for j in range(lookback_start, lookback_end):
 			var candle = candles[j]
 			var high = candle.get("high", 0.0)
 			var low = candle.get("low", 0.0)
