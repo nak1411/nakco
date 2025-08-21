@@ -60,7 +60,6 @@ func draw_chart():
 		analysis_tools.draw_spread_analysis()
 
 	_draw_zoom_indicator()
-	_draw_drag_indicator()
 
 	# Only draw one type of tooltip at a time - prioritize data point tooltips
 	if parent_chart.chart_interaction.hovered_point_index != -1 or parent_chart.chart_interaction.hovered_volume_index != -1:
@@ -989,33 +988,6 @@ func _draw_zoom_indicator():
 	parent_chart.draw_string(
 		chart_font, Vector2(bg_rect.position.x + (padding.x - 2), bg_rect.position.y + padding.y + text_size.y - 4), zoom_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color
 	)
-
-
-func _draw_drag_indicator():
-	"""Show current chart position (EXACT original)"""
-	var font_size = 10
-	var current_time = Time.get_unix_time_from_system()
-	var time_offset = current_time - parent_chart.chart_center_time
-
-	if abs(time_offset) > 300.0:  # More than 5 minutes offset
-		var hours_offset = time_offset / 3600.0
-		var days_offset = time_offset / 86400.0
-
-		var time_text = ""
-		if abs(days_offset) >= 1.0:
-			time_text = "%.1f days from now" % days_offset
-		else:
-			time_text = "%.1f hours from now" % hours_offset
-
-		var text_size = chart_font.get_string_size(time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size)
-		var padding = Vector2(8, 4)
-		var bg_rect = Rect2(Vector2(5, 5), Vector2(text_size.x + padding.x * 2, text_size.y + padding.y * 2))
-
-		parent_chart.draw_rect(bg_rect, Color(0.2, 0.15, 0.0, 0.9))
-		parent_chart.draw_rect(bg_rect, Color(0.5, 0.4, 0.2, 0.8), false, 1.0)
-		parent_chart.draw_string(
-			chart_font, Vector2(bg_rect.position.x + padding.x, bg_rect.position.y + padding.y + text_size.y - 4), time_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color.ORANGE
-		)
 
 
 func _draw_no_data_message():

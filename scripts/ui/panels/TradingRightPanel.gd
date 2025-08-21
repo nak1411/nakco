@@ -120,19 +120,6 @@ func create_market_chart():
 	chart_header_container.custom_minimum_size.y = 30
 	chart_vbox.add_child(chart_header_container)
 
-	var chart_header = Label.new()
-	chart_header.text = "Station Trading Analysis"
-	chart_header.add_theme_color_override("font_color", Color.CYAN)
-	chart_header.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	chart_header_container.add_child(chart_header)
-
-	var timeframe_label = Label.new()
-	timeframe_label.name = "TimeframeLabel"
-	timeframe_label.text = "24H Rolling"
-	timeframe_label.add_theme_color_override("font_color", Color.YELLOW)
-	timeframe_label.add_theme_font_size_override("font_size", 10)
-	chart_header_container.add_child(timeframe_label)
-
 	market_chart = MarketChart.new()
 	market_chart.name = "MarketChart"
 	market_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
