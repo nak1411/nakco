@@ -855,6 +855,18 @@ func _draw_tooltip():
 			text_color = Color.LIGHT_GREEN
 		elif line.contains("📉") or line.contains("Historical High"):
 			text_color = Color.ORANGE
+		elif line.contains("ORDER ANALYSIS:"):
+			text_color = Color.CYAN  # Header color like other sections
+		elif line.contains("Total Buy Orders:"):
+			text_color = Color.GREEN  # Green for buy orders
+		elif line.contains("Total Sell Orders:"):
+			text_color = Color.RED  # Red for sell orders
+		elif line.contains("Highest Buy:"):
+			text_color = Color.GREEN  # Green for buy price
+		elif line.contains("Lowest Sell:"):
+			text_color = Color.RED  # Red for sell price
+		elif line.contains("Total Orders:"):
+			text_color = Color.LIGHT_BLUE  # Light blue for general order count
 
 		parent_chart.draw_string(chart_font, line_pos, line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
 

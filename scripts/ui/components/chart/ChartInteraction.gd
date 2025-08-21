@@ -284,7 +284,7 @@ func _check_point_hover(mouse_pos: Vector2):
 			# EXACT original tooltip format
 			var is_historical = point.get("is_historical", false)
 			var point_type = "Historical" if is_historical else "Real-time"
-			var price_label = "MA Price" if is_historical else "Current Price"
+			var price_label = "MA Price" if is_historical else "Current Price(Avg)"
 
 			lines.append("%s Data Point" % point_type)
 			lines.append("%s: %s ISK" % [price_label, _format_price_label(point.price)])
@@ -295,12 +295,11 @@ func _check_point_hover(mouse_pos: Vector2):
 				lines.append("High: %s ISK" % _format_price_label(extremes.high))
 				lines.append("Low: %s ISK" % _format_price_label(extremes.low))
 
-			# Add volume analysis at different price levels
-			var volume_analysis = _analyze_volume_at_price_levels(point.price)
-			if not volume_analysis.is_empty():
+			var order_analysis = _analyze_order_depth(point.price, point, visible_points)
+			if not order_analysis.is_empty():
 				lines.append("")  # Empty line separator
-				lines.append("VOLUME ANALYSIS:")
-				for level_info in volume_analysis:
+				lines.append("ORDER ANALYSIS:")
+				for level_info in order_analysis:
 					lines.append(level_info)
 
 			var current_time = Time.get_unix_time_from_system()
@@ -321,50 +320,125 @@ func _check_point_hover(mouse_pos: Vector2):
 		parent_chart.queue_redraw()
 
 
-func _analyze_volume_at_price_levels(current_price: float) -> Array:
-	"""Analyze volume at different price levels around the current price"""
+func _analyze_order_depth(current_price: float, hovered_point: Dictionary, visible_points: Array) -> Array:
+	"""Show order information for the hovered point"""
 	var analysis = []
 
-	# Get current market data
-	var market_data = parent_chart.chart_data.current_station_trading_data
-	if market_data.is_empty():
+	# Check if this is a real-time point or historical point
+	var is_historical = hovered_point.get("is_historical", false)
+
+	if is_historical:
+		# For historical points, show total orders for that day if available
+		var order_count = hovered_point.get("order_count", 0)
+		if order_count > 0:
+			analysis.append("Total Orders: %d" % order_count)
+
+		return analysis
+	else:
+		# For real-time points, show total buy and sell order counts
+		var market_data = parent_chart.chart_data.current_station_trading_data
+		if market_data.is_empty():
+			return analysis
+
+		var buy_orders = market_data.get("buy_orders", [])
+		var sell_orders = market_data.get("sell_orders", [])
+
+		if buy_orders.is_empty() and sell_orders.is_empty():
+			return analysis
+
+		# Show total counts of all buy and sell orders
+		analysis.append("Total Buy Orders: %d" % buy_orders.size())
+		analysis.append("Total Sell Orders: %d" % sell_orders.size())
+		analysis.append("")  # Empty line separator
+
+		# Also show the best prices for context
+		if buy_orders.size() > 0:
+			buy_orders.sort_custom(func(a, b): return a.get("price", 0) > b.get("price", 0))
+			var highest_buy_price = buy_orders[0].get("price", 0)
+			analysis.append("Highest Buy: %s ISK" % _format_price_label(highest_buy_price))
+
+		if sell_orders.size() > 0:
+			sell_orders.sort_custom(func(a, b): return a.get("price", 0) < b.get("price", 0))
+			var lowest_sell_price = sell_orders[0].get("price", 0)
+			analysis.append("Lowest Sell: %s ISK" % _format_price_label(lowest_sell_price))
+
 		return analysis
 
-	var buy_orders = market_data.get("buy_orders", [])
-	var sell_orders = market_data.get("sell_orders", [])
 
-	if buy_orders.is_empty() and sell_orders.is_empty():
-		return analysis
+func _calculate_volume_percentile(current_volume: int, visible_points: Array) -> float:
+	"""Calculate what percentile this volume is compared to recent history"""
+	var recent_volumes = []
 
-	# Analyze volume within price ranges around current price
-	var price_ranges = [{"range": "±1%", "multiplier": 0.01}, {"range": "±5%", "multiplier": 0.05}, {"range": "±10%", "multiplier": 0.10}]
+	# Collect recent historical volumes from visible points
+	for point in visible_points:
+		if point.get("is_historical", false):
+			var vol = point.get("volume", 0)
+			if vol > 0:
+				recent_volumes.append(vol)
 
-	for range_info in price_ranges:
-		var range_text = range_info.range
-		var price_tolerance = current_price * range_info.multiplier
-		var min_price = current_price - price_tolerance
-		var max_price = current_price + price_tolerance
+	# If not enough visible data, use all chart data
+	if recent_volumes.size() < 5:
+		for point in chart_data.price_data:
+			if point.get("is_historical", false):
+				var vol = point.get("volume", 0)
+				if vol > 0:
+					recent_volumes.append(vol)
 
-		var buy_volume = 0
-		var sell_volume = 0
+	if recent_volumes.size() < 2:
+		return 50.0
 
-		# Count buy volume in this price range
-		for order in buy_orders:
-			var price = order.get("price", 0.0)
-			if price >= min_price and price <= max_price:
-				buy_volume += order.get("volume", 0)
+	recent_volumes.sort()
 
-		# Count sell volume in this price range
-		for order in sell_orders:
-			var price = order.get("price", 0.0)
-			if price >= min_price and price <= max_price:
-				sell_volume += order.get("volume", 0)
+	# Find where current volume ranks
+	var rank = 0
+	for vol in recent_volumes:
+		if current_volume >= vol:
+			rank += 1
 
-		if buy_volume > 0 or sell_volume > 0:
-			var total_volume = buy_volume + sell_volume
-			analysis.append("%s: %s units (%s buy, %s sell)" % [range_text, _format_number(total_volume), _format_number(buy_volume), _format_number(sell_volume)])
+	return (float(rank) / float(recent_volumes.size())) * 100.0
 
-	return analysis
+
+func _get_volume_context_text(percentile: float) -> String:
+	"""Get descriptive text for volume level"""
+	if percentile >= 90:
+		return "Very High"
+	elif percentile >= 75:
+		return "High"
+	elif percentile >= 60:
+		return "Above Average"
+	elif percentile >= 40:
+		return "Average"
+	elif percentile >= 25:
+		return "Below Average"
+	elif percentile >= 10:
+		return "Low"
+	else:
+		return "Very Low"
+
+
+func _calculate_historical_volatility(point: Dictionary) -> Dictionary:
+	"""Calculate volatility info for a historical point from candlestick data"""
+	var timestamp = point.get("timestamp", 0.0)
+
+	# Find matching candlestick data for this timestamp
+	for candle in chart_data.candlestick_data:
+		if abs(candle.get("timestamp", 0.0) - timestamp) < 3600:  # Within 1 hour
+			return {"high": candle.get("high", point.get("price", 0.0)), "low": candle.get("low", point.get("price", 0.0))}
+
+	return {}
+
+
+func _calculate_order_depth(orders: Array, level_count: int) -> Dictionary:
+	"""Calculate cumulative volume and worst price for top N orders"""
+	var total_volume = 0
+	var worst_price = 0.0
+
+	for i in range(min(level_count, orders.size())):
+		var order = orders[i]
+		total_volume += order.get("volume", 0)
+		worst_price = order.get("price", 0.0)
+
+	return {"volume": total_volume, "worst_price": worst_price}
 
 
 func _calculate_price_percentile(price: float, visible_points: Array) -> float:
