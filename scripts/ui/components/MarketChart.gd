@@ -22,6 +22,8 @@ var time_labels: Array[String] = []
 var show_candlesticks: bool = true
 var show_support_resistance: bool = false
 var show_spread_analysis: bool = false
+var show_data_points: bool = true
+var show_ma_lines: bool = true
 
 # Chart view state (delegated to ChartInteraction)
 var zoom_level: float = 1.0
@@ -240,6 +242,24 @@ func toggle_support_resistance():
 
 func toggle_spread_analysis():
 	analysis_tools.toggle_spread_analysis()
+
+
+func toggle_candlesticks():
+	show_candlesticks = not show_candlesticks
+	print("Candlesticks: %s" % ("ON" if show_candlesticks else "OFF"))
+	queue_redraw()
+
+
+func toggle_data_points():
+	show_data_points = not show_data_points
+	print("Data Points: %s" % ("ON" if show_data_points else "OFF"))
+	queue_redraw()
+
+
+func toggle_ma_lines():
+	show_ma_lines = not show_ma_lines
+	print("MA Lines: %s" % ("ON" if show_ma_lines else "OFF"))
+	queue_redraw()
 
 
 func set_moving_average_period(period: int):

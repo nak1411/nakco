@@ -364,7 +364,7 @@ func _draw_price_line():
 	if parent_chart.show_candlesticks and visible_candles.size() > 0:
 		_draw_candlesticks(visible_candles, window_start, window_end, min_price, price_range, chart_height, chart_y_offset)
 
-	# Draw moving average line with IMPROVED clipping for close zoom
+	# ALWAYS generate points array for both MA lines and data points
 	var points: PackedVector2Array = []
 	for i in range(visible_points.size()):
 		var point_data = visible_points[i]
@@ -377,88 +377,94 @@ func _draw_price_line():
 
 		points.append(Vector2(x, y))
 
-	print("Generated %d points for MA line" % points.size())
+	print("Generated %d points for chart elements" % points.size())
 
-	# CRITICAL FIX: Draw lines with improved clipping that handles close zoom better
-	for i in range(points.size() - 1):
-		var current_point_data = visible_points[i]
-		var next_point_data = visible_points[i + 1]
-		var time_diff = next_point_data.timestamp - current_point_data.timestamp
+	# Draw MA lines if enabled
+	if parent_chart.show_ma_lines:
+		print("Drawing MA lines...")
+		# CRITICAL FIX: Draw lines with improved clipping that handles close zoom better
+		for i in range(points.size() - 1):
+			var current_point_data = visible_points[i]
+			var next_point_data = visible_points[i + 1]
+			var time_diff = next_point_data.timestamp - current_point_data.timestamp
 
-		# IMPROVED: Scale max time gap with zoom level
-		var max_time_gap = 86400.0 * 2  # Base: 2 days
-		if zoom_level > 10:  # When zoomed in close
-			max_time_gap = 86400.0 * 30  # Allow much larger gaps (30 days)
+			# IMPROVED: Scale max time gap with zoom level
+			var max_time_gap = 86400.0 * 2  # Base: 2 days
+			if zoom_level > 10:  # When zoomed in close
+				max_time_gap = 86400.0 * 30  # Allow much larger gaps (30 days)
 
-		if time_diff <= max_time_gap:
-			var p1 = points[i]
-			var p2 = points[i + 1]
+			if time_diff <= max_time_gap:
+				var p1 = points[i]
+				var p2 = points[i + 1]
 
-			# IMPROVED: Use expanded clipping rectangle for better edge handling
-			var expanded_clip_rect = Rect2(Vector2(chart_bounds.left, chart_top), Vector2(chart_bounds.width, chart_height))
+				# IMPROVED: Use expanded clipping rectangle for better edge handling
+				var expanded_clip_rect = Rect2(Vector2(chart_bounds.left, chart_top), Vector2(chart_bounds.width, chart_height))
 
-			# First check if line is completely outside expanded area (skip it)
-			if _is_point_in_rect(p1, expanded_clip_rect) or _is_point_in_rect(p2, expanded_clip_rect) or _line_intersects_rect(p1, p2, expanded_clip_rect):
-				# Use normal clipping rectangle for actual drawing
-				var clip_rect = Rect2(Vector2(chart_bounds.left, chart_top), Vector2(chart_bounds.width, chart_height))
+				# First check if line is completely outside expanded area (skip it)
+				if _is_point_in_rect(p1, expanded_clip_rect) or _is_point_in_rect(p2, expanded_clip_rect) or _line_intersects_rect(p1, p2, expanded_clip_rect):
+					# Use normal clipping rectangle for actual drawing
+					var clip_rect = Rect2(Vector2(chart_bounds.left, chart_top), Vector2(chart_bounds.width, chart_height))
 
-				var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
+					var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
 
-				if clipped_line.has("start") and clipped_line.has("end"):
-					var current_is_historical = current_point_data.get("is_historical", false)
-					var next_is_historical = next_point_data.get("is_historical", false)
-
-					var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
-					var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
-
-					parent_chart.draw_line(clipped_line.start, clipped_line.end, line_color, line_width, true)
-				else:
-					# FALLBACK: If clipping fails but line should be visible, draw it anyway
-					if _is_point_in_rect(p1, clip_rect) or _is_point_in_rect(p2, clip_rect):
+					if clipped_line.has("start") and clipped_line.has("end"):
 						var current_is_historical = current_point_data.get("is_historical", false)
 						var next_is_historical = next_point_data.get("is_historical", false)
 
 						var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
 						var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
 
-						parent_chart.draw_line(p1, p2, line_color, line_width, true)
-						print("Drew fallback line %d (clipping failed but points visible)" % i)
+						parent_chart.draw_line(clipped_line.start, clipped_line.end, line_color, line_width, true)
+					else:
+						# FALLBACK: If clipping fails but line should be visible, draw it anyway
+						if _is_point_in_rect(p1, clip_rect) or _is_point_in_rect(p2, clip_rect):
+							var current_is_historical = current_point_data.get("is_historical", false)
+							var next_is_historical = next_point_data.get("is_historical", false)
 
-	# Calculate adaptive circle radius based on zoom level
-	var base_circle_radius = 2.0
-	var min_circle_radius = 2.0
-	var max_circle_radius = 4.0
+							var line_color = Color(0.6, 0.8, 1.0, 0.6) if (current_is_historical and next_is_historical) else Color.YELLOW
+							var line_width = 1.5 if (current_is_historical and next_is_historical) else 2.0
 
-	# Scale inversely with zoom - closer zoom = smaller circles
-	var zoom_scale_factor = 1.0 / sqrt(max(zoom_level, 1.0))  # Square root for smoother scaling
-	var adaptive_radius = base_circle_radius * zoom_scale_factor
+							parent_chart.draw_line(p1, p2, line_color, line_width, true)
+							print("Drew fallback line %d (clipping failed but points visible)" % i)
 
-	# Clamp to reasonable bounds
-	adaptive_radius = clamp(adaptive_radius, min_circle_radius, max_circle_radius)
+	# Draw data points if enabled
+	if parent_chart.show_data_points:
+		print("Drawing data points...")
+		# Calculate adaptive circle radius based on zoom level
+		var base_circle_radius = 2.0
+		var min_circle_radius = 2.0
+		var max_circle_radius = 4.0
 
-	print("Zoom level: %.1f, Circle radius: %.1f (scale factor: %.2f)" % [zoom_level, adaptive_radius, zoom_scale_factor])
+		# Scale inversely with zoom - closer zoom = smaller circles
+		var zoom_scale_factor = 1.0 / sqrt(max(zoom_level, 1.0))  # Square root for smoother scaling
+		var adaptive_radius = base_circle_radius * zoom_scale_factor
 
-	# Draw data points with adaptive sizing and proper clipping
-	for i in range(points.size()):
-		var point_data = visible_points[i]
-		var point = points[i]
+		# Clamp to reasonable bounds
+		adaptive_radius = clamp(adaptive_radius, min_circle_radius, max_circle_radius)
 
-		# Only draw points within the chart bounds
-		if point.y >= chart_top and point.y <= chart_bottom and point.x >= chart_bounds.left and point.x <= chart_bounds.right:
-			var is_historical = point_data.get("is_historical", false)
-			var volume = point_data.get("volume", 0)
+		print("Zoom level: %.1f, Circle radius: %.1f (scale factor: %.2f)" % [zoom_level, adaptive_radius, zoom_scale_factor])
 
-			var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
+		# Draw data points with adaptive sizing and proper clipping
+		for i in range(points.size()):
+			var point_data = visible_points[i]
+			var point = points[i]
 
-			# Use adaptive radius instead of fixed 4.0
-			var outline_radius = adaptive_radius + 1.0
-			var fill_radius = adaptive_radius
+			# Only draw points within the chart bounds
+			if point.y >= chart_top and point.y <= chart_bottom and point.x >= chart_bounds.left and point.x <= chart_bounds.right:
+				var is_historical = point_data.get("is_historical", false)
+				var volume = point_data.get("volume", 0)
 
-			if volume > 0:
-				parent_chart.draw_circle(point, outline_radius, Color.WHITE, true)
-				parent_chart.draw_circle(point, fill_radius, circle_color, true)
+				var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
 
-	print("MA line drawing complete with improved close-zoom clipping")
+				# Use adaptive radius instead of fixed 4.0
+				var outline_radius = adaptive_radius + 1.0
+				var fill_radius = adaptive_radius
+
+				if volume > 0:
+					parent_chart.draw_circle(point, outline_radius, Color.WHITE, true)
+					parent_chart.draw_circle(point, fill_radius, circle_color, true)
+
+	print("Chart drawing complete with independent MA lines and data points")
 
 
 # Add helper functions for improved clipping

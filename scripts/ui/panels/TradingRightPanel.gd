@@ -10,9 +10,8 @@ var current_market_data: Dictionary = {}
 var market_chart: MarketChart
 var order_book_list: VBoxContainer
 var quick_trade_panel: VBoxContainer
-
-var sr_toggle: Button = null
-var spread_toggle: Button = null
+var analysis_tools_menu: MenuButton
+var chart_display_menu: MenuButton
 
 @onready var data_manager: DataManager
 
@@ -138,51 +137,146 @@ func create_market_chart():
 
 
 func create_chart_controls():
-	"""Create chart control buttons"""
+	"""Create chart control dropdowns with proper checkboxes and styling"""
 	var controls_container = HBoxContainer.new()
 	controls_container.name = "ChartControls"
+	controls_container.alignment = BoxContainer.ALIGNMENT_BEGIN  # Center the controls
+	controls_container.custom_minimum_size.y = 20  # Give more height for better appearance
 
-	# Spread Analysis Toggle Button
-	spread_toggle = Button.new()
-	spread_toggle.name = "SpreadToggle"
-	spread_toggle.text = "Spread Analysis: OFF"
-	spread_toggle.custom_minimum_size = Vector2(150, 25)
-	spread_toggle.pressed.connect(_on_spread_analysis_toggle)
-	controls_container.add_child(spread_toggle)
+	# Analysis Tools Menu
+	analysis_tools_menu = MenuButton.new()
+	analysis_tools_menu.name = "AnalysisToolsMenu"
+	analysis_tools_menu.text = "Analysis Tools..."
+	analysis_tools_menu.custom_minimum_size = Vector2(180, 20)
 
-	# Support/Resistance Toggle Button (for future use)
-	sr_toggle = Button.new()
-	sr_toggle.name = "SRToggle"
-	sr_toggle.text = "S/R Lines: OFF"
-	sr_toggle.custom_minimum_size = Vector2(120, 25)
-	sr_toggle.pressed.connect(_on_support_resistance_toggle)
-	controls_container.add_child(sr_toggle)
+	# Style the Analysis Tools menu button
+	_style_menu_button(analysis_tools_menu)
+
+	var analysis_popup = analysis_tools_menu.get_popup()
+	analysis_popup.add_check_item("Spread Analysis")
+	analysis_popup.add_check_item("S/R Analysis")
+	analysis_popup.id_pressed.connect(_on_analysis_menu_selected)
+	controls_container.add_child(analysis_tools_menu)
+
+	# Chart Display Menu
+	chart_display_menu = MenuButton.new()
+	chart_display_menu.name = "ChartDisplayMenu"
+	chart_display_menu.text = "Chart Display..."
+	chart_display_menu.custom_minimum_size = Vector2(180, 20)
+
+	# Style the Chart Display menu button
+	_style_menu_button(chart_display_menu)
+
+	var display_popup = chart_display_menu.get_popup()
+	display_popup.add_check_item("Candlesticks")
+	display_popup.add_check_item("Data Points")
+	display_popup.add_check_item("MA Line")
+	display_popup.id_pressed.connect(_on_chart_display_menu_selected)
+	controls_container.add_child(chart_display_menu)
+
+	# Set initial checkbox states
+	_update_menu_states()
 
 	return controls_container
 
 
-func _on_support_resistance_toggle():
-	if market_chart:
-		market_chart.toggle_support_resistance()
-		_update_button_texts()
+func _style_menu_button(menu_button: MenuButton):
+	"""Apply consistent styling to menu buttons"""
+	# Create custom StyleBox for normal state
+	var style_normal = StyleBoxFlat.new()
+	style_normal.bg_color = Color(0.2, 0.25, 0.3, 1.0)  # Dark blue-gray
+	style_normal.content_margin_left = 50
+	style_normal.content_margin_top = 12
+	style_normal.border_width_left = 2
+	style_normal.border_width_right = 2
+	style_normal.border_width_top = 2
+	style_normal.border_width_bottom = 2
+	style_normal.border_color = Color(0.4, 0.5, 0.6, 1.0)  # Lighter border
+
+	# Create custom StyleBox for hover state
+	var style_hover = StyleBoxFlat.new()
+	style_hover.bg_color = Color(0.3, 0.35, 0.4, 1.0)  # Lighter on hover
+	style_hover.content_margin_left = 50
+	style_hover.border_width_left = 2
+	style_hover.border_width_right = 2
+	style_hover.border_width_top = 2
+	style_hover.border_width_bottom = 2
+	style_hover.border_color = Color(0.5, 0.6, 0.7, 1.0)  # Brighter border on hover
+
+	# Create custom StyleBox for pressed state
+	var style_pressed = StyleBoxFlat.new()
+	style_pressed.bg_color = Color(0.15, 0.2, 0.25, 1.0)  # Darker when pressed
+	style_pressed.content_margin_left = 50
+	style_pressed.border_width_left = 2
+	style_pressed.border_width_right = 2
+	style_pressed.border_width_top = 2
+	style_pressed.border_width_bottom = 2
+	style_pressed.border_color = Color(0.6, 0.7, 0.8, 1.0)  # Bright border when pressed
+
+	# Apply the styles
+	menu_button.add_theme_stylebox_override("normal", style_normal)
+	menu_button.add_theme_stylebox_override("hover", style_hover)
+	menu_button.add_theme_stylebox_override("pressed", style_pressed)
+
+	# Set font properties
+	menu_button.add_theme_color_override("font_color", Color.WHITE)
+	menu_button.add_theme_color_override("font_hover_color", Color(0.9, 0.95, 1.0, 1.0))
+	menu_button.add_theme_color_override("font_pressed_color", Color(0.8, 0.9, 1.0, 1.0))
+
+	# Set font size if needed
+	menu_button.add_theme_font_size_override("font_size", 12)
+
+	# Center the text
+	menu_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 
-func _on_spread_analysis_toggle():
-	if market_chart:
-		market_chart.toggle_spread_analysis()
-		_update_button_texts()
-
-
-func _update_button_texts():
-	"""Update button text to reflect current toggle states"""
+func _on_analysis_menu_selected(id: int):
+	"""Handle analysis tools menu selection"""
 	if not market_chart:
 		return
 
-	if sr_toggle:
-		sr_toggle.text = "S/R Lines: %s" % ("ON" if market_chart.show_support_resistance else "OFF")
+	match id:
+		0:  # Spread Analysis
+			market_chart.toggle_spread_analysis()
+		1:  # S/R Analysis
+			market_chart.toggle_support_resistance()
 
-	if spread_toggle:
-		spread_toggle.text = "Spread Analysis: %s" % ("ON" if market_chart.show_spread_analysis else "OFF")
+	_update_menu_states()
+
+
+func _on_chart_display_menu_selected(id: int):
+	"""Handle chart display menu selection"""
+	if not market_chart:
+		return
+
+	match id:
+		0:  # Candlesticks
+			market_chart.toggle_candlesticks()
+		1:  # Data Points
+			market_chart.toggle_data_points()
+		2:  # MA Lines
+			market_chart.toggle_ma_lines()
+
+	_update_menu_states()
+
+
+func _update_menu_states():
+	"""Update menu checkbox states"""
+	if not market_chart:
+		return
+
+	# Update Analysis Tools menu
+	if analysis_tools_menu:
+		var analysis_popup = analysis_tools_menu.get_popup()
+		analysis_popup.set_item_checked(0, market_chart.show_spread_analysis)
+		analysis_popup.set_item_checked(1, market_chart.show_support_resistance)
+
+	# Update Chart Display menu
+	if chart_display_menu:
+		var display_popup = chart_display_menu.get_popup()
+		display_popup.set_item_checked(0, market_chart.show_candlesticks)
+		display_popup.set_item_checked(1, market_chart.show_data_points)
+		display_popup.set_item_checked(2, market_chart.show_ma_lines)
 
 
 func _on_chart_panel_resized():
