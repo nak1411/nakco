@@ -425,7 +425,21 @@ func _draw_price_line():
 						parent_chart.draw_line(p1, p2, line_color, line_width, true)
 						print("Drew fallback line %d (clipping failed but points visible)" % i)
 
-	# Draw data points with proper clipping
+	# Calculate adaptive circle radius based on zoom level
+	var base_circle_radius = 2.0
+	var min_circle_radius = 2.0
+	var max_circle_radius = 4.0
+
+	# Scale inversely with zoom - closer zoom = smaller circles
+	var zoom_scale_factor = 1.0 / sqrt(max(zoom_level, 1.0))  # Square root for smoother scaling
+	var adaptive_radius = base_circle_radius * zoom_scale_factor
+
+	# Clamp to reasonable bounds
+	adaptive_radius = clamp(adaptive_radius, min_circle_radius, max_circle_radius)
+
+	print("Zoom level: %.1f, Circle radius: %.1f (scale factor: %.2f)" % [zoom_level, adaptive_radius, zoom_scale_factor])
+
+	# Draw data points with adaptive sizing and proper clipping
 	for i in range(points.size()):
 		var point_data = visible_points[i]
 		var point = points[i]
@@ -436,11 +450,14 @@ func _draw_price_line():
 			var volume = point_data.get("volume", 0)
 
 			var circle_color = Color(0.9, 0.9, 0.4, 0.8) if is_historical else Color.ORANGE
-			var circle_radius = 4.0
+
+			# Use adaptive radius instead of fixed 4.0
+			var outline_radius = adaptive_radius + 1.0
+			var fill_radius = adaptive_radius
 
 			if volume > 0:
-				parent_chart.draw_circle(point, circle_radius + 1.0, Color.WHITE, true)
-				parent_chart.draw_circle(point, circle_radius, circle_color, true)
+				parent_chart.draw_circle(point, outline_radius, Color.WHITE, true)
+				parent_chart.draw_circle(point, fill_radius, circle_color, true)
 
 	print("MA line drawing complete with improved close-zoom clipping")
 
