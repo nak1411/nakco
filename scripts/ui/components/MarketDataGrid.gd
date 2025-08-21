@@ -18,6 +18,7 @@ var header_row: HBoxContainer
 
 var pending_name_updates = false
 var name_update_timer: Timer
+var loading_label: Label
 
 var current_region_id: int = 0
 var current_region_name: String = "Unknown Region"
@@ -28,6 +29,24 @@ func _ready():
 	setup_name_update_timer()
 
 	resized.connect(_on_grid_resized)
+
+	# Create loading indicator
+	loading_label = Label.new()
+	loading_label.text = "Loading market data..."
+	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_label.add_theme_color_override("font_color", Color.CYAN)
+
+	# Initially show loading state
+	show_loading_state()
+
+
+func show_loading_state():
+	# Clear existing content
+	for child in data_container.get_children():
+		child.queue_free()
+
+	# Show loading message
+	data_container.add_child(loading_label)
 
 
 func setup_grid():
@@ -216,6 +235,9 @@ func update_market_data(data_dict: Dictionary):
 
 	# Sort by volume (most active first)
 	grid_data.sort_custom(func(a, b): return a.volume > b.volume)
+
+	if loading_label and loading_label.get_parent():
+		loading_label.queue_free()
 
 	refresh_display()
 

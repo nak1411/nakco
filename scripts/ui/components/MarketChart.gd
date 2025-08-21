@@ -192,12 +192,16 @@ func clear_data():
 	print("=== CLEARING CHART DATA ===")
 	print("Clearing %d price points, %d volume points, %d candlesticks" % [chart_data.price_data.size(), chart_data.volume_data.size(), chart_data.candlestick_data.size()])
 
-	chart_data.price_data.clear()
-	chart_data.volume_data.clear()
-	chart_data.time_labels.clear()
-	chart_data.price_history.clear()
-	chart_data.candlestick_data.clear()
-	chart_data.current_station_trading_data.clear()
+	if chart_data:
+		chart_data.clear_all_data()
+
+	# Reset view parameters to defaults
+	zoom_level = 1.0
+	chart_center_time = Time.get_unix_time_from_system()
+	chart_center_price = 1000000.0  # 1M ISK default
+	chart_price_range = 500000.0  # 500K ISK range
+
+	print("Chart data cleared and view reset")
 
 	# Clear analysis data
 	analysis_tools.support_levels.clear()
@@ -425,6 +429,32 @@ func request_historical_data():
 
 	# Emit signal to request historical data
 	emit_signal("historical_data_requested")
+
+
+func center_on_price_range(center_price: float, price_range: float):
+	"""Center the chart view on a specific price range"""
+	chart_center_price = center_price
+	chart_price_range = price_range
+
+	# Set time to current time for consistency
+	chart_center_time = Time.get_unix_time_from_system()
+
+	print("Chart centered: price=%.2f, range=%.2f, time=%.0f" % [chart_center_price, chart_price_range, chart_center_time])
+
+	queue_redraw()
+
+
+func reset_zoom_for_new_item():
+	"""Reset zoom to a consistent level for new item selection"""
+	zoom_level = 1.0  # Reset to base zoom level
+
+	# Set a reasonable time window (24 hours)
+	var time_window = 86400.0  # 24 hours in seconds
+	chart_center_time = Time.get_unix_time_from_system() - (time_window / 2.0)  # Center on last 12 hours
+
+	print("Zoom reset: level=%.2f, center_time=%.0f" % [zoom_level, chart_center_time])
+
+	queue_redraw()
 
 
 # Additional utility methods that were in the original

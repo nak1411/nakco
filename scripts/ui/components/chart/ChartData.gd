@@ -231,16 +231,16 @@ func set_day_start_time():
 
 
 func clear_all_data():
-	"""Clear all data arrays"""
+	"""Clear all chart data arrays"""
 	price_data.clear()
 	volume_data.clear()
 	candlestick_data.clear()
 	time_labels.clear()
-	current_station_trading_data.clear()
 	price_history.clear()
+	current_station_trading_data.clear()
 
-	# Reset flags
+	# Reset state flags
 	has_loaded_historical = false
 	is_loading_historical = false
 
-	print("ChartData: All data cleared")
+	print("All chart data cleared")

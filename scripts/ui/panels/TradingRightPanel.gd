@@ -250,6 +250,12 @@ func update_item_display(item_data: Dictionary):
 	selected_item_data = item_data
 
 	if market_chart:
+		# Clear chart data first
+		market_chart.clear_data()
+
+		# Set up chart centering based on item prices
+		center_chart_for_new_item(item_data)
+
 		market_chart.set_station_trading_data(item_data)
 		print("Called set_station_trading_data with keys: %s" % item_data.keys())
 
@@ -259,7 +265,7 @@ func update_item_display(item_data: Dictionary):
 		if max_buy > 0 and min_sell > 0:
 			market_chart.update_spread_data(max_buy, min_sell)
 
-		print("Chart cleared for new item selection")
+		print("Chart cleared and centered for new item selection")
 
 	# Update all displays for new item
 	update_item_header(item_data)
@@ -268,6 +274,46 @@ func update_item_display(item_data: Dictionary):
 	update_order_book(item_data)
 
 	print("New item display setup complete")
+
+
+func center_chart_for_new_item(item_data: Dictionary):
+	"""Center and zoom the chart appropriately for the new item's price range"""
+	if not market_chart:
+		return
+
+	var max_buy = item_data.get("max_buy", 0.0)
+	var min_sell = item_data.get("min_sell", 0.0)
+
+	# Calculate a reasonable center price
+	var center_price: float
+	var price_range: float
+
+	if max_buy > 0 and min_sell > 0:
+		# Use the midpoint of the spread
+		center_price = (max_buy + min_sell) / 2.0
+		var spread = min_sell - max_buy
+		# Set range to show the spread plus some margin (200% of spread, minimum 10% of center price)
+		price_range = max(spread * 2.0, center_price * 0.1)
+	elif max_buy > 0:
+		# Only buy orders available
+		center_price = max_buy
+		price_range = max_buy * 0.2  # 20% range around buy price
+	elif min_sell > 0:
+		# Only sell orders available
+		center_price = min_sell
+		price_range = min_sell * 0.2  # 20% range around sell price
+	else:
+		# No price data, use reasonable defaults
+		center_price = 1000000.0  # 1M ISK default
+		price_range = 500000.0  # 500K ISK range
+
+	print("Centering chart: center_price=%.2f, price_range=%.2f" % [center_price, price_range])
+
+	# Apply the centering to the chart
+	market_chart.center_on_price_range(center_price, price_range)
+
+	# Reset zoom to a consistent level for all items
+	market_chart.reset_zoom_for_new_item()
 
 
 func update_price_labels_with_animation(item_data: Dictionary):

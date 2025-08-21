@@ -13,6 +13,9 @@ const APP_NAME = "NakCo Logistics"
 var current_region_id: int = 10000002  # Jita by default
 var selected_item_id: int = -1
 var is_loading: bool = false
+var market_data_loaded: bool = false
+var chart_data_loaded: bool = false
+var preserve_tab_index: int = 0
 
 # Core managers
 var data_manager: DataManager
@@ -66,10 +69,50 @@ func _ready():
 
 	apply_theme()
 
+	# Initialize UI visibility - start with everything hidden until data loads
+	market_data_loaded = false
+	chart_data_loaded = false
+	update_ui_visibility()
+
+	# Initially show loading state
+	show_initial_loading_state()
+
 	# Load initial data
 	refresh_market_data()
 
 	print("Main scene ready")
+
+
+func show_initial_loading_state():
+	# Find the MarketOverview in the correct path
+	var market_overview = center_panel.get_node_or_null("MarketOverview")
+	if not market_overview:
+		print("ERROR: Could not find MarketOverview node")
+		return
+
+	# Hide the existing MarketGrid
+	var market_grid_node = market_overview.get_node_or_null("MarketGrid")
+	if market_grid_node:
+		market_grid_node.visible = false
+
+	# Create loading container if it doesn't exist
+	var loading_container = market_overview.get_node_or_null("LoadingContainer")
+	if not loading_container:
+		loading_container = VBoxContainer.new()
+		loading_container.name = "LoadingContainer"
+		loading_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+
+		var loading_label = Label.new()
+		loading_label.text = "Loading market data..."
+		loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		loading_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		loading_label.add_theme_color_override("font_color", Color.CYAN)
+		loading_label.add_theme_font_size_override("font_size", 16)
+
+		loading_container.add_child(loading_label)
+		market_overview.add_child(loading_container)
+
+	loading_container.visible = true
 
 
 func setup_managers():
@@ -98,6 +141,50 @@ func setup_application():
 
 	# Setup theme (now that config_manager exists)
 	apply_theme()
+
+
+func set_market_data_loading_state(is_loading: bool):
+	market_data_loaded = not is_loading
+	update_ui_visibility()
+
+
+func set_chart_data_loading_state(is_loading: bool):
+	chart_data_loaded = not is_loading
+	update_ui_visibility()
+
+
+func update_ui_visibility():
+	# Store current tab before making changes
+	var current_tab_index = center_panel.current_tab
+
+	var market_overview = center_panel.get_node_or_null("MarketOverview")
+	if not market_overview:
+		print("ERROR: Could not find MarketOverview node")
+		return
+
+	# Show/hide loading container
+	var loading_container = market_overview.get_node_or_null("LoadingContainer")
+	if loading_container:
+		loading_container.visible = not market_data_loaded
+
+	# Show/hide the actual market grid
+	var market_grid_node = market_overview.get_node_or_null("MarketGrid")
+	if not market_grid_node:
+		# Try finding the ExcelLikeGrid that gets created
+		market_grid_node = market_overview.get_node_or_null("ExcelLikeGrid")
+
+	if market_grid_node:
+		market_grid_node.visible = market_data_loaded
+
+	# Handle Charts tab - but DON'T change current tab
+	var charts = center_panel.get_node_or_null("Charts")
+	if charts:
+		charts.visible = chart_data_loaded
+
+	# FORCE the tab to stay on MarketOverview (index 0)
+	if center_panel.current_tab != 0:
+		print("Forcing tab back to MarketOverview (was on tab %d)" % center_panel.current_tab)
+		center_panel.current_tab = 0
 
 
 func setup_ui():
@@ -134,6 +221,7 @@ func setup_ui():
 	# Setup tab container
 	if center_panel:
 		center_panel.tab_alignment = TabBar.ALIGNMENT_LEFT
+		center_panel.current_tab = 0  # Force to MarketOverview
 	else:
 		print("ERROR: center_panel is null - check node path")
 
@@ -677,17 +765,18 @@ func _on_data_updated(data_type: String, data: Dictionary):
 
 	match data_type:
 		"market_orders":
-			# Only update the grid - don't interfere with individual selections
 			print("Updating main market display")
 			update_market_display(data)
+			# Set market data as loaded
+			set_market_data_loading_state(false)
 		"realtime_item_data":
-			# Handle real-time individual item data
 			print("Updating real-time item data")
 			update_realtime_item_display(data)
 		"market_history":
-			# Handle historical market data for charts
 			print("Updating market history for charts")
 			update_chart_with_history(data)
+			# Set chart data as loaded
+			set_chart_data_loading_state(false)
 		"item_search":
 			update_search_results(data)
 		"item_info":
@@ -729,9 +818,15 @@ func _on_notification(notification: Dictionary):
 
 func _on_tab_changed(tab_index: int):
 	var tab_name = center_panel.get_tab_title(tab_index)
-	print("Switched to tab: ", tab_name)
+	print("Tab changed to: %d (%s)" % [tab_index, tab_name])
 
-	# Refresh data based on active tab
+	# If we're loading market data, force back to MarketOverview
+	if not market_data_loaded and tab_index != 0:
+		print("Preventing tab change during market data loading")
+		center_panel.current_tab = 0
+		return
+
+	# Normal tab change logic
 	match tab_name:
 		"Portfolio":
 			refresh_portfolio_data()
@@ -887,16 +982,19 @@ func refresh_market_data():
 	if is_loading or not data_manager:
 		return
 
-	set_loading_state(true)
+	# STORE the current tab and force it to stay on MarketOverview
+	preserve_tab_index = 0  # Always MarketOverview
+	center_panel.current_tab = 0
 
-	# FOR DEBUGGING: Use debug method that only fetches popular items
+	set_loading_state(true)
+	set_market_data_loading_state(true)
+	show_initial_loading_state()
+
 	if data_manager.has_method("get_debug_market_data"):
 		data_manager.get_debug_market_data(current_region_id)
 	else:
-		# Fallback to normal method
 		data_manager.get_market_orders(current_region_id)
 
-	# Re-enable refresh button after delay
 	await get_tree().create_timer(2.0).timeout
 	set_loading_state(false)
 
