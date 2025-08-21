@@ -51,6 +51,10 @@ func draw_chart():
 	_draw_price_line()
 	_draw_volume_bars()
 
+	# Draw Donchian channel if enabled
+	if parent_chart.show_donchian_channel:
+		analysis_tools.draw_donchian_channel()
+
 	# Only draw S/R lines if enabled
 	if parent_chart.show_support_resistance:
 		analysis_tools.draw_support_resistance_lines()

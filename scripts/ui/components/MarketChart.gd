@@ -24,6 +24,7 @@ var show_support_resistance: bool = false
 var show_spread_analysis: bool = false
 var show_data_points: bool = true
 var show_ma_lines: bool = true
+var show_donchian_channel: bool = false
 
 # Chart view state (delegated to ChartInteraction)
 var zoom_level: float = 1.0
@@ -242,6 +243,12 @@ func toggle_support_resistance():
 
 func toggle_spread_analysis():
 	analysis_tools.toggle_spread_analysis()
+
+
+func toggle_donchian_channel():
+	show_donchian_channel = not show_donchian_channel
+	print("Donchian Channel: %s" % ("ON" if show_donchian_channel else "OFF"))
+	queue_redraw()
 
 
 func toggle_candlesticks():

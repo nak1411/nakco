@@ -22,6 +22,17 @@ var max_spread_history: int = 100
 var is_hovering_spread_zone: bool = false
 var spread_tooltip_position: Vector2 = Vector2.ZERO
 
+# Donchian Channel
+var donchian_period: int = 20  # Default 20-period channel
+var donchian_upper_line: Array[Vector2] = []
+var donchian_lower_line: Array[Vector2] = []
+var donchian_middle_line: Array[Vector2] = []
+
+# Colors for Donchian channel
+var donchian_upper_color: Color = Color(0.2, 0.8, 0.2, 1.0)
+var donchian_lower_color: Color = Color(0.8, 0.2, 0.2, 1.0)
+var donchian_middle_color: Color = Color(0.6, 0.6, 0.8, 0.8)
+
 # Colors
 var support_color: Color = Color.GREEN
 var resistance_color: Color = Color.RED
@@ -120,6 +131,212 @@ func draw_support_resistance_lines():
 			var font = ThemeDB.fallback_font
 			var font_size = 10
 			parent_chart.draw_string(font, Vector2(chart_bounds.right - 80, y + 15), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, resistance_color)
+
+
+func draw_donchian_channel():
+	"""Draw Donchian channel bands"""
+	if not parent_chart.show_donchian_channel:
+		return
+
+	var visible_data = _get_visible_candlestick_data()
+	if visible_data.size() < donchian_period:
+		print("Not enough data for Donchian channel (need %d, have %d)" % [donchian_period, visible_data.size()])
+		return
+
+	print("Drawing Donchian channel with %d periods" % donchian_period)
+
+	var bounds = chart_math.get_current_window_bounds()
+	var chart_bounds = chart_math.get_chart_boundaries()
+
+	# Calculate Donchian channel lines
+	_calculate_donchian_lines(visible_data, bounds, chart_bounds)
+
+	# Draw the channel
+	_draw_donchian_lines()
+
+
+func _get_visible_candlestick_data() -> Array:
+	"""Get candlestick data within the current time window with zoom-aware buffer"""
+	var bounds = chart_math.get_current_window_bounds()
+	var visible_candles = []
+	var zoom_level = parent_chart.zoom_level
+
+	# CRITICAL FIX: Use much larger buffer for close zoom levels (same as MA lines)
+	var time_window = bounds.time_end - bounds.time_start
+
+	# Scale buffer based on zoom level - more zoomed in = larger buffer needed
+	var buffer_multiplier = max(0.5, zoom_level / 10.0)  # Minimum 50%, scales up with zoom
+	var buffer_time = time_window * buffer_multiplier
+
+	print("Donchian data collection: zoom %.1fx, buffer %.0fs (%.1f%% of window)" % [zoom_level, buffer_time, buffer_multiplier * 100])
+
+	var start_time = bounds.time_start - buffer_time
+	var end_time = bounds.time_end + buffer_time
+
+	for candle in chart_data.candlestick_data:
+		if candle.timestamp >= start_time and candle.timestamp <= end_time:
+			visible_candles.append(candle)
+
+	# Sort by timestamp
+	visible_candles.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+	print("Found %d candles for Donchian calculation (with %.0fs buffer)" % [visible_candles.size(), buffer_time])
+
+	return visible_candles
+
+
+func _calculate_donchian_lines(candles: Array, bounds: Dictionary, chart_bounds: Dictionary):
+	"""Calculate Donchian channel lines with zoom-aware data handling"""
+	donchian_upper_line.clear()
+	donchian_lower_line.clear()
+	donchian_middle_line.clear()
+
+	var window_start = bounds.time_start
+	var window_end = bounds.time_end
+	var price_min = bounds.price_min
+	var price_range = bounds.price_max - bounds.price_min
+	var zoom_level = parent_chart.zoom_level
+
+	if price_range <= 0 or candles.size() < donchian_period:
+		print("Insufficient data for Donchian: price_range=%.2f, candles=%d, need_period=%d" % [price_range, candles.size(), donchian_period])
+		return
+
+	print("Calculating Donchian lines: %d candles, zoom %.1fx, period %d" % [candles.size(), zoom_level, donchian_period])
+
+	# IMPROVED: Use zoom-aware calculation range
+	var time_window = window_end - window_start
+	var buffer_multiplier = max(0.5, zoom_level / 10.0)
+	var calculation_buffer = time_window * buffer_multiplier
+
+	for i in range(donchian_period - 1, candles.size()):
+		var current_candle = candles[i]
+
+		# IMPROVED: Use zoom-aware range checking
+		if current_candle.timestamp < window_start - calculation_buffer:
+			continue
+		if current_candle.timestamp > window_end + calculation_buffer:
+			break
+
+		# Find highest high and lowest low in the period
+		var highest_high = 0.0
+		var lowest_low = 999999999999.0
+
+		for j in range(max(0, i - donchian_period + 1), min(candles.size(), i + 1)):
+			var candle = candles[j]
+			var high = candle.get("high", 0.0)
+			var low = candle.get("low", 0.0)
+
+			if high > 0 and high > highest_high:
+				highest_high = high
+			if low > 0 and low < lowest_low:
+				lowest_low = low
+
+		# Skip if we don't have valid data
+		if highest_high <= 0 or lowest_low >= 999999999999.0:
+			continue
+
+		# Calculate middle line (average of upper and lower)
+		var middle_price = (highest_high + lowest_low) / 2.0
+
+		# Convert to screen coordinates
+		var time_progress = (current_candle.timestamp - window_start) / (window_end - window_start)
+		var x = chart_bounds.left + (time_progress * chart_bounds.width)
+
+		# IMPROVED: Use zoom-aware visibility range (same as MA lines)
+		var visibility_buffer = 100.0 * max(1.0, zoom_level / 5.0)  # Scale buffer with zoom
+		if x >= chart_bounds.left - visibility_buffer and x <= chart_bounds.right + visibility_buffer:
+			# Upper line
+			var upper_progress = (highest_high - price_min) / price_range
+			var upper_y = chart_bounds.top + chart_bounds.height - (upper_progress * chart_bounds.height)
+			donchian_upper_line.append(Vector2(x, upper_y))
+
+			# Lower line
+			var lower_progress = (lowest_low - price_min) / price_range
+			var lower_y = chart_bounds.top + chart_bounds.height - (lower_progress * chart_bounds.height)
+			donchian_lower_line.append(Vector2(x, lower_y))
+
+			# Middle line
+			var middle_progress = (middle_price - price_min) / price_range
+			var middle_y = chart_bounds.top + chart_bounds.height - (middle_progress * chart_bounds.height)
+			donchian_middle_line.append(Vector2(x, middle_y))
+
+	print("Generated %d Donchian points with zoom-aware calculation" % donchian_upper_line.size())
+
+
+func _draw_donchian_lines():
+	"""Draw only the Donchian channel top and bottom lines (no fill)"""
+	var chart_bounds = chart_math.get_chart_boundaries()
+	var zoom_level = parent_chart.zoom_level
+
+	# Use expanded clipping rectangle for better edge handling at high zoom
+	var expanded_clip_rect = Rect2(Vector2(chart_bounds.left, chart_bounds.top), Vector2(chart_bounds.width, chart_bounds.height))
+	var clip_rect = Rect2(Vector2(chart_bounds.left, chart_bounds.top), Vector2(chart_bounds.width, chart_bounds.height))
+
+	print("Drawing Donchian lines (top/bottom only) with zoom level: %.1f" % zoom_level)
+
+	# Draw upper line (resistance/top of channel)
+	for i in range(donchian_upper_line.size() - 1):
+		var p1 = donchian_upper_line[i]
+		var p2 = donchian_upper_line[i + 1]
+
+		# Use same logic as MA lines for gap handling
+		var time_diff = _get_time_diff_for_donchian_points(i, i + 1)
+		var max_time_gap = 86400.0 * 2  # Base: 2 days
+		if zoom_level > 10:  # When zoomed in close
+			max_time_gap = 86400.0 * 30  # Allow much larger gaps (30 days)
+
+		if time_diff <= max_time_gap:
+			if _is_point_in_rect(p1, expanded_clip_rect) or _is_point_in_rect(p2, expanded_clip_rect) or _line_intersects_rect(p1, p2, expanded_clip_rect):
+				var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
+
+				if clipped_line.has("start") and clipped_line.has("end"):
+					parent_chart.draw_line(clipped_line.start, clipped_line.end, donchian_upper_color, 2.0, true)
+				else:
+					if _is_point_in_rect(p1, clip_rect) or _is_point_in_rect(p2, clip_rect):
+						parent_chart.draw_line(p1, p2, donchian_upper_color, 2.0, true)
+
+	# Draw lower line (support/bottom of channel)
+	for i in range(donchian_lower_line.size() - 1):
+		var p1 = donchian_lower_line[i]
+		var p2 = donchian_lower_line[i + 1]
+
+		var time_diff = _get_time_diff_for_donchian_points(i, i + 1)
+		var max_time_gap = 86400.0 * 2  # Base: 2 days
+		if zoom_level > 10:  # When zoomed in close
+			max_time_gap = 86400.0 * 30  # Allow much larger gaps (30 days)
+
+		if time_diff <= max_time_gap:
+			if _is_point_in_rect(p1, expanded_clip_rect) or _is_point_in_rect(p2, expanded_clip_rect) or _line_intersects_rect(p1, p2, expanded_clip_rect):
+				var clipped_line = chart_math.clip_line_to_rect(p1, p2, clip_rect)
+
+				if clipped_line.has("start") and clipped_line.has("end"):
+					parent_chart.draw_line(clipped_line.start, clipped_line.end, donchian_lower_color, 2.0, true)
+				else:
+					if _is_point_in_rect(p1, clip_rect) or _is_point_in_rect(p2, clip_rect):
+						parent_chart.draw_line(p1, p2, donchian_lower_color, 2.0, true)
+
+
+func _get_time_diff_for_donchian_points(index1: int, index2: int) -> float:
+	"""Get time difference between two Donchian points (approximated from screen coordinates)"""
+
+	var bounds = chart_math.get_current_window_bounds()
+	var chart_bounds = chart_math.get_chart_boundaries()
+	var time_window = bounds.time_end - bounds.time_start
+
+	if donchian_upper_line.size() <= max(index1, index2):
+		return 999999.0  # Return large value to skip
+
+	var p1 = donchian_upper_line[index1]
+	var p2 = donchian_upper_line[index2]
+
+	# Convert screen X coordinates back to time difference
+	var x_diff = abs(p2.x - p1.x)
+	var chart_width = chart_bounds.width
+
+	if chart_width > 0:
+		var time_progress_diff = x_diff / chart_width
+		return time_progress_diff * time_window
+
+	return 0.0
 
 
 func draw_spread_analysis():
@@ -680,3 +897,32 @@ func _get_spread_quality_text(margin_pct: float) -> String:
 		return "MARGINAL"
 
 	return "POOR"
+
+
+func _is_point_in_rect(point: Vector2, rect: Rect2) -> bool:
+	"""Check if a point is inside a rectangle"""
+	return point.x >= rect.position.x and point.x <= rect.position.x + rect.size.x and point.y >= rect.position.y and point.y <= rect.position.y + rect.size.y
+
+
+func _is_line_visible(p1: Vector2, p2: Vector2, chart_bounds: Dictionary) -> bool:
+	"""Check if a line segment is potentially visible in the chart area"""
+	var expanded_rect = Rect2(Vector2(chart_bounds.left, chart_bounds.top), Vector2(chart_bounds.width, chart_bounds.height))
+
+	return _is_point_in_rect(p1, expanded_rect) or _is_point_in_rect(p2, expanded_rect) or _line_intersects_rect(p1, p2, expanded_rect)
+
+
+func _line_intersects_rect(p1: Vector2, p2: Vector2, rect: Rect2) -> bool:
+	"""Check if a line intersects with a rectangle"""
+	# Simple bounding box check first
+	var line_min_x = min(p1.x, p2.x)
+	var line_max_x = max(p1.x, p2.x)
+	var line_min_y = min(p1.y, p2.y)
+	var line_max_y = max(p1.y, p2.y)
+
+	var rect_min_x = rect.position.x
+	var rect_max_x = rect.position.x + rect.size.x
+	var rect_min_y = rect.position.y
+	var rect_max_y = rect.position.y + rect.size.y
+
+	# Check if bounding boxes overlap
+	return not (line_max_x < rect_min_x or line_min_x > rect_max_x or line_max_y < rect_min_y or line_min_y > rect_max_y)

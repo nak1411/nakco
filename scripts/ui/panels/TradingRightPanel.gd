@@ -155,6 +155,7 @@ func create_chart_controls():
 	var analysis_popup = analysis_tools_menu.get_popup()
 	analysis_popup.add_check_item("Spread Analysis")
 	analysis_popup.add_check_item("S/R Analysis")
+	analysis_popup.add_check_item("Donchian Channel")
 	analysis_popup.id_pressed.connect(_on_analysis_menu_selected)
 	controls_container.add_child(analysis_tools_menu)
 
@@ -240,6 +241,8 @@ func _on_analysis_menu_selected(id: int):
 			market_chart.toggle_spread_analysis()
 		1:  # S/R Analysis
 			market_chart.toggle_support_resistance()
+		2:  # Donchian Channel  # ADD THIS CASE
+			market_chart.toggle_donchian_channel()
 
 	_update_menu_states()
 
@@ -270,6 +273,7 @@ func _update_menu_states():
 		var analysis_popup = analysis_tools_menu.get_popup()
 		analysis_popup.set_item_checked(0, market_chart.show_spread_analysis)
 		analysis_popup.set_item_checked(1, market_chart.show_support_resistance)
+		analysis_popup.set_item_checked(2, market_chart.show_donchian_channel)
 
 	# Update Chart Display menu
 	if chart_display_menu:
