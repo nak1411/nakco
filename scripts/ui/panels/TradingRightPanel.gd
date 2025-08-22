@@ -164,7 +164,7 @@ func _add_chart_overlay_controls():
 
 	# Position and size the background (will be adjusted dynamically)
 	controls_background.position = Vector2(195, 5)  # Slightly larger than button area
-	controls_background.custom_minimum_size = Vector2(200, 30)  # Width to cover both buttons
+	controls_background.custom_minimum_size = Vector2(160, 30)  # Width to cover both buttons
 
 	market_chart.add_child(controls_background)
 
@@ -174,7 +174,8 @@ func _add_chart_overlay_controls():
 	analysis_tools_menu.text = "Analysis Tools"
 	analysis_tools_menu.custom_minimum_size = Vector2(120, 0)
 	analysis_tools_menu.position = Vector2(200, 10)
-	analysis_tools_menu.z_index = 100  # Above background
+	analysis_tools_menu.z_index = 100  # Above background\
+	analysis_tools_menu.alignment = HORIZONTAL_ALIGNMENT_LEFT
 
 	_style_overlay_button(analysis_tools_menu)
 
@@ -183,6 +184,16 @@ func _add_chart_overlay_controls():
 	analysis_popup.add_check_item("S/R Analysis")
 	analysis_popup.add_check_item("Donchian Channel")
 	analysis_popup.id_pressed.connect(_on_analysis_menu_selected)
+	analysis_popup.popup_hide.connect(func(): pass)
+	analysis_popup.visibility_changed.connect(
+		func():
+			if analysis_popup.visible:
+				var button_rect = analysis_tools_menu.get_global_rect()
+				analysis_popup.position = Vector2i(button_rect.position.x, button_rect.position.y + button_rect.size.y + 7)
+	)
+
+	_style_popup_menu(analysis_popup)
+
 	market_chart.add_child(analysis_tools_menu)
 
 	# Chart Display Menu
@@ -192,14 +203,24 @@ func _add_chart_overlay_controls():
 	chart_display_menu.custom_minimum_size = Vector2(120, 0)
 	chart_display_menu.position = Vector2(330, 10)
 	chart_display_menu.z_index = 100  # Above background
-
+	chart_display_menu.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_style_overlay_button(chart_display_menu)
 
 	var display_popup = chart_display_menu.get_popup()
 	display_popup.add_check_item("Candlesticks")
 	display_popup.add_check_item("Data Points")
 	display_popup.add_check_item("MA Line")
+	display_popup.popup_hide.connect(func(): pass)
+	display_popup.visibility_changed.connect(
+		func():
+			if display_popup.visible:
+				var button_rect = chart_display_menu.get_global_rect()
+				display_popup.position = Vector2i(button_rect.position.x, button_rect.position.y + button_rect.size.y + 7)
+	)
 	display_popup.id_pressed.connect(_on_chart_display_menu_selected)
+
+	_style_popup_menu(display_popup)
+
 	market_chart.add_child(chart_display_menu)
 
 	# Cache status label (top-right)
@@ -219,6 +240,42 @@ func _add_chart_overlay_controls():
 
 	# Set initial checkbox states
 	_update_menu_states()
+
+
+func _style_popup_menu(popup: PopupMenu):
+	"""Style popup menus to match the dark theme with no radius"""
+
+	# Background panel style
+	var popup_style = StyleBoxFlat.new()
+	popup_style.bg_color = Color(0.18, 0.2, 0.25, 1.0)  # Same as your button background
+	popup_style.border_width_left = 1
+	popup_style.border_width_right = 1
+	popup_style.border_width_top = 1
+	popup_style.border_width_bottom = 1
+	popup_style.border_color = Color(0.35, 0.4, 0.45, 1.0)  # Same as button border
+	popup_style.content_margin_left = 4
+	popup_style.content_margin_right = 4
+	popup_style.content_margin_top = 4
+	popup_style.content_margin_bottom = 4
+
+	# Hover style for menu items
+	var hover_style = StyleBoxFlat.new()
+	hover_style.bg_color = Color(0.25, 0.28, 0.33, 1.0)  # Same as button hover
+
+	# Apply styles to popup
+	popup.add_theme_stylebox_override("panel", popup_style)
+	popup.add_theme_stylebox_override("hover", hover_style)
+
+	# Text colors to match theme
+	popup.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95, 1))
+	popup.add_theme_color_override("font_hover_color", Color(0.95, 0.98, 1, 1))
+	popup.add_theme_color_override("font_disabled_color", Color(0.5, 0.5, 0.5, 1))
+
+	# Font size
+	popup.add_theme_font_size_override("font_size", 11)
+
+	# Separator color
+	popup.add_theme_color_override("separator_color", Color(0.4, 0.4, 0.5, 0.8))
 
 
 func _style_overlay_button(menu_button: MenuButton):
@@ -468,13 +525,13 @@ func _on_chart_resized_reposition_controls():
 		var controls_bg = market_chart.get_node_or_null("ControlsBackground")
 
 		if analysis_tools_menu:
-			analysis_tools_menu.position = Vector2(40, 8)
+			analysis_tools_menu.position = Vector2(50, 8)
 		if chart_display_menu:
 			chart_display_menu.position = Vector2(140, 8)
 		if controls_bg:
 			# Position background to cover both buttons with padding
 			controls_bg.position = Vector2(50, 0)
-			controls_bg.custom_minimum_size = Vector2(200, 10)
+			controls_bg.custom_minimum_size = Vector2(160, 10)
 		if cache_status_label:
 			cache_status_label.position = Vector2(market_chart.size.x - 205, market_chart.size.y - 200)
 
