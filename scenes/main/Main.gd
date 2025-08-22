@@ -157,10 +157,6 @@ func show_initial_loading_state():
 	panel_style.border_width_top = 2
 	panel_style.border_width_bottom = 2
 	panel_style.border_color = Color.CYAN
-	panel_style.corner_radius_top_left = 10
-	panel_style.corner_radius_top_right = 10
-	panel_style.corner_radius_bottom_left = 10
-	panel_style.corner_radius_bottom_right = 10
 	loading_panel.add_theme_stylebox_override("panel", panel_style)
 
 	center_container.add_child(loading_panel)
@@ -818,10 +814,6 @@ func apply_fallback_theme():
 	button_normal.border_width_right = 1
 	button_normal.border_width_bottom = 1
 	button_normal.border_color = Color(0.35, 0.4, 0.45, 1)
-	button_normal.corner_radius_top_left = 0
-	button_normal.corner_radius_top_right = 0
-	button_normal.corner_radius_bottom_right = 0
-	button_normal.corner_radius_bottom_left = 0
 	button_normal.content_margin_left = 8
 	button_normal.content_margin_top = 4
 	button_normal.content_margin_right = 8
@@ -834,10 +826,6 @@ func apply_fallback_theme():
 	button_hover.border_width_right = 1
 	button_hover.border_width_bottom = 1
 	button_hover.border_color = Color(0.45, 0.5, 0.55, 1)
-	button_hover.corner_radius_top_left = 0
-	button_hover.corner_radius_top_right = 0
-	button_hover.corner_radius_bottom_right = 0
-	button_hover.corner_radius_bottom_left = 0
 	button_hover.content_margin_left = 8
 	button_hover.content_margin_top = 4
 	button_hover.content_margin_right = 8
@@ -850,10 +838,6 @@ func apply_fallback_theme():
 	button_pressed.border_width_right = 1
 	button_pressed.border_width_bottom = 1
 	button_pressed.border_color = Color(0.55, 0.6, 0.65, 1)
-	button_pressed.corner_radius_top_left = 0
-	button_pressed.corner_radius_top_right = 0
-	button_pressed.corner_radius_bottom_right = 0
-	button_pressed.corner_radius_bottom_left = 0
 	button_pressed.content_margin_left = 8
 	button_pressed.content_margin_top = 4
 	button_pressed.content_margin_right = 8

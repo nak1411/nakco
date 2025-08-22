@@ -248,11 +248,6 @@ func _style_menu_button(menu_button: MenuButton):
 	style_normal.border_width_top = 1
 	style_normal.border_width_bottom = 1
 	style_normal.border_color = Color(0.35, 0.4, 0.45, 1.0)  # Updated border color
-	# Remove all corner radius for sharp corners
-	style_normal.corner_radius_top_left = 0
-	style_normal.corner_radius_top_right = 0
-	style_normal.corner_radius_bottom_left = 0
-	style_normal.corner_radius_bottom_right = 0
 
 	# Create custom StyleBox for hover state
 	var style_hover = StyleBoxFlat.new()
@@ -266,10 +261,6 @@ func _style_menu_button(menu_button: MenuButton):
 	style_hover.border_width_top = 1
 	style_hover.border_width_bottom = 1
 	style_hover.border_color = Color(0.45, 0.5, 0.55, 1.0)  # Updated border color
-	style_hover.corner_radius_top_left = 0
-	style_hover.corner_radius_top_right = 0
-	style_hover.corner_radius_bottom_left = 0
-	style_hover.corner_radius_bottom_right = 0
 
 	# Create custom StyleBox for pressed state
 	var style_pressed = StyleBoxFlat.new()
@@ -283,10 +274,6 @@ func _style_menu_button(menu_button: MenuButton):
 	style_pressed.border_width_top = 1
 	style_pressed.border_width_bottom = 1
 	style_pressed.border_color = Color(0.55, 0.6, 0.65, 1.0)  # Updated border color
-	style_pressed.corner_radius_top_left = 0
-	style_pressed.corner_radius_top_right = 0
-	style_pressed.corner_radius_bottom_left = 0
-	style_pressed.corner_radius_bottom_right = 0
 
 	# Apply the styles
 	menu_button.add_theme_stylebox_override("normal", style_normal)
@@ -411,7 +398,7 @@ func show_chart_loading_state():
 	# Bright background for visibility
 	var background = ColorRect.new()
 	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	background.color = Color(0.0, 0.0, 0.0, 0.8)
+	background.color = Color(0.1, 0.1, 0.1, 1.0)
 	loading_overlay.add_child(background)
 
 	# Centered content
@@ -431,10 +418,6 @@ func show_chart_loading_state():
 	panel_style.border_width_top = 3
 	panel_style.border_width_bottom = 3
 	panel_style.border_color = Color.CYAN
-	panel_style.corner_radius_top_left = 10
-	panel_style.corner_radius_top_right = 10
-	panel_style.corner_radius_bottom_left = 10
-	panel_style.corner_radius_bottom_right = 10
 	loading_panel.add_theme_stylebox_override("panel", panel_style)
 
 	center_container.add_child(loading_panel)
