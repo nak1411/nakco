@@ -30,6 +30,8 @@ var market_grid: SpreadsheetGrid
 @onready var toolbar: HBoxContainer = $UIManager/Toolbar
 @onready var main_content: HSplitContainer = $UIManager/MainContent
 @onready var status_bar: HBoxContainer = $UIManager/StatusBar
+@onready var character_button = $UIManager/Toolbar/CharacterButton
+@onready var character_panel = $UIManager/CharacterPanel
 
 # Toolbar controls
 @onready var refresh_button: Button = $UIManager/Toolbar/RefreshButton
@@ -77,10 +79,32 @@ func _ready():
 	# Initially show loading state
 	show_initial_loading_state()
 
+	if character_button:
+		character_button.pressed.connect(_on_character_button_pressed)
+
+	if character_panel:
+		character_panel.character_login_success.connect(_on_character_login)
+		character_panel.character_logout.connect(_on_character_logout)
+
 	# Load initial data
 	refresh_market_data()
 
 	print("Main scene ready")
+
+
+func _on_character_button_pressed():
+	# Switch to the Character tab (index 2, after MarketOverview and Charts)
+	center_panel.current_tab = 4
+
+
+func _on_character_login(character_data: Dictionary):
+	print("Character logged in: ", character_data.get("name", "Unknown"))
+	# You can now use character data in your trading calculations
+	# Update any UI that should show character-specific information
+
+
+func _on_character_logout():
+	print("Character logged out")
 
 
 func show_initial_loading_state():
