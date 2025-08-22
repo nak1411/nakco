@@ -114,29 +114,105 @@ func show_initial_loading_state():
 		print("ERROR: Could not find MarketOverview node")
 		return
 
-	# Hide the existing MarketGrid
-	var market_grid_node = market_overview.get_node_or_null("MarketGrid")
-	if market_grid_node:
-		market_grid_node.visible = false
+	# Hide the existing ExcelLikeGrid specifically
+	var excel_grid = market_overview.get_node_or_null("ExcelLikeGrid")
+	if excel_grid:
+		excel_grid.visible = false
 
-	# Create loading container if it doesn't exist
-	var loading_container = market_overview.get_node_or_null("LoadingContainer")
-	if not loading_container:
-		loading_container = VBoxContainer.new()
-		loading_container.name = "LoadingContainer"
-		loading_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	# Remove any existing loading containers completely
+	force_remove_loading_panel()
 
-		var loading_label = Label.new()
-		loading_label.text = "Loading market data..."
-		loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		loading_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		loading_label.add_theme_color_override("font_color", Color.CYAN)
-		loading_label.add_theme_font_size_override("font_size", 16)
+	# Wait a frame to ensure cleanup
+	await get_tree().process_frame
 
-		loading_container.add_child(loading_label)
-		market_overview.add_child(loading_container)
+	# Create new loading container with a unique name and timestamp
+	var timestamp = str(Time.get_ticks_msec())
+	var loading_container = Control.new()
+	loading_container.name = "LoadingContainer_" + timestamp
+	loading_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	loading_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
+	# Create background that fills the entire area
+	var background = ColorRect.new()
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	background.color = Color(0.1, 0.1, 0.1, 0.9)  # More opaque to ensure coverage
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	loading_container.add_child(background)
+
+	# Create centered container for the loading panel
+	var center_container = CenterContainer.new()
+	center_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	loading_container.add_child(center_container)
+
+	# Create the loading panel
+	var loading_panel = PanelContainer.new()
+	loading_panel.custom_minimum_size = Vector2(400, 200)
+
+	# Style the panel
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.2, 0.2, 0.3, 0.95)
+	panel_style.border_width_left = 2
+	panel_style.border_width_right = 2
+	panel_style.border_width_top = 2
+	panel_style.border_width_bottom = 2
+	panel_style.border_color = Color.CYAN
+	panel_style.corner_radius_top_left = 10
+	panel_style.corner_radius_top_right = 10
+	panel_style.corner_radius_bottom_left = 10
+	panel_style.corner_radius_bottom_right = 10
+	loading_panel.add_theme_stylebox_override("panel", panel_style)
+
+	center_container.add_child(loading_panel)
+
+	# Add margin around content
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 30)
+	margin.add_theme_constant_override("margin_right", 30)
+	margin.add_theme_constant_override("margin_top", 30)
+	margin.add_theme_constant_override("margin_bottom", 30)
+	loading_panel.add_child(margin)
+
+	# Create VBox for content
+	var vbox = VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 20)
+	margin.add_child(vbox)
+
+	# Loading title
+	var loading_title = Label.new()
+	loading_title.text = "Loading Data..."
+	loading_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_title.add_theme_font_size_override("font_size", 24)
+	loading_title.add_theme_color_override("font_color", Color.CYAN)
+	vbox.add_child(loading_title)
+
+	# Loading message
+	var loading_message = Label.new()
+	loading_message.text = "Fetching market data from Eve Online API..."
+	loading_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_message.add_theme_font_size_override("font_size", 16)
+	loading_message.add_theme_color_override("font_color", Color.WHITE)
+	loading_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(loading_message)
+
+	# Progress indicator with animation
+	var progress_label = Label.new()
+	progress_label.text = "●●●"
+	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress_label.add_theme_font_size_override("font_size", 20)
+	progress_label.add_theme_color_override("font_color", Color.YELLOW)
+	vbox.add_child(progress_label)
+
+	# Add to scene first, then animate
+	market_overview.add_child(loading_container)
 	loading_container.visible = true
+
+	# Create animation after adding to scene tree
+	var tween = loading_container.create_tween()
+	tween.set_loops()
+	tween.tween_property(progress_label, "modulate:a", 0.3, 0.8)
+	tween.tween_property(progress_label, "modulate:a", 1.0, 0.8)
 
 
 func setup_managers():
@@ -169,6 +245,12 @@ func setup_application():
 
 func set_market_data_loading_state(is_loading: bool):
 	market_data_loaded = not is_loading
+	print("set_market_data_loading_state: is_loading=", is_loading, " market_data_loaded=", market_data_loaded)
+
+	# Force immediate cleanup if loading is complete
+	if not is_loading:
+		force_remove_loading_panel()
+
 	update_ui_visibility()
 
 
@@ -178,18 +260,31 @@ func set_chart_data_loading_state(is_loading: bool):
 
 
 func update_ui_visibility():
-	# Store current tab before making changes
-	var current_tab_index = center_panel.current_tab
-
 	var market_overview = center_panel.get_node_or_null("MarketOverview")
 	if not market_overview:
 		print("ERROR: Could not find MarketOverview node")
 		return
 
-	# Show/hide loading container
+	print("update_ui_visibility called - market_data_loaded: ", market_data_loaded)
+
+	# Handle loading container - search more thoroughly and remove it
 	var loading_container = market_overview.get_node_or_null("LoadingContainer")
+	if not loading_container:
+		# Try to find it in case the path changed
+		for child in market_overview.get_children():
+			if child.name.begins_with("LoadingContainer"):
+				loading_container = child
+				break
+
 	if loading_container:
-		loading_container.visible = not market_data_loaded
+		print("Found loading container, market_data_loaded: ", market_data_loaded)
+		if market_data_loaded:
+			# Data is loaded - remove loading container immediately
+			print("Removing loading container")
+			loading_container.visible = false
+			loading_container.queue_free()
+	else:
+		print("No loading container found")
 
 	# Show/hide the actual market grid
 	var market_grid_node = market_overview.get_node_or_null("MarketGrid")
@@ -198,17 +293,49 @@ func update_ui_visibility():
 		market_grid_node = market_overview.get_node_or_null("ExcelLikeGrid")
 
 	if market_grid_node:
+		print("Setting market grid visibility to: ", market_grid_node.visible, " -> ", market_data_loaded)
 		market_grid_node.visible = market_data_loaded
 
-	# Handle Charts tab - but DON'T change current tab
+	# Handle Charts tab visibility
 	var charts = center_panel.get_node_or_null("Charts")
 	if charts:
 		charts.visible = chart_data_loaded
 
-	# FORCE the tab to stay on MarketOverview (index 0)
-	if center_panel.current_tab != 0:
-		print("Forcing tab back to MarketOverview (was on tab %d)" % center_panel.current_tab)
+	# ONLY force tab to MarketOverview during loading - NOT after data is loaded
+	if not market_data_loaded and center_panel.current_tab != 0:
+		print("Preventing tab change during market data loading")
 		center_panel.current_tab = 0
+
+
+func force_remove_loading_panel():
+	var market_overview = center_panel.get_node_or_null("MarketOverview")
+	if not market_overview:
+		return
+
+	print("force_remove_loading_panel called")
+
+	# Remove ALL children that might be loading-related
+	var children_to_remove = []
+	for child in market_overview.get_children():
+		if child.name.begins_with("LoadingContainer"):
+			children_to_remove.append(child)
+
+	for child in children_to_remove:
+		print("Force removing loading element: ", child.name)
+		child.visible = false
+		child.queue_free()
+
+	# Ensure the ExcelLikeGrid is properly positioned and sized
+	var excel_grid = market_overview.get_node_or_null("ExcelLikeGrid")
+	if excel_grid:
+		print("Ensuring ExcelLikeGrid covers full area")
+		excel_grid.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		excel_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		excel_grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		excel_grid.visible = true
+
+		# Move it to front to ensure it's on top
+		market_overview.move_child(excel_grid, -1)
 
 
 func setup_ui():
@@ -683,39 +810,81 @@ func apply_fallback_theme():
 	# Create a basic dark theme programmatically
 	var fallback_theme = Theme.new()
 
-	# Create basic styles
+	# Create sleek button styles with no rounded corners
 	var button_normal = StyleBoxFlat.new()
-	button_normal.bg_color = Color(0.15, 0.15, 0.2, 1)
+	button_normal.bg_color = Color(0.18, 0.2, 0.25, 1)
 	button_normal.border_width_left = 1
 	button_normal.border_width_top = 1
 	button_normal.border_width_right = 1
 	button_normal.border_width_bottom = 1
-	button_normal.border_color = Color(0.3, 0.3, 0.4, 1)
-	button_normal.corner_radius_top_left = 4
-	button_normal.corner_radius_top_right = 4
-	button_normal.corner_radius_bottom_right = 4
-	button_normal.corner_radius_bottom_left = 4
+	button_normal.border_color = Color(0.35, 0.4, 0.45, 1)
+	button_normal.corner_radius_top_left = 0
+	button_normal.corner_radius_top_right = 0
+	button_normal.corner_radius_bottom_right = 0
+	button_normal.corner_radius_bottom_left = 0
+	button_normal.content_margin_left = 8
+	button_normal.content_margin_top = 4
+	button_normal.content_margin_right = 8
+	button_normal.content_margin_bottom = 4
 
 	var button_hover = StyleBoxFlat.new()
-	button_hover.bg_color = Color(0.2, 0.2, 0.25, 1)
+	button_hover.bg_color = Color(0.25, 0.28, 0.33, 1)
 	button_hover.border_width_left = 1
 	button_hover.border_width_top = 1
 	button_hover.border_width_right = 1
 	button_hover.border_width_bottom = 1
-	button_hover.border_color = Color(0.4, 0.4, 0.5, 1)
-	button_hover.corner_radius_top_left = 4
-	button_hover.corner_radius_top_right = 4
-	button_hover.corner_radius_bottom_right = 4
-	button_hover.corner_radius_bottom_left = 4
+	button_hover.border_color = Color(0.45, 0.5, 0.55, 1)
+	button_hover.corner_radius_top_left = 0
+	button_hover.corner_radius_top_right = 0
+	button_hover.corner_radius_bottom_right = 0
+	button_hover.corner_radius_bottom_left = 0
+	button_hover.content_margin_left = 8
+	button_hover.content_margin_top = 4
+	button_hover.content_margin_right = 8
+	button_hover.content_margin_bottom = 4
+
+	var button_pressed = StyleBoxFlat.new()
+	button_pressed.bg_color = Color(0.12, 0.15, 0.18, 1)
+	button_pressed.border_width_left = 1
+	button_pressed.border_width_top = 1
+	button_pressed.border_width_right = 1
+	button_pressed.border_width_bottom = 1
+	button_pressed.border_color = Color(0.55, 0.6, 0.65, 1)
+	button_pressed.corner_radius_top_left = 0
+	button_pressed.corner_radius_top_right = 0
+	button_pressed.corner_radius_bottom_right = 0
+	button_pressed.corner_radius_bottom_left = 0
+	button_pressed.content_margin_left = 8
+	button_pressed.content_margin_top = 4
+	button_pressed.content_margin_right = 8
+	button_pressed.content_margin_bottom = 4
 
 	# Apply styles to theme
 	fallback_theme.set_stylebox("normal", "Button", button_normal)
 	fallback_theme.set_stylebox("hover", "Button", button_hover)
-	fallback_theme.set_color("font_color", "Button", Color(0.85, 0.85, 0.9, 1))
-	fallback_theme.set_color("font_color", "Label", Color(0.85, 0.85, 0.9, 1))
+	fallback_theme.set_stylebox("pressed", "Button", button_pressed)
+
+	# Set button text colors and centered alignment
+	fallback_theme.set_color("font_color", "Button", Color(0.85, 0.9, 0.95, 1))
+	fallback_theme.set_color("font_hover_color", "Button", Color(0.95, 0.98, 1, 1))
+	fallback_theme.set_color("font_pressed_color", "Button", Color(0.75, 0.85, 0.95, 1))
+	fallback_theme.set_font_size("font_size", "Button", 11)
+
+	# Apply same styles to OptionButton
+	fallback_theme.set_stylebox("normal", "OptionButton", button_normal)
+	fallback_theme.set_stylebox("hover", "OptionButton", button_hover)
+	fallback_theme.set_stylebox("pressed", "OptionButton", button_pressed)
+	fallback_theme.set_color("font_color", "OptionButton", Color(0.85, 0.9, 0.95, 1))
+	fallback_theme.set_color("font_hover_color", "OptionButton", Color(0.95, 0.98, 1, 1))
+	fallback_theme.set_color("font_pressed_color", "OptionButton", Color(0.75, 0.85, 0.95, 1))
+	fallback_theme.set_font_size("font_size", "OptionButton", 11)
+
+	# Set label colors
+	fallback_theme.set_color("font_color", "Label", Color(0.85, 0.9, 0.95, 1))
+	fallback_theme.set_font_size("font_size", "Label", 11)
 
 	theme = fallback_theme
-	print("Applied fallback theme")
+	print("Applied sleek fallback theme with no rounded corners")
 
 
 func load_initial_data():
@@ -793,6 +962,8 @@ func _on_data_updated(data_type: String, data: Dictionary):
 			update_market_display(data)
 			# Set market data as loaded
 			set_market_data_loading_state(false)
+			# Force remove loading panel immediately
+			call_deferred("force_remove_loading_panel")
 		"realtime_item_data":
 			print("Updating real-time item data")
 			update_realtime_item_display(data)
@@ -1006,10 +1177,8 @@ func refresh_market_data():
 	if is_loading or not data_manager:
 		return
 
-	# STORE the current tab and force it to stay on MarketOverview
-	preserve_tab_index = 0  # Always MarketOverview
+	# Force to MarketOverview tab and show loading
 	center_panel.current_tab = 0
-
 	set_loading_state(true)
 	set_market_data_loading_state(true)
 	show_initial_loading_state()
@@ -1019,8 +1188,14 @@ func refresh_market_data():
 	else:
 		data_manager.get_market_orders(current_region_id)
 
-	await get_tree().create_timer(2.0).timeout
+	# Wait for the 2-3 second delay, then hide loading
+	await get_tree().create_timer(3.0).timeout
 	set_loading_state(false)
+	set_market_data_loading_state(false)
+
+	# Force cleanup after a short delay to ensure everything is processed
+	await get_tree().process_frame
+	force_remove_loading_panel()
 
 
 func search_items_debounced(search_text: String):

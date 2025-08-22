@@ -31,3 +31,9 @@ version_control/autoload_on_startup=true
 [editor_plugins]
 
 enabled=PackedStringArray("res://addons/godot-sqlite/plugin.cfg")
+
+[gui]
+
+theme/custom_font="uid://bls5mqj14qvpk"
+theme/default_font_antialiasing=2
+theme/default_font_hinting=2

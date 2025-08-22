@@ -185,34 +185,55 @@ func _style_menu_button(menu_button: MenuButton):
 	"""Apply consistent styling to menu buttons"""
 	# Create custom StyleBox for normal state
 	var style_normal = StyleBoxFlat.new()
-	style_normal.bg_color = Color(0.2, 0.25, 0.3, 1.0)  # Dark blue-gray
-	style_normal.content_margin_left = 50
-	style_normal.content_margin_top = 12
-	style_normal.border_width_left = 2
-	style_normal.border_width_right = 2
-	style_normal.border_width_top = 2
-	style_normal.border_width_bottom = 2
-	style_normal.border_color = Color(0.4, 0.5, 0.6, 1.0)  # Lighter border
+	style_normal.bg_color = Color(0.18, 0.2, 0.25, 1.0)  # Updated color
+	style_normal.content_margin_left = 8
+	style_normal.content_margin_top = 4
+	style_normal.content_margin_right = 8
+	style_normal.content_margin_bottom = 4
+	style_normal.border_width_left = 1
+	style_normal.border_width_right = 1
+	style_normal.border_width_top = 1
+	style_normal.border_width_bottom = 1
+	style_normal.border_color = Color(0.35, 0.4, 0.45, 1.0)  # Updated border color
+	# Remove all corner radius for sharp corners
+	style_normal.corner_radius_top_left = 0
+	style_normal.corner_radius_top_right = 0
+	style_normal.corner_radius_bottom_left = 0
+	style_normal.corner_radius_bottom_right = 0
 
 	# Create custom StyleBox for hover state
 	var style_hover = StyleBoxFlat.new()
-	style_hover.bg_color = Color(0.3, 0.35, 0.4, 1.0)  # Lighter on hover
-	style_hover.content_margin_left = 50
-	style_hover.border_width_left = 2
-	style_hover.border_width_right = 2
-	style_hover.border_width_top = 2
-	style_hover.border_width_bottom = 2
-	style_hover.border_color = Color(0.5, 0.6, 0.7, 1.0)  # Brighter border on hover
+	style_hover.bg_color = Color(0.25, 0.28, 0.33, 1.0)  # Updated color
+	style_hover.content_margin_left = 8
+	style_hover.content_margin_top = 4
+	style_hover.content_margin_right = 8
+	style_hover.content_margin_bottom = 4
+	style_hover.border_width_left = 1
+	style_hover.border_width_right = 1
+	style_hover.border_width_top = 1
+	style_hover.border_width_bottom = 1
+	style_hover.border_color = Color(0.45, 0.5, 0.55, 1.0)  # Updated border color
+	style_hover.corner_radius_top_left = 0
+	style_hover.corner_radius_top_right = 0
+	style_hover.corner_radius_bottom_left = 0
+	style_hover.corner_radius_bottom_right = 0
 
 	# Create custom StyleBox for pressed state
 	var style_pressed = StyleBoxFlat.new()
-	style_pressed.bg_color = Color(0.15, 0.2, 0.25, 1.0)  # Darker when pressed
-	style_pressed.content_margin_left = 50
-	style_pressed.border_width_left = 2
-	style_pressed.border_width_right = 2
-	style_pressed.border_width_top = 2
-	style_pressed.border_width_bottom = 2
-	style_pressed.border_color = Color(0.6, 0.7, 0.8, 1.0)  # Bright border when pressed
+	style_pressed.bg_color = Color(0.12, 0.15, 0.18, 1.0)  # Updated color
+	style_pressed.content_margin_left = 8
+	style_pressed.content_margin_top = 4
+	style_pressed.content_margin_right = 8
+	style_pressed.content_margin_bottom = 4
+	style_pressed.border_width_left = 1
+	style_pressed.border_width_right = 1
+	style_pressed.border_width_top = 1
+	style_pressed.border_width_bottom = 1
+	style_pressed.border_color = Color(0.55, 0.6, 0.65, 1.0)  # Updated border color
+	style_pressed.corner_radius_top_left = 0
+	style_pressed.corner_radius_top_right = 0
+	style_pressed.corner_radius_bottom_left = 0
+	style_pressed.corner_radius_bottom_right = 0
 
 	# Apply the styles
 	menu_button.add_theme_stylebox_override("normal", style_normal)
@@ -220,15 +241,15 @@ func _style_menu_button(menu_button: MenuButton):
 	menu_button.add_theme_stylebox_override("pressed", style_pressed)
 
 	# Set font properties
-	menu_button.add_theme_color_override("font_color", Color.WHITE)
-	menu_button.add_theme_color_override("font_hover_color", Color(0.9, 0.95, 1.0, 1.0))
-	menu_button.add_theme_color_override("font_pressed_color", Color(0.8, 0.9, 1.0, 1.0))
+	menu_button.add_theme_color_override("font_color", Color(0.85, 0.9, 0.95, 1))
+	menu_button.add_theme_color_override("font_hover_color", Color(0.95, 0.98, 1.0, 1.0))
+	menu_button.add_theme_color_override("font_pressed_color", Color(0.75, 0.85, 0.95, 1.0))
 
-	# Set font size if needed
-	menu_button.add_theme_font_size_override("font_size", 12)
+	# Set smaller font size for sleeker look
+	menu_button.add_theme_font_size_override("font_size", 11)
 
 	# Center the text
-	menu_button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	menu_button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
 func _on_analysis_menu_selected(id: int):
