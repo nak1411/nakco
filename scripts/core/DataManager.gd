@@ -154,6 +154,8 @@ func cancel_history_request_for_item(item_id: int):
 	if pending_history_requests.has(item_id):
 		print("Cancelling pending history request for item ", item_id)
 		pending_history_requests.erase(item_id)
+	else:
+		print("No pending request found for item ", item_id)
 
 
 func get_item_info(type_id: int) -> void:
@@ -306,7 +308,23 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 
 			# Handle market history data
 			if context.get("data_type") == "market_history":
-				var structured_data = {"data": raw_data, "context": context, "timestamp": Time.get_ticks_msec(), "region_id": context.get("region_id", 0), "type_id": context.get("type_id", -1)}
+				var type_id = context.get("type_id", -1)
+
+				print("=== MARKET HISTORY RESPONSE RECEIVED ===")
+				print("Response for item ID: ", type_id)
+				print("Still pending for this item: ", pending_history_requests.has(type_id))
+
+				# Check if this request was cancelled
+				if not pending_history_requests.has(type_id):
+					print("Market history response for item ", type_id, " was cancelled, ignoring")
+					return
+
+				# Remove from pending requests
+				pending_history_requests.erase(type_id)
+
+				print("Processing market history response for item ", type_id)
+
+				var structured_data = {"data": raw_data, "context": context, "timestamp": Time.get_ticks_msec(), "region_id": context.get("region_id", 0), "type_id": type_id}
 
 				if context.has("cache_key"):
 					cache_data(context.cache_key, structured_data)

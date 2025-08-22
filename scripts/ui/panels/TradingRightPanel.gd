@@ -15,6 +15,14 @@ var chart_display_menu: MenuButton
 
 var current_loading_item_id: int = -1
 var pending_historical_request: bool = false
+var rapid_switch_count: int = 0
+var last_switch_time: float = 0.0
+
+var chart_data_cache: Dictionary = {}  # Cache historical data by item_id
+var last_chart_request_time: float = 0.0
+var min_chart_request_interval: float = 2.0  # Minimum 2 seconds between chart requests
+var pending_chart_request_timer: Timer
+var queued_item_id: int = -1
 
 @onready var data_manager: DataManager
 
@@ -435,6 +443,23 @@ func hide_chart_loading_state():
 		timer.queue_free()
 
 
+func is_rapid_switching() -> bool:
+	var current_time = Time.get_ticks_msec() / 1000.0
+
+	if current_time - last_switch_time < 2.0:  # Less than 2 seconds since last switch
+		rapid_switch_count += 1
+	else:
+		rapid_switch_count = 0  # Reset if enough time has passed
+
+	last_switch_time = current_time
+
+	var is_rapid = rapid_switch_count > 2  # More than 2 switches in rapid succession
+	if is_rapid:
+		print("RAPID SWITCHING DETECTED - count: ", rapid_switch_count)
+
+	return is_rapid
+
+
 func _on_analysis_menu_selected(id: int):
 	"""Handle analysis tools menu selection"""
 	if not market_chart:
@@ -533,12 +558,12 @@ func update_item_display(item_data: Dictionary):
 	var new_item_id = item_data.get("item_id", 0)
 	print("New item: ", item_data.get("item_name", "Unknown"), " (ID: ", new_item_id, ")")
 
-	# CANCEL any pending history requests for the previous item
-	if current_loading_item_id != -1 and current_loading_item_id != new_item_id and data_manager:
-		print("Cancelling history request for previous item: ", current_loading_item_id)
-		data_manager.cancel_history_request_for_item(current_loading_item_id)
+	# Cancel any pending chart request timer
+	if pending_chart_request_timer:
+		pending_chart_request_timer.queue_free()
+		pending_chart_request_timer = null
 
-	# FORCE cleanup of ALL existing loading panels immediately
+	# Always clean up loading panels
 	force_cleanup_all_loading_panels()
 
 	# Set new item tracking
@@ -546,30 +571,48 @@ func update_item_display(item_data: Dictionary):
 	selected_item_data = item_data
 
 	if market_chart:
-		# Clear chart data completely
+		# ALWAYS completely reset chart state first
+		print("Performing complete chart reset...")
 		market_chart.clear_data()
-		print("Chart data cleared for new item")
+		market_chart.chart_data.is_loading_historical = false
+		market_chart.chart_data.has_loaded_historical = false
+		market_chart.zoom_level = 1.0
+		print("Chart completely reset")
 
-	# Show loading state for new item AFTER clearing everything
-	show_chart_loading_state()
-	pending_historical_request = true
+	# Check if we have cached data for this item
+	var cached_data = get_cached_chart_data(new_item_id)
+	if not cached_data.is_empty():
+		print("Loading chart from cache for item ", new_item_id)
 
+		# Set basic chart data (without centering)
+		if market_chart:
+			market_chart.set_station_trading_data(item_data)
+
+		# Wait a frame to ensure chart setup is complete
+		await get_tree().process_frame
+
+		# Load cached data - centering will happen after data is loaded
+		load_cached_chart_data(cached_data)
+	else:
+		# Show loading and handle request throttling
+		show_chart_loading_state()
+
+		if should_request_chart_data(new_item_id):
+			print("Requesting chart data immediately for item ", new_item_id)
+			request_chart_data_for_item(new_item_id)
+		else:
+			print("Throttling chart request for item ", new_item_id)
+			queue_chart_request(new_item_id)
+
+	# Always update other displays (but NOT chart centering yet)
 	if market_chart:
-		# Set up chart centering based on item prices
-		center_chart_for_new_item(item_data)
-
 		market_chart.set_station_trading_data(item_data)
-		print("Called set_station_trading_data with keys: ", item_data.keys())
 
-		# Set initial spread data if available
 		var max_buy = item_data.get("max_buy", 0.0)
 		var min_sell = item_data.get("min_sell", 0.0)
 		if max_buy > 0 and min_sell > 0:
 			market_chart.update_spread_data(max_buy, min_sell)
 
-		print("Chart cleared and centered for new item selection")
-
-	# Update all displays for new item
 	update_item_header(item_data)
 	update_trading_defaults(item_data)
 	update_alert_defaults(item_data)
@@ -578,10 +621,206 @@ func update_item_display(item_data: Dictionary):
 	print("New item display setup complete")
 
 
+func load_cached_chart_data(cached_history_data: Dictionary):
+	"""Load cached chart data with proper state management"""
+	print("=== LOADING CACHED CHART DATA ===")
+
+	if not market_chart:
+		print("ERROR: No market_chart available")
+		return
+
+	var context = cached_history_data.get("context", {})
+	var data_item_id = context.get("type_id", 0)
+
+	print("Loading cached data for item: ", data_item_id)
+
+	# Ensure chart is in the right state for loading
+	market_chart.chart_data.is_loading_historical = true
+	market_chart.chart_data.has_loaded_historical = false
+
+	var history_entries = cached_history_data.get("data", [])
+	print("Cached history entries count: ", history_entries.size())
+
+	if typeof(history_entries) != TYPE_ARRAY or history_entries.size() == 0:
+		print("No valid cached historical data available")
+		market_chart.chart_data.is_loading_historical = false
+		market_chart.finish_historical_data_load()
+		return
+
+	var current_time = Time.get_unix_time_from_system()
+	var max_window_start = current_time - 31536000.0  # 1 year ago
+	var points_added = 0
+
+	# Process cached historical entries
+	var valid_entries = []
+	for entry in history_entries:
+		var date_str = entry.get("date", "")
+		if date_str.is_empty():
+			continue
+
+		var entry_timestamp = parse_eve_date(date_str)
+		if entry_timestamp >= max_window_start and entry_timestamp <= current_time:
+			valid_entries.append({"timestamp": entry_timestamp, "data": entry})
+
+	# Sort entries by timestamp (oldest first)
+	valid_entries.sort_custom(func(a, b): return a.timestamp < b.timestamp)
+
+	print("Processing %d valid cached entries" % valid_entries.size())
+
+	# Add cached data to chart
+	for entry_info in valid_entries:
+		var entry = entry_info.data
+		var day_timestamp = entry_info.timestamp
+
+		var real_avg_price = entry.get("average", 0.0)
+		var real_volume = entry.get("volume", 0)
+		var real_highest = entry.get("highest", real_avg_price)
+		var real_lowest = entry.get("lowest", real_avg_price)
+
+		if real_avg_price > 0:
+			# Add to moving average data (for the line)
+			market_chart.add_historical_data_point(real_avg_price, real_volume, day_timestamp)
+
+			# Add candlestick data
+			market_chart.add_candlestick_data_point(real_avg_price, real_highest, real_lowest, real_avg_price, real_volume, day_timestamp)  # open  # high  # low  # close  # volume  # timestamp
+			points_added += 1
+
+	print("Added %d cached data points to chart" % points_added)
+
+	# IMPORTANT: Finish the historical data load first
+	market_chart.chart_data.is_loading_historical = false
+	market_chart.chart_data.has_loaded_historical = true
+	market_chart.finish_historical_data_load()
+
+	# NOW center the chart based on the actual loaded data
+	if points_added > 0:
+		center_chart_after_data_load()
+
+	print("Cached chart data loading complete")
+
+
+func center_chart_after_data_load():
+	"""Center chart based on the actual historical data that was loaded"""
+	if not market_chart or market_chart.chart_data.price_data.size() == 0:
+		print("No chart or no data to center on")
+		return
+
+	print("=== CENTERING CHART AFTER DATA LOAD ===")
+
+	# Get the actual price range from loaded data
+	var min_price = market_chart.chart_data.get_min_price()
+	var max_price = market_chart.chart_data.get_max_price()
+
+	print("Data price range: min=%.2f, max=%.2f" % [min_price, max_price])
+
+	if min_price == 0 or max_price == 0 or min_price == max_price:
+		print("Invalid price range, using fallback")
+		# Use current market prices as fallback
+		var max_buy = selected_item_data.get("max_buy", 1000000.0)
+		var min_sell = selected_item_data.get("min_sell", 1000000.0)
+		if max_buy > 0 and min_sell > 0:
+			min_price = max_buy * 0.8
+			max_price = min_sell * 1.2
+		else:
+			min_price = 500000.0
+			max_price = 1500000.0
+
+	# Calculate center and range with some padding
+	var center_price = (min_price + max_price) / 2.0
+	var data_range = max_price - min_price
+	var price_range = data_range * 1.2  # Add 20% padding
+
+	print("Calculated center: %.2f, range: %.2f" % [center_price, price_range])
+
+	# Set chart view to show all data with proper padding
+	market_chart.chart_center_price = center_price
+	market_chart.chart_price_range = price_range
+
+	# Set time to show all historical data
+	var current_time = Time.get_unix_time_from_system()
+	market_chart.chart_center_time = current_time - (31536000.0 / 2.0)  # Center on 6 months ago
+
+	# Reset zoom to show full range
+	market_chart.zoom_level = 1.0
+
+	print("Chart recentered - center_price: %.2f, range: %.2f" % [center_price, price_range])
+
+	# Force redraw
+	market_chart.queue_redraw()
+
+
+func request_chart_data_for_item(item_id: int):
+	"""Request chart data for a specific item"""
+	last_chart_request_time = Time.get_ticks_msec() / 1000.0
+	pending_historical_request = true
+
+	if data_manager:
+		var region_id = selected_item_data.get("region_id", 10000002)
+		print("Making throttled chart request for item ", item_id)
+		data_manager.get_market_history(region_id, item_id)
+
+
+func queue_chart_request(item_id: int):
+	"""Queue a chart request to be made after the minimum interval"""
+	queued_item_id = item_id
+
+	var current_time = Time.get_ticks_msec() / 1000.0
+	var time_since_last = current_time - last_chart_request_time
+	var wait_time = min_chart_request_interval - time_since_last
+
+	print("Queueing chart request for item ", item_id, " (wait: ", wait_time, " seconds)")
+
+	pending_chart_request_timer = Timer.new()
+	pending_chart_request_timer.wait_time = wait_time
+	pending_chart_request_timer.one_shot = true
+	pending_chart_request_timer.timeout.connect(_on_queued_chart_request_ready)
+	add_child(pending_chart_request_timer)
+	pending_chart_request_timer.start()
+
+
+func _on_queued_chart_request_ready():
+	"""Handle queued chart request when timer expires"""
+	if queued_item_id != -1 and queued_item_id == current_loading_item_id:
+		print("Processing queued chart request for item ", queued_item_id)
+		request_chart_data_for_item(queued_item_id)
+	else:
+		print("Queued chart request cancelled (item changed)")
+
+	queued_item_id = -1
+	if pending_chart_request_timer:
+		pending_chart_request_timer.queue_free()
+		pending_chart_request_timer = null
+
+
+func verify_chart_ready_for_new_item() -> bool:
+	"""Verify the chart is properly reset and ready for new data"""
+	if not market_chart:
+		return false
+
+	var chart_data = market_chart.chart_data
+
+	print("=== CHART STATE VERIFICATION ===")
+	print("Price data points: ", chart_data.price_data.size())
+	print("Volume data points: ", chart_data.volume_data.size())
+	print("Candlestick data points: ", chart_data.candlestick_data.size())
+	print("Is loading historical: ", chart_data.is_loading_historical)
+	print("Has loaded historical: ", chart_data.has_loaded_historical)
+
+	# Chart should be empty and not in loading state
+	var is_ready = chart_data.price_data.size() == 0 and chart_data.volume_data.size() == 0 and chart_data.candlestick_data.size() == 0 and not chart_data.is_loading_historical
+
+	print("Chart ready for new item: ", is_ready)
+	print("================================")
+
+	return is_ready
+
+
 func center_chart_for_new_item(item_data: Dictionary):
 	"""Center and zoom the chart appropriately for the new item's price range"""
 	if not market_chart:
 		return
+
+	print("=== CENTERING CHART FOR NEW ITEM ===")
 
 	var max_buy = item_data.get("max_buy", 0.0)
 	var min_sell = item_data.get("min_sell", 0.0)
@@ -609,13 +848,20 @@ func center_chart_for_new_item(item_data: Dictionary):
 		center_price = 1000000.0  # 1M ISK default
 		price_range = 500000.0  # 500K ISK range
 
-	print("Centering chart: center_price=%.2f, price_range=%.2f" % [center_price, price_range])
+	print("Chart centering: center_price=%.2f, price_range=%.2f" % [center_price, price_range])
 
 	# Apply the centering to the chart
-	market_chart.center_on_price_range(center_price, price_range)
+	market_chart.chart_center_price = center_price
+	market_chart.chart_price_range = price_range
+	market_chart.chart_center_time = Time.get_unix_time_from_system()
 
 	# Reset zoom to a consistent level for all items
-	market_chart.reset_zoom_for_new_item()
+	market_chart.zoom_level = 1.0
+
+	# Force redraw
+	market_chart.queue_redraw()
+
+	print("Chart centering complete")
 
 
 func update_price_labels_with_animation(item_data: Dictionary):
@@ -1076,6 +1322,12 @@ func _on_historical_data_requested():
 		return
 
 	var item_id = selected_item_data.get("item_id", 0)
+	var region_id = selected_item_data.get("region_id", 10000002)
+
+	print("=== REQUESTING HISTORICAL DATA ===")
+	print("Item ID: ", item_id)
+	print("Region ID: ", region_id)
+	print("Current loading item ID: ", current_loading_item_id)
 
 	# Check if this request is still valid (item hasn't changed)
 	if item_id != current_loading_item_id:
@@ -1086,9 +1338,19 @@ func _on_historical_data_requested():
 			market_chart.finish_historical_data_load()
 		return
 
-	var region_id = selected_item_data.get("region_id", 10000002)
+	# Verify chart is ready
+	if not verify_chart_ready_for_new_item():
+		print("Chart not ready, forcing reset...")
+		if market_chart:
+			market_chart.clear_data()
+			market_chart.chart_data.is_loading_historical = false
+			market_chart.chart_data.has_loaded_historical = false
 
-	print("Requesting historical market data for item %d in region %d" % [item_id, region_id])
+	print("Making history request for item ", item_id, " in region ", region_id)
+
+	# Mark chart as loading BEFORE making request
+	if market_chart:
+		market_chart.chart_data.is_loading_historical = true
 
 	# Request market history for the past day
 	data_manager.get_market_history(region_id, item_id)
@@ -1100,18 +1362,19 @@ func load_historical_chart_data(history_data: Dictionary):
 
 	var context = history_data.get("context", {})
 	var data_item_id = context.get("type_id", 0)
-	var request_timestamp = context.get("request_timestamp", 0)
+
+	print("Historical data received for item: ", data_item_id)
+	print("Currently selected item: ", current_loading_item_id)
 
 	# Check if this data is for the currently selected item
 	if data_item_id != current_loading_item_id:
 		print("Historical data is for different item (", data_item_id, " vs ", current_loading_item_id, "), ignoring")
 		return
 
-	# Additional check: ensure this isn't stale data from a much older request
-	var current_time = Time.get_ticks_msec()
-	if current_time - request_timestamp > 15000:  # 15 seconds max age
-		print("Historical data is too old (", (current_time - request_timestamp) / 1000.0, " seconds), ignoring")
-		return
+	# Cache this data for future use
+	cache_chart_data(data_item_id, history_data)
+
+	print("Historical data is for correct item, processing...")
 
 	# Mark request as completed
 	pending_historical_request = false
@@ -1132,6 +1395,7 @@ func load_historical_chart_data(history_data: Dictionary):
 		market_chart.finish_historical_data_load()
 		return
 
+	var current_time = Time.get_unix_time_from_system()
 	var max_window_start = current_time - 31536000.0  # 1 year ago
 	var points_added = 0
 
@@ -1161,58 +1425,50 @@ func load_historical_chart_data(history_data: Dictionary):
 
 		# Use REAL data from EVE API
 		var real_avg_price = entry.get("average", 0.0)
-		var real_daily_volume = entry.get("volume", 0)
+		var real_volume = entry.get("volume", 0)
 		var real_highest = entry.get("highest", real_avg_price)
 		var real_lowest = entry.get("lowest", real_avg_price)
 
-		if real_avg_price <= 0:
-			print("Skipping entry with invalid price: %s" % entry.get("date", ""))
-			continue
+		if real_avg_price > 0:
+			# Add to moving average data (for the line)
+			market_chart.add_historical_data_point(real_avg_price, real_volume, day_timestamp)
+			points_added += 1
 
-		# Skip if this point would be in the future
-		if day_timestamp > current_time:
-			continue
+			# Add candlestick data (OHLC) using the correct function name
+			market_chart.add_candlestick_data_point(real_avg_price, real_highest, real_lowest, real_avg_price, real_volume, day_timestamp)  # open (EVE doesn't give us open, use average)  # high  # low  # close (EVE doesn't give us close, use average)  # volume  # timestamp
 
-		var days_ago = (current_time - day_timestamp) / 86400.0
-		print("  Adding REAL data: %.1f days ago, avg=%.2f, H=%.2f, L=%.2f, vol=%d" % [days_ago, real_avg_price, real_highest, real_lowest, real_daily_volume])
+	print("Added %d historical data points to chart" % points_added)
 
-		# Add the moving average data point
-		market_chart.add_historical_data_point(real_avg_price, real_daily_volume, day_timestamp)
-
-		# Add the candlestick data point (using available OHLC data from EVE)
-		# Note: EVE API doesn't provide open/close, so we'll use high/low/average creatively
-		var open_price = real_avg_price  # Use average as open (placeholder)
-		var close_price = real_avg_price  # Use average as close (placeholder)
-		market_chart.add_candlestick_data_point(open_price, real_highest, real_lowest, close_price, real_daily_volume, day_timestamp)
-
-		points_added += 1
-
-	print("=== HISTORICAL DATA LOADING COMPLETE ===")
-	print("Total points added: %d (daily historical + candlestick data)" % points_added)
+	# Finish the historical data load
 	market_chart.finish_historical_data_load()
+
+	if points_added > 0:
+		center_chart_after_data_load()
+
+	print("Historical chart data loading complete")
 
 
 func parse_eve_date(date_str: String) -> float:
-	"""Parse EVE date format (YYYY-MM-DD) to unix timestamp at 11:00 UTC (Eve downtime)"""
+	"""Parse EVE API date format (YYYY-MM-DD) to Unix timestamp at 11:00 UTC"""
 	var parts = date_str.split("-")
 	if parts.size() != 3:
-		print("Invalid date format: %s" % date_str)
+		print("Invalid date format: ", date_str)
 		return 0.0
 
 	var year = int(parts[0])
 	var month = int(parts[1])
 	var day = int(parts[2])
 
-	# Validate date components
-	if year < 2000 or year > 2030 or month < 1 or month > 12 or day < 1 or day > 31:
-		print("Invalid date components: %d-%d-%d" % [year, month, day])
-		return 0.0
-
-	# Set to 11:00 UTC - Eve Online's daily downtime/reset time
-	var datetime = {"year": year, "month": month, "day": day, "hour": 11, "minute": 0, "second": 0}
+	# Create a dictionary for the datetime
+	var datetime = {"year": year, "month": month, "day": day, "hour": 11, "minute": 0, "second": 0}  # 11:00 UTC (Eve's daily reset time)
 
 	var timestamp = Time.get_unix_time_from_datetime_dict(datetime)
-	print("Parsed '%s' to EVE downtime timestamp %f (%s)" % [date_str, timestamp, Time.get_datetime_string_from_unix_time(timestamp)])
+
+	# Debug the first few dates
+	var current_time = Time.get_unix_time_from_system()
+	if timestamp > current_time - 86400 * 7:  # If within last week
+		print("Parsed date %s -> %s (timestamp: %.0f)" % [date_str, Time.get_datetime_string_from_unix_time(timestamp), timestamp])
+
 	return timestamp
 
 
@@ -1328,6 +1584,49 @@ func _on_create_alert_pressed():
 	print("Alert created for ", alert_data.item_name, " at ", alert_data.target_price, " ISK (", condition_text, ")")
 
 
+func cache_chart_data(item_id: int, history_data: Dictionary):
+	"""Cache historical chart data for an item"""
+	var cache_entry = {"data": history_data, "timestamp": Time.get_ticks_msec() / 1000.0, "item_id": item_id}
+	chart_data_cache[item_id] = cache_entry
+	print("Cached chart data for item ", item_id)
+
+
+func get_cached_chart_data(item_id: int) -> Dictionary:
+	"""Get cached chart data if available and not too old"""
+	if not chart_data_cache.has(item_id):
+		return {}
+
+	var cache_entry = chart_data_cache[item_id]
+	var current_time = Time.get_ticks_msec() / 1000.0
+	var cache_age = current_time - cache_entry.timestamp
+
+	# Cache is valid for 5 minutes
+	if cache_age < 300.0:
+		print("Using cached chart data for item ", item_id, " (age: ", cache_age, " seconds)")
+		return cache_entry.data
+	else:
+		print("Cached data for item ", item_id, " is too old (", cache_age, " seconds)")
+		chart_data_cache.erase(item_id)
+		return {}
+
+
+func should_request_chart_data(item_id: int) -> bool:
+	"""Check if we should request chart data or wait"""
+	var current_time = Time.get_ticks_msec() / 1000.0
+	var time_since_last_request = current_time - last_chart_request_time
+
+	# Check if we have cached data
+	if not get_cached_chart_data(item_id).is_empty():
+		return false
+
+	# Check if enough time has passed since last request
+	if time_since_last_request < min_chart_request_interval:
+		print("Too soon to request chart data (", time_since_last_request, " seconds since last)")
+		return false
+
+	return true
+
+
 func format_isk(value: float) -> String:
 	if value >= 1000000000:
 		return "%.2fB" % (value / 1000000000.0)
@@ -1373,6 +1672,45 @@ func force_cleanup_loading_state():
 			child.queue_free()
 
 	print("Force cleanup complete")
+
+
+func force_reset_all_state():
+	"""Emergency reset of ALL loading state and timers"""
+	print("=== FORCE RESET ALL STATE ===")
+
+	# Reset all tracking variables
+	pending_historical_request = false
+	current_loading_item_id = -1
+
+	# Force cleanup all loading panels
+	force_cleanup_all_loading_panels()
+
+	# Remove ALL timers (fallback timers can accumulate)
+	var timers_to_remove = []
+	for child in get_children():
+		if child is Timer:
+			timers_to_remove.append(child)
+
+	for timer in timers_to_remove:
+		print("Removing timer: ", timer.name)
+		remove_child(timer)
+		timer.queue_free()
+
+	# Force chart out of any loading state
+	if market_chart:
+		market_chart.chart_data.is_loading_historical = false
+		market_chart.chart_data.has_loaded_historical = false
+		market_chart.clear_data()
+		print("Chart forcibly reset")
+
+	# Cancel ALL pending history requests in DataManager
+	if data_manager:
+		# Clear all pending requests
+		for item_id in data_manager.pending_history_requests.keys():
+			print("Force cancelling pending request for item: ", item_id)
+		data_manager.pending_history_requests.clear()
+
+	print("Force reset complete")
 
 
 func force_cleanup_all_loading_panels():
