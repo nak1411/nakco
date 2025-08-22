@@ -23,6 +23,8 @@ var last_chart_request_time: float = 0.0
 var min_chart_request_interval: float = 2.0  # Minimum 2 seconds between chart requests
 var pending_chart_request_timer: Timer
 var queued_item_id: int = -1
+var cache_status_label: Label
+var cache_status_timer: Timer
 
 @onready var data_manager: DataManager
 
@@ -111,8 +113,8 @@ func create_item_info_header():
 func create_market_chart():
 	var chart_panel = PanelContainer.new()
 	chart_panel.name = "ChartPanel"
-	chart_panel.custom_minimum_size.y = 300  # Larger minimum since it has more space
-	chart_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL  # Takes all remaining space
+	chart_panel.custom_minimum_size.y = 300
+	chart_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	add_child(chart_panel)
 
 	var chart_vbox = VBoxContainer.new()
@@ -126,25 +128,65 @@ func create_market_chart():
 	chart_header_container.custom_minimum_size.y = 5
 	chart_vbox.add_child(chart_header_container)
 
+	# ADD CACHE STATUS LABEL HERE
+	create_cache_status_label(chart_vbox)
+
 	market_chart = MarketChart.new()
 	market_chart.name = "MarketChart"
 	market_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	market_chart.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 	market_chart.historical_data_requested.connect(_on_historical_data_requested)
-
-	# EXPLICITLY disable any tooltip behavior
 	market_chart.tooltip_text = ""
 	market_chart.mouse_filter = Control.MOUSE_FILTER_PASS
 
 	chart_vbox.add_child(market_chart)
 
-	# Connect signals
-
 	chart_panel.resized.connect(_on_chart_panel_resized)
 	market_chart.resized.connect(_on_chart_resized)
 
 	return chart_panel
+
+
+func create_cache_status_label(parent: VBoxContainer):
+	"""Create the cache status label"""
+	var status_container = HBoxContainer.new()
+	status_container.custom_minimum_size.y = 20
+	parent.add_child(status_container)
+
+	# Spacer to push label to the right
+	var spacer = Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	status_container.add_child(spacer)
+
+	# Cache status label with wider minimum size
+	cache_status_label = Label.new()
+	cache_status_label.name = "CacheStatusLabel"
+	cache_status_label.custom_minimum_size = Vector2(350, 20)  # Even wider
+	cache_status_label.add_theme_font_size_override("font_size", 10)
+	cache_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7, 0.8))
+	cache_status_label.text = "📊 Ready for data"
+	cache_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	cache_status_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	cache_status_label.clip_contents = false
+	status_container.add_child(cache_status_label)
+
+	# Remove old timer if exists
+	if cache_status_timer:
+		cache_status_timer.queue_free()
+
+	# Create new timer
+	cache_status_timer = Timer.new()
+	cache_status_timer.name = "CacheStatusTimer"
+	cache_status_timer.wait_time = 1.0
+	cache_status_timer.timeout.connect(_update_cache_status_display)
+	add_child(cache_status_timer)
+	cache_status_timer.start()
+
+	print("Cache status timer created and started - should call update every second")
+
+	# Test the update immediately
+	update_cache_status_display()
 
 
 func create_chart_controls():
@@ -261,6 +303,69 @@ func _style_menu_button(menu_button: MenuButton):
 
 	# Center the text
 	menu_button.alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+
+func update_cache_status_display():
+	"""Update the cache status label - main function"""
+	if not cache_status_label:
+		return
+
+	if current_loading_item_id == -1:
+		cache_status_label.text = "📊 No item selected"
+		return
+
+	print("Updating cache status for item: ", current_loading_item_id)
+
+	# Check if current item has cached data
+	if chart_data_cache.has(current_loading_item_id):
+		var cache_entry = chart_data_cache[current_loading_item_id]
+		var cache_timestamp = cache_entry.timestamp
+		var current_time = Time.get_ticks_msec() / 1000.0
+		var cache_age = current_time - cache_timestamp
+		var cache_duration = 300.0  # 5 minutes
+		var time_until_refresh = cache_duration - cache_age
+
+		print("Cache found - age: %.1f seconds, time until refresh: %.1f seconds" % [cache_age, time_until_refresh])
+
+		if time_until_refresh > 0:
+			# Data is cached and still valid
+			var age_minutes = int(cache_age / 60)
+			var age_seconds = int(cache_age) % 60
+			var refresh_minutes = int(time_until_refresh / 60)
+			var refresh_seconds = int(time_until_refresh) % 60
+
+			# Use compact format
+			var status_text = "📊 Cached %02d:%02d | Refresh %02d:%02d" % [age_minutes, age_seconds, refresh_minutes, refresh_seconds]
+
+			print("Setting cache status text: '", status_text, "'")
+			cache_status_label.text = status_text
+			cache_status_label.add_theme_color_override("font_color", Color(0.6, 0.8, 0.6, 0.9))  # Light green
+		else:
+			# Cache expired
+			print("Cache expired")
+			cache_status_label.text = "📊 Cache expired - will refresh on next request"
+			cache_status_label.add_theme_color_override("font_color", Color(0.8, 0.6, 0.6, 0.9))  # Light red
+	else:
+		# No cached data
+		print("No cached data found")
+		if pending_historical_request:
+			cache_status_label.text = "📡 Loading fresh data..."
+			cache_status_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.8, 0.9))  # Light blue
+		else:
+			cache_status_label.text = "📊 Live data"
+			cache_status_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.6, 0.9))  # Light yellow
+
+
+# Remove the old _update_cache_status_display function and replace it
+func _update_cache_status_display():
+	"""Timer callback - just calls the main function"""
+	update_cache_status_display()
+
+
+func hide_cache_status():
+	"""Hide cache status when no item is selected"""
+	if cache_status_label:
+		cache_status_label.text = ""
 
 
 func show_chart_loading_state():
@@ -584,6 +689,9 @@ func update_item_display(item_data: Dictionary):
 	if not cached_data.is_empty():
 		print("Loading chart from cache for item ", new_item_id)
 
+		# Show cache status
+		trigger_cache_status_update()
+
 		# Set basic chart data (without centering)
 		if market_chart:
 			market_chart.set_station_trading_data(item_data)
@@ -594,6 +702,9 @@ func update_item_display(item_data: Dictionary):
 		# Load cached data - centering will happen after data is loaded
 		load_cached_chart_data(cached_data)
 	else:
+		# Show loading status
+		trigger_cache_status_update()
+
 		# Show loading and handle request throttling
 		show_chart_loading_state()
 
@@ -619,6 +730,12 @@ func update_item_display(item_data: Dictionary):
 	update_order_book(item_data)
 
 	print("New item display setup complete")
+
+
+func trigger_cache_status_update():
+	"""Simple function to trigger cache status update"""
+	if cache_status_label:
+		update_cache_status_display()
 
 
 func load_cached_chart_data(cached_history_data: Dictionary):
@@ -1588,7 +1705,10 @@ func cache_chart_data(item_id: int, history_data: Dictionary):
 	"""Cache historical chart data for an item"""
 	var cache_entry = {"data": history_data, "timestamp": Time.get_ticks_msec() / 1000.0, "item_id": item_id}
 	chart_data_cache[item_id] = cache_entry
-	print("Cached chart data for item ", item_id)
+	print("Cached chart data for item ", item_id, " at timestamp ", cache_entry.timestamp)
+
+	# Update cache status display immediately
+	trigger_cache_status_update()
 
 
 func get_cached_chart_data(item_id: int) -> Dictionary:
@@ -1600,14 +1720,14 @@ func get_cached_chart_data(item_id: int) -> Dictionary:
 	var current_time = Time.get_ticks_msec() / 1000.0
 	var cache_age = current_time - cache_entry.timestamp
 
-	# Cache is valid for 5 minutes
+	# Cache is valid for 5 minutes (300 seconds)
 	if cache_age < 300.0:
 		print("Using cached chart data for item ", item_id, " (age: ", cache_age, " seconds)")
 		return cache_entry.data
-	else:
-		print("Cached data for item ", item_id, " is too old (", cache_age, " seconds)")
-		chart_data_cache.erase(item_id)
-		return {}
+
+	print("Cached data for item ", item_id, " is too old (", cache_age, " seconds)")
+	chart_data_cache.erase(item_id)
+	return {}
 
 
 func should_request_chart_data(item_id: int) -> bool:
