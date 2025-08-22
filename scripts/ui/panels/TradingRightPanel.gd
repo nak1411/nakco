@@ -13,6 +13,9 @@ var quick_trade_panel: VBoxContainer
 var analysis_tools_menu: MenuButton
 var chart_display_menu: MenuButton
 
+var current_loading_item_id: int = -1
+var pending_historical_request: bool = false
+
 @onready var data_manager: DataManager
 
 
@@ -252,6 +255,186 @@ func _style_menu_button(menu_button: MenuButton):
 	menu_button.alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 
+func show_chart_loading_state():
+	"""Show loading overlay specifically on the ChartPanel"""
+	print("=== CHART LOADING STATE ===")
+
+	# Find the ChartPanel specifically
+	var chart_panel = get_node_or_null("ChartPanel")
+	if not chart_panel:
+		print("ERROR: ChartPanel not found")
+		return
+
+	# IMMEDIATELY remove ALL existing loading overlays (not just queue_free)
+	var children_to_remove = []
+	for child in chart_panel.get_children():
+		if child.name.begins_with("ChartLoadingOverlay"):
+			children_to_remove.append(child)
+
+	for child in children_to_remove:
+		print("Immediately removing existing loading overlay: ", child.name)
+		chart_panel.remove_child(child)
+		child.queue_free()
+
+	# Also remove timeout timers immediately
+	var timers_to_remove = []
+	for child in get_children():
+		if child is Timer and child.name.begins_with("LoadingTimeout"):
+			timers_to_remove.append(child)
+
+	for timer in timers_to_remove:
+		print("Immediately removing timeout timer: ", timer.name)
+		remove_child(timer)
+		timer.queue_free()
+
+	# Create loading overlay with unique name to prevent conflicts
+	var timestamp = str(Time.get_ticks_msec())
+	var loading_overlay = Control.new()
+	loading_overlay.name = "ChartLoadingOverlay_" + timestamp
+	loading_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	loading_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	loading_overlay.z_index = 100
+
+	# Bright background for visibility
+	var background = ColorRect.new()
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	background.color = Color(0.0, 0.0, 0.0, 0.8)
+	loading_overlay.add_child(background)
+
+	# Centered content
+	var center_container = CenterContainer.new()
+	center_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	loading_overlay.add_child(center_container)
+
+	# Loading panel
+	var loading_panel = PanelContainer.new()
+	loading_panel.custom_minimum_size = Vector2(300, 120)
+
+	# Style the panel
+	var panel_style = StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.1, 0.1, 0.2, 1.0)
+	panel_style.border_width_left = 3
+	panel_style.border_width_right = 3
+	panel_style.border_width_top = 3
+	panel_style.border_width_bottom = 3
+	panel_style.border_color = Color.CYAN
+	panel_style.corner_radius_top_left = 10
+	panel_style.corner_radius_top_right = 10
+	panel_style.corner_radius_bottom_left = 10
+	panel_style.corner_radius_bottom_right = 10
+	loading_panel.add_theme_stylebox_override("panel", panel_style)
+
+	center_container.add_child(loading_panel)
+
+	# Content margin
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 25)
+	margin.add_theme_constant_override("margin_right", 25)
+	margin.add_theme_constant_override("margin_top", 20)
+	margin.add_theme_constant_override("margin_bottom", 20)
+	loading_panel.add_child(margin)
+
+	# Content vbox
+	var vbox = VBoxContainer.new()
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 15)
+	margin.add_child(vbox)
+
+	# Loading title
+	var loading_title = Label.new()
+	loading_title.text = "Loading Chart Data..."
+	loading_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_title.add_theme_font_size_override("font_size", 20)
+	loading_title.add_theme_color_override("font_color", Color.CYAN)
+	vbox.add_child(loading_title)
+
+	# Loading message
+	var loading_message = Label.new()
+	var item_name = selected_item_data.get("item_name", "Unknown Item")
+
+	if item_name and item_name != "":
+		loading_message.text = "Fetching price history for " + str(item_name) + "..."
+	else:
+		loading_message.text = "Fetching price history..."
+
+	loading_message.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	loading_message.add_theme_font_size_override("font_size", 14)
+	loading_message.add_theme_color_override("font_color", Color.WHITE)
+	loading_message.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	vbox.add_child(loading_message)
+
+	# Progress indicator
+	var progress_label = Label.new()
+	progress_label.text = "●●●●●"
+	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	progress_label.add_theme_font_size_override("font_size", 18)
+	progress_label.add_theme_color_override("font_color", Color.YELLOW)
+	vbox.add_child(progress_label)
+
+	# Add to the ChartPanel
+	chart_panel.add_child(loading_overlay)
+	loading_overlay.visible = true
+
+	print("Added loading overlay to ChartPanel: ", loading_overlay.name)
+
+	# Animate progress dots
+	var tween = loading_overlay.create_tween()
+	tween.set_loops()
+	tween.tween_property(progress_label, "modulate:a", 0.3, 0.8)
+	tween.tween_property(progress_label, "modulate:a", 1.0, 0.8)
+
+	# Add timeout safety mechanism with unique name
+	var timeout_timer = Timer.new()
+	timeout_timer.name = "LoadingTimeout_" + timestamp
+	timeout_timer.wait_time = 6.0  # Even shorter timeout
+	timeout_timer.one_shot = true
+	timeout_timer.timeout.connect(
+		func():
+			print("Loading timeout - forcing cleanup")
+			force_cleanup_all_loading_panels()
+			timeout_timer.queue_free()
+	)
+	add_child(timeout_timer)
+	timeout_timer.start()
+
+
+func hide_chart_loading_state():
+	"""Hide ALL loading overlays from the ChartPanel immediately"""
+	print("=== HIDING ALL CHART LOADING PANELS ===")
+
+	# Reset loading state flags
+	pending_historical_request = false
+
+	var chart_panel = get_node_or_null("ChartPanel")
+	if not chart_panel:
+		print("ERROR: ChartPanel not found")
+		return
+
+	# Remove ALL loading overlays immediately
+	var children_to_remove = []
+	for child in chart_panel.get_children():
+		if child.name.begins_with("ChartLoadingOverlay"):
+			children_to_remove.append(child)
+
+	print("Found ", children_to_remove.size(), " loading overlays to remove")
+
+	for child in children_to_remove:
+		print("Immediately removing loading overlay: ", child.name)
+		chart_panel.remove_child(child)
+		child.queue_free()
+
+	# Also remove timeout timers
+	var timers_to_remove = []
+	for child in get_children():
+		if child is Timer and child.name.begins_with("LoadingTimeout"):
+			timers_to_remove.append(child)
+
+	for timer in timers_to_remove:
+		print("Immediately removing timeout timer: ", timer.name)
+		remove_child(timer)
+		timer.queue_free()
+
+
 func _on_analysis_menu_selected(id: int):
 	"""Handle analysis tools menu selection"""
 	if not market_chart:
@@ -347,19 +530,36 @@ func create_order_book_header():
 func update_item_display(item_data: Dictionary):
 	"""Called only for NEW item selection - this clears the chart"""
 	print("=== TRADING PANEL: NEW ITEM SELECTED ===")
-	print("New item: ", item_data.get("item_name", "Unknown"))
+	var new_item_id = item_data.get("item_id", 0)
+	print("New item: ", item_data.get("item_name", "Unknown"), " (ID: ", new_item_id, ")")
 
+	# CANCEL any pending history requests for the previous item
+	if current_loading_item_id != -1 and current_loading_item_id != new_item_id and data_manager:
+		print("Cancelling history request for previous item: ", current_loading_item_id)
+		data_manager.cancel_history_request_for_item(current_loading_item_id)
+
+	# FORCE cleanup of ALL existing loading panels immediately
+	force_cleanup_all_loading_panels()
+
+	# Set new item tracking
+	current_loading_item_id = new_item_id
 	selected_item_data = item_data
 
 	if market_chart:
-		# Clear chart data first
+		# Clear chart data completely
 		market_chart.clear_data()
+		print("Chart data cleared for new item")
 
+	# Show loading state for new item AFTER clearing everything
+	show_chart_loading_state()
+	pending_historical_request = true
+
+	if market_chart:
 		# Set up chart centering based on item prices
 		center_chart_for_new_item(item_data)
 
 		market_chart.set_station_trading_data(item_data)
-		print("Called set_station_trading_data with keys: %s" % item_data.keys())
+		print("Called set_station_trading_data with keys: ", item_data.keys())
 
 		# Set initial spread data if available
 		var max_buy = item_data.get("max_buy", 0.0)
@@ -861,17 +1061,31 @@ func _on_historical_data_requested():
 
 	if not selected_item_data.has("item_id"):
 		print("No item selected, finishing without data")
+		pending_historical_request = false
+		hide_chart_loading_state()
 		if market_chart:
 			market_chart.finish_historical_data_load()
 		return
 
 	if not data_manager:
 		print("No data manager available, finishing without data")
+		pending_historical_request = false
+		hide_chart_loading_state()
 		if market_chart:
 			market_chart.finish_historical_data_load()
 		return
 
 	var item_id = selected_item_data.get("item_id", 0)
+
+	# Check if this request is still valid (item hasn't changed)
+	if item_id != current_loading_item_id:
+		print("Item changed during request, cancelling historical data request")
+		pending_historical_request = false
+		hide_chart_loading_state()
+		if market_chart:
+			market_chart.finish_historical_data_load()
+		return
+
 	var region_id = selected_item_data.get("region_id", 10000002)
 
 	print("Requesting historical market data for item %d in region %d" % [item_id, region_id])
@@ -884,13 +1098,32 @@ func load_historical_chart_data(history_data: Dictionary):
 	"""Load historical market data into the chart as candlesticks - REAL EVE DATA ONLY"""
 	print("=== LOADING REAL HISTORICAL CHART DATA AS CANDLESTICKS ===")
 
+	var context = history_data.get("context", {})
+	var data_item_id = context.get("type_id", 0)
+	var request_timestamp = context.get("request_timestamp", 0)
+
+	# Check if this data is for the currently selected item
+	if data_item_id != current_loading_item_id:
+		print("Historical data is for different item (", data_item_id, " vs ", current_loading_item_id, "), ignoring")
+		return
+
+	# Additional check: ensure this isn't stale data from a much older request
+	var current_time = Time.get_ticks_msec()
+	if current_time - request_timestamp > 15000:  # 15 seconds max age
+		print("Historical data is too old (", (current_time - request_timestamp) / 1000.0, " seconds), ignoring")
+		return
+
+	# Mark request as completed
+	pending_historical_request = false
+
+	# Hide loading state since we're now loading data
+	hide_chart_loading_state()
+
 	if not market_chart:
 		print("ERROR: No market_chart available")
 		return
 
 	var history_entries = history_data.get("data", [])
-	var context = history_data.get("context", {})
-	var item_id = context.get("type_id", 0)
 
 	print("History entries count: ", history_entries.size())
 
@@ -899,7 +1132,6 @@ func load_historical_chart_data(history_data: Dictionary):
 		market_chart.finish_historical_data_load()
 		return
 
-	var current_time = Time.get_unix_time_from_system()
 	var max_window_start = current_time - 31536000.0  # 1 year ago
 	var points_added = 0
 
@@ -1110,3 +1342,73 @@ func debug_node_structure(node: Node, indent: String = ""):
 	print(indent, node.name, " (", node.get_class(), ")")
 	for child in node.get_children():
 		debug_node_structure(child, indent + "  ")
+
+
+func cleanup_previous_item_requests():
+	"""Clean up any pending requests or loading states from previous items"""
+	pending_historical_request = false
+	hide_chart_loading_state()
+
+	# Reset current item tracking
+	current_loading_item_id = -1
+
+
+func force_cleanup_loading_state():
+	"""Force cleanup of all loading states - emergency reset"""
+	print("=== FORCE CLEANUP LOADING STATE ===")
+
+	pending_historical_request = false
+	current_loading_item_id = -1
+
+	hide_chart_loading_state()
+
+	# Force chart out of loading state
+	if market_chart and market_chart.chart_data.is_loading_historical:
+		market_chart.chart_data.is_loading_historical = false
+		market_chart.finish_historical_data_load()
+
+	# Remove all timeout timers
+	for child in get_children():
+		if child is Timer:
+			child.queue_free()
+
+	print("Force cleanup complete")
+
+
+func force_cleanup_all_loading_panels():
+	"""Emergency cleanup of ALL loading panels and timers"""
+	print("=== FORCE CLEANUP ALL LOADING PANELS ===")
+
+	pending_historical_request = false
+	current_loading_item_id = -1
+
+	var chart_panel = get_node_or_null("ChartPanel")
+	if chart_panel:
+		# Remove ALL children that look like loading panels
+		var children_to_remove = []
+		for child in chart_panel.get_children():
+			if child.name.begins_with("ChartLoadingOverlay") or child.name.contains("Loading"):
+				children_to_remove.append(child)
+
+		for child in children_to_remove:
+			print("Force removing: ", child.name)
+			chart_panel.remove_child(child)
+			child.queue_free()
+
+	# Remove ALL timeout timers
+	var timers_to_remove = []
+	for child in get_children():
+		if child is Timer:
+			timers_to_remove.append(child)
+
+	for timer in timers_to_remove:
+		print("Force removing timer: ", timer.name)
+		remove_child(timer)
+		timer.queue_free()
+
+	# Force chart out of loading state
+	if market_chart and market_chart.chart_data.is_loading_historical:
+		market_chart.chart_data.is_loading_historical = false
+		market_chart.finish_historical_data_load()
+
+	print("Force cleanup complete")
