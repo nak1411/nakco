@@ -41,6 +41,7 @@ func setup_panels():
 	# Set the VBoxContainer to fill and expand
 	size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	size_flags_vertical = Control.SIZE_EXPAND_FILL
+	add_theme_constant_override("separation", 0)
 
 	# 1. Item Info Header (fixed height)
 	create_item_info_header()
@@ -67,7 +68,7 @@ func create_order_book():
 func create_item_info_header():
 	var header_panel = PanelContainer.new()
 	header_panel.name = "ItemInfoPanel"
-	header_panel.custom_minimum_size.y = 60  # Slightly taller for better info display
+	header_panel.custom_minimum_size.y = 40  # Slightly taller for better info display
 	add_child(header_panel)
 
 	var header_vbox = VBoxContainer.new()
@@ -119,18 +120,10 @@ func create_market_chart():
 
 	var chart_vbox = VBoxContainer.new()
 	chart_vbox.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	chart_vbox.add_theme_constant_override("separation", 0)
 	chart_panel.add_child(chart_vbox)
 
-	var controls = create_chart_controls()
-	chart_vbox.add_child(controls)
-
-	var chart_header_container = HBoxContainer.new()
-	chart_header_container.custom_minimum_size.y = 5
-	chart_vbox.add_child(chart_header_container)
-
-	# ADD CACHE STATUS LABEL HERE
-	create_cache_status_label(chart_vbox)
-
+	# Just add the market chart directly
 	market_chart = MarketChart.new()
 	market_chart.name = "MarketChart"
 	market_chart.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -142,16 +135,128 @@ func create_market_chart():
 
 	chart_vbox.add_child(market_chart)
 
+	# Add the control buttons directly to the chart as child controls
+	_add_chart_overlay_controls()
+
 	chart_panel.resized.connect(_on_chart_panel_resized)
 	market_chart.resized.connect(_on_chart_resized)
 
 	return chart_panel
 
 
+func _add_chart_overlay_controls():
+	"""Add control buttons as overlays on the chart itself"""
+
+	# Create background panel for the buttons
+	var controls_background = PanelContainer.new()
+	controls_background.name = "ControlsBackground"
+	controls_background.z_index = 99  # Behind the buttons but above chart
+
+	# Style the background panel
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.08, 0.08, 0.12, 0.75)  # Dark semi-transparent background
+	bg_style.border_width_left = 0
+	bg_style.border_width_right = 1
+	bg_style.border_width_top = 0
+	bg_style.border_width_bottom = 1
+	bg_style.border_color = Color(0.3, 0.3, 0.4, 0.6)
+	controls_background.add_theme_stylebox_override("panel", bg_style)
+
+	# Position and size the background (will be adjusted dynamically)
+	controls_background.position = Vector2(195, 5)  # Slightly larger than button area
+	controls_background.custom_minimum_size = Vector2(200, 30)  # Width to cover both buttons
+
+	market_chart.add_child(controls_background)
+
+	# Analysis Tools Menu
+	analysis_tools_menu = MenuButton.new()
+	analysis_tools_menu.name = "AnalysisToolsMenu"
+	analysis_tools_menu.text = "Analysis Tools"
+	analysis_tools_menu.custom_minimum_size = Vector2(120, 0)
+	analysis_tools_menu.position = Vector2(200, 10)
+	analysis_tools_menu.z_index = 100  # Above background
+
+	_style_overlay_button(analysis_tools_menu)
+
+	var analysis_popup = analysis_tools_menu.get_popup()
+	analysis_popup.add_check_item("Spread Analysis")
+	analysis_popup.add_check_item("S/R Analysis")
+	analysis_popup.add_check_item("Donchian Channel")
+	analysis_popup.id_pressed.connect(_on_analysis_menu_selected)
+	market_chart.add_child(analysis_tools_menu)
+
+	# Chart Display Menu
+	chart_display_menu = MenuButton.new()
+	chart_display_menu.name = "ChartDisplayMenu"
+	chart_display_menu.text = "Chart Display"
+	chart_display_menu.custom_minimum_size = Vector2(120, 0)
+	chart_display_menu.position = Vector2(330, 10)
+	chart_display_menu.z_index = 100  # Above background
+
+	_style_overlay_button(chart_display_menu)
+
+	var display_popup = chart_display_menu.get_popup()
+	display_popup.add_check_item("Candlesticks")
+	display_popup.add_check_item("Data Points")
+	display_popup.add_check_item("MA Line")
+	display_popup.id_pressed.connect(_on_chart_display_menu_selected)
+	market_chart.add_child(chart_display_menu)
+
+	# Cache status label (top-right)
+	cache_status_label = Label.new()
+	cache_status_label.name = "CacheStatusLabel"
+	cache_status_label.custom_minimum_size = Vector2(200, 0)
+	cache_status_label.add_theme_font_size_override("font_size", 10)
+	cache_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7, 0.8))
+	cache_status_label.text = "📊 Ready for data"
+	cache_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	cache_status_label.z_index = 100
+
+	market_chart.add_child(cache_status_label)
+
+	# Connect resize to reposition controls
+	market_chart.resized.connect(_on_chart_resized_reposition_controls)
+
+	# Set initial checkbox states
+	_update_menu_states()
+
+
+func _style_overlay_button(menu_button: MenuButton):
+	"""Style buttons for chart overlay with transparency"""
+	var style_normal = StyleBoxFlat.new()
+	style_normal.bg_color = Color(0.1, 0.1, 0.15, 0.8)  # Semi-transparent
+	style_normal.content_margin_left = 6
+	style_normal.content_margin_top = 2
+	style_normal.content_margin_right = 6
+	style_normal.content_margin_bottom = 2
+	style_normal.border_width_left = 1
+	style_normal.border_width_right = 1
+	style_normal.border_width_top = 1
+	style_normal.border_width_bottom = 1
+	style_normal.border_color = Color(0.4, 0.4, 0.5, 0.6)
+
+	var style_hover = StyleBoxFlat.new()
+	style_hover.bg_color = Color(0.2, 0.2, 0.25, 0.9)
+	style_hover.content_margin_left = 6
+	style_hover.content_margin_top = 2
+	style_hover.content_margin_right = 6
+	style_hover.content_margin_bottom = 2
+	style_hover.border_width_left = 1
+	style_hover.border_width_right = 1
+	style_hover.border_width_top = 1
+	style_hover.border_width_bottom = 1
+	style_hover.border_color = Color(0.5, 0.5, 0.6, 0.8)
+
+	menu_button.add_theme_stylebox_override("normal", style_normal)
+	menu_button.add_theme_stylebox_override("hover", style_hover)
+	menu_button.add_theme_stylebox_override("pressed", style_hover)
+	menu_button.add_theme_font_size_override("font_size", 10)
+
+
 func create_cache_status_label(parent: VBoxContainer):
 	"""Create the cache status label"""
 	var status_container = HBoxContainer.new()
-	status_container.custom_minimum_size.y = 20
+	status_container.custom_minimum_size.y = 0
 	parent.add_child(status_container)
 
 	# Spacer to push label to the right
@@ -162,7 +267,7 @@ func create_cache_status_label(parent: VBoxContainer):
 	# Cache status label with wider minimum size
 	cache_status_label = Label.new()
 	cache_status_label.name = "CacheStatusLabel"
-	cache_status_label.custom_minimum_size = Vector2(350, 20)  # Even wider
+	cache_status_label.custom_minimum_size = Vector2(350, 0)  # Even wider
 	cache_status_label.add_theme_font_size_override("font_size", 10)
 	cache_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7, 0.8))
 	cache_status_label.text = "📊 Ready for data"
@@ -194,13 +299,14 @@ func create_chart_controls():
 	var controls_container = HBoxContainer.new()
 	controls_container.name = "ChartControls"
 	controls_container.alignment = BoxContainer.ALIGNMENT_BEGIN  # Center the controls
-	controls_container.custom_minimum_size.y = 20  # Give more height for better appearance
+	controls_container.custom_minimum_size.y = 0  # Give more height for better appearance
 
 	# Analysis Tools Menu
 	analysis_tools_menu = MenuButton.new()
 	analysis_tools_menu.name = "AnalysisToolsMenu"
 	analysis_tools_menu.text = "Analysis Tools..."
-	analysis_tools_menu.custom_minimum_size = Vector2(180, 20)
+	analysis_tools_menu.custom_minimum_size = Vector2(180, 0)
+	analysis_tools_menu.position = Vector2(market_chart.size.x - 280, 10)
 
 	# Style the Analysis Tools menu button
 	_style_menu_button(analysis_tools_menu)
@@ -216,7 +322,8 @@ func create_chart_controls():
 	chart_display_menu = MenuButton.new()
 	chart_display_menu.name = "ChartDisplayMenu"
 	chart_display_menu.text = "Chart Display..."
-	chart_display_menu.custom_minimum_size = Vector2(180, 20)
+	chart_display_menu.custom_minimum_size = Vector2(180, 0)
+	chart_display_menu.position = Vector2(market_chart.size.x - 150, 10)
 
 	# Style the Chart Display menu button
 	_style_menu_button(chart_display_menu)
@@ -240,9 +347,9 @@ func _style_menu_button(menu_button: MenuButton):
 	var style_normal = StyleBoxFlat.new()
 	style_normal.bg_color = Color(0.18, 0.2, 0.25, 1.0)  # Updated color
 	style_normal.content_margin_left = 8
-	style_normal.content_margin_top = 4
+	style_normal.content_margin_top = 0
 	style_normal.content_margin_right = 8
-	style_normal.content_margin_bottom = 4
+	style_normal.content_margin_bottom = 0
 	style_normal.border_width_left = 1
 	style_normal.border_width_right = 1
 	style_normal.border_width_top = 1
@@ -253,9 +360,9 @@ func _style_menu_button(menu_button: MenuButton):
 	var style_hover = StyleBoxFlat.new()
 	style_hover.bg_color = Color(0.25, 0.28, 0.33, 1.0)  # Updated color
 	style_hover.content_margin_left = 8
-	style_hover.content_margin_top = 4
+	style_hover.content_margin_top = 0
 	style_hover.content_margin_right = 8
-	style_hover.content_margin_bottom = 4
+	style_hover.content_margin_bottom = 0
 	style_hover.border_width_left = 1
 	style_hover.border_width_right = 1
 	style_hover.border_width_top = 1
@@ -266,9 +373,9 @@ func _style_menu_button(menu_button: MenuButton):
 	var style_pressed = StyleBoxFlat.new()
 	style_pressed.bg_color = Color(0.12, 0.15, 0.18, 1.0)  # Updated color
 	style_pressed.content_margin_left = 8
-	style_pressed.content_margin_top = 4
+	style_pressed.content_margin_top = 0
 	style_pressed.content_margin_right = 8
-	style_pressed.content_margin_bottom = 4
+	style_pressed.content_margin_bottom = 0
 	style_pressed.border_width_left = 1
 	style_pressed.border_width_right = 1
 	style_pressed.border_width_top = 1
@@ -353,6 +460,23 @@ func hide_cache_status():
 	"""Hide cache status when no item is selected"""
 	if cache_status_label:
 		cache_status_label.text = ""
+
+
+func _on_chart_resized_reposition_controls():
+	"""Reposition overlay controls when chart is resized"""
+	if market_chart:
+		var controls_bg = market_chart.get_node_or_null("ControlsBackground")
+
+		if analysis_tools_menu:
+			analysis_tools_menu.position = Vector2(40, 8)
+		if chart_display_menu:
+			chart_display_menu.position = Vector2(140, 8)
+		if controls_bg:
+			# Position background to cover both buttons with padding
+			controls_bg.position = Vector2(50, 0)
+			controls_bg.custom_minimum_size = Vector2(200, 10)
+		if cache_status_label:
+			cache_status_label.position = Vector2(market_chart.size.x - 205, market_chart.size.y - 200)
 
 
 func show_chart_loading_state():
