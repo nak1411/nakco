@@ -91,113 +91,47 @@ func _start_local_server() -> bool:
 	var error = tcp_server.listen(8080, "127.0.0.1")
 	if error != OK:
 		print("Failed to start server: ", error)
-		login_failed.emit("Failed to start local server: " + str(error))
+		login_failed.emit("Failed to start local server")
 		return false
 
 	is_listening = true
-	print("Server started successfully")
+	print("Local server started on port 8080")
 	return true
 
 
-func _process(_delta):
-	if not is_listening:
-		return
-
-	# Check for new connections
-	if tcp_server.is_connection_available():
-		print("New connection detected")
+func _process(delta):
+	if is_listening and tcp_server.is_connection_available():
 		var client = tcp_server.take_connection()
-		_handle_request(client)
+		var request = client.get_string(client.get_available_bytes())
+		print("HTTP request received: ", request)
 
+		# Extract the path from the request
+		var lines = request.split("\n")
+		if lines.size() > 0:
+			var request_line = lines[0]
+			var parts = request_line.split(" ")
+			if parts.size() >= 2:
+				var path = parts[1]
+				print("Request path: ", path)
+				_handle_callback(path)
 
-func _handle_request(client: StreamPeerTCP):
-	print("Handling HTTP request...")
+		# Send response
+		var response = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Login successful!</h1><p>You can close this window.</p></body></html>"
+		client.put_data(response.to_utf8_buffer())
+		client.disconnect_from_host()
 
-	# Read the request
-	var request_text = ""
-	var max_attempts = 100
-	var attempts = 0
-
-	while attempts < max_attempts:
-		var bytes_available = client.get_available_bytes()
-		if bytes_available > 0:
-			request_text += client.get_string(bytes_available)
-			# Look for end of HTTP headers
-			if "\r\n\r\n" in request_text or "\n\n" in request_text:
-				break
-		attempts += 1
-		await get_tree().process_frame
-
-	print("Request received: ")
-	print(request_text.substr(0, 200) if request_text.length() > 200 else request_text)
-
-	# Send HTTP response
-	var response_body = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>EVE SSO Success</title>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; margin-top: 50px; }
-        .success { color: green; }
-    </style>
-</head>
-<body>
-    <h1 class="success">EVE SSO Login Successful!</h1>
-    <p>Login saved! You won't need to login again next time.</p>
-    <p>You can now close this browser window.</p>
-    <script>
-        setTimeout(function() {
-            window.close();
-        }, 3000);
-    </script>
-</body>
-</html>
-"""
-
-	var response = "HTTP/1.1 200 OK\r\n"
-	response += "Content-Type: text/html; charset=utf-8\r\n"
-	response += "Content-Length: " + str(response_body.length()) + "\r\n"
-	response += "Connection: close\r\n"
-	response += "\r\n"
-	response += response_body
-
-	client.put_data(response.to_utf8_buffer())
-
-	# Parse the request line
-	var request_lines = request_text.split("\n")
-	if request_lines.size() > 0:
-		var first_line = request_lines[0].strip_edges()
-		print("Request line: ", first_line)
-
-		var parts = first_line.split(" ")
-		if parts.size() >= 2:
-			var path = parts[1]
-			print("Path: ", path)
-
-			# Process the callback
-			call_deferred("_process_oauth_callback", path)
-
-	# Close the connection
-	client.disconnect_from_host()
-
-	# Stop listening after first request
-	_stop_server()
+		_stop_server()
 
 
 func _stop_server():
-	print("Stopping server...")
+	if tcp_server:
+		tcp_server.stop()
 	is_listening = false
-	tcp_server.stop()
+	print("Local server stopped")
 
 
-func _process_oauth_callback(path: String):
+func _handle_callback(path: String):
 	print("Processing OAuth callback: ", path)
-
-	if not path.begins_with("/callback"):
-		print("Not a callback URL")
-		login_failed.emit("Invalid callback URL")
-		return
 
 	# Parse query parameters
 	var query_start = path.find("?")
@@ -400,16 +334,243 @@ func _on_character_info_received(result: int, response_code: int, headers: Packe
 	var char_info = json.data
 	print("Character info: ", char_info)
 
-	# Build character data
-	character_data = {
-		"name": char_info.get("name", "Unknown Pilot"),
-		"balance": 1234567890.0,  # Mock balance for now
-		"location": "Jita IV - Moon 4 - Caldari Navy Assembly Plant",  # Mock location
-		"skills": {"trade": 5, "accounting": 4, "broker_relations": 3, "retail": 2}  # Mock skills
-	}
+	# Store basic character info
+	character_data = {"name": char_info.get("name", "Unknown Pilot"), "balance": 0.0, "location": "Unknown Location", "skills": {}}
 
-	print("Final character data: ", character_data)
+	# Emit initial data so UI shows something immediately
 	character_data_updated.emit(character_data)
+
+	# Now fetch additional data
+	_fetch_wallet_balance()
+
+
+func _fetch_location_data():
+	print("Fetching location data...")
+
+	var http_request = HTTPRequest.new()
+	add_child(http_request)
+
+	var headers = ["Authorization: Bearer " + access_token, "User-Agent: EVE-Trader-Godot/1.0"]
+
+	http_request.request_completed.connect(_on_location_received)
+	var url = ESI_BASE_URL + "/characters/%d/location/" % character_id
+	print("Fetching location from: ", url)
+
+	var request_error = http_request.request(url, headers)
+	if request_error != OK:
+		print("Failed to make location request: ", request_error)
+		http_request.queue_free()
+
+
+func _on_location_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+	print("Location response - Code: ", response_code)
+
+	# Clean up HTTP request
+	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
+	for node in http_request_nodes:
+		node.queue_free()
+
+	var response_text = body.get_string_from_utf8()
+	print("Location response: ", response_text)
+
+	if response_code == 200:
+		var json = JSON.new()
+		if json.parse(response_text) == OK:
+			var location_data = json.data
+			var system_id = location_data.get("solar_system_id", 0)
+
+			if system_id > 0:
+				_fetch_system_name(system_id)
+			else:
+				character_data["location"] = "Unknown System"
+				character_data_updated.emit(character_data)
+		else:
+			character_data["location"] = "Parse Error"
+			character_data_updated.emit(character_data)
+	else:
+		character_data["location"] = "Location API Error"
+		character_data_updated.emit(character_data)
+
+
+func _fetch_system_name(system_id: int):
+	print("Fetching system name for ID: ", system_id)
+
+	var http_request = HTTPRequest.new()
+	add_child(http_request)
+
+	var headers = ["User-Agent: EVE-Trader-Godot/1.0"]
+	http_request.request_completed.connect(_on_system_name_received)
+
+	var url = ESI_BASE_URL + "/universe/systems/%d/" % system_id
+	print("Fetching system name from: ", url)
+
+	var request_error = http_request.request(url, headers)
+	if request_error != OK:
+		print("Failed to make system name request: ", request_error)
+		character_data["location"] = "System ID: %d" % system_id
+		character_data_updated.emit(character_data)
+		http_request.queue_free()
+
+
+func _on_system_name_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+	print("System name response - Code: ", response_code)
+
+	# Clean up HTTP request
+	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
+	for node in http_request_nodes:
+		node.queue_free()
+
+	var response_text = body.get_string_from_utf8()
+	print("System name response: ", response_text)
+
+	if response_code == 200:
+		var json = JSON.new()
+		if json.parse(response_text) == OK:
+			var system_data = json.data
+			character_data["location"] = system_data.get("name", "Unknown System")
+		else:
+			character_data["location"] = "System Parse Error"
+	else:
+		print("System name request failed with code: ", response_code)
+		character_data["location"] = "System API Error"
+
+	character_data_updated.emit(character_data)
+
+
+func _fetch_wallet_balance():
+	print("Fetching wallet balance...")
+
+	var http_request = HTTPRequest.new()
+	add_child(http_request)
+
+	var headers = ["Authorization: Bearer " + access_token, "User-Agent: EVE-Trader-Godot/1.0"]
+
+	http_request.request_completed.connect(_on_wallet_balance_received)
+	var url = ESI_BASE_URL + "/characters/%d/wallet/" % character_id
+	print("Fetching wallet from: ", url)
+
+	var request_error = http_request.request(url, headers)
+	if request_error != OK:
+		print("Failed to make wallet request: ", request_error)
+		http_request.queue_free()
+
+
+func _on_wallet_balance_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+	print("Wallet balance response - Code: ", response_code)
+
+	# Clean up HTTP request
+	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
+	for node in http_request_nodes:
+		node.queue_free()
+
+	var response_text = body.get_string_from_utf8()
+	print("Wallet balance response: ", response_text)
+
+	if response_code == 200:
+		var balance = response_text.to_float()
+		character_data["balance"] = balance
+		print("Wallet balance updated: ", balance)
+		character_data_updated.emit(character_data)
+
+	# Continue to location and skills
+	_fetch_location_data()
+	_fetch_skills_data()
+
+
+func _fetch_skills_data():
+	print("Fetching skills data...")
+
+	var http_request = HTTPRequest.new()
+	add_child(http_request)
+
+	var headers = ["Authorization: Bearer " + access_token, "User-Agent: EVE-Trader-Godot/1.0"]
+
+	http_request.request_completed.connect(_on_skills_received)
+	var url = ESI_BASE_URL + "/characters/%d/skills/" % character_id
+	print("Fetching skills from: ", url)
+
+	var request_error = http_request.request(url, headers)
+	if request_error != OK:
+		print("Failed to make skills request: ", request_error)
+		# Finalize with what we have
+		_finalize_character_data()
+		http_request.queue_free()
+
+
+func _on_skills_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+	print("Skills response - Code: ", response_code)
+
+	# Clean up HTTP request
+	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
+	for node in http_request_nodes:
+		node.queue_free()
+
+	var response_text = body.get_string_from_utf8()
+	print("Skills response: ", response_text)
+	print("Skills response length: ", response_text.length())
+
+	if response_code == 200:
+		var json = JSON.new()
+		if json.parse(response_text) == OK:
+			var skills_data = json.data
+			print("Skills data keys: ", skills_data.keys())
+
+			if skills_data.has("skills"):
+				print("Found skills array with %d skills" % skills_data["skills"].size())
+				_parse_trading_skills(skills_data["skills"])
+			else:
+				print("No 'skills' key in response")
+				character_data["skills"] = {}
+		else:
+			print("Failed to parse skills JSON")
+			character_data["skills"] = {}
+	else:
+		print("Skills request failed with code: ", response_code)
+		character_data["skills"] = {}
+
+	# Update UI with skills
+	character_data_updated.emit(character_data)
+	_finalize_character_data()
+
+
+func _parse_trading_skills(skills: Array):
+	print("=== SIMPLE SKILLS DEBUG ===")
+
+	var parsed_skills = {}
+
+	# Check each skill one by one
+	for skill in skills:
+		var skill_id = skill.get("skill_id", 0)
+		var skill_level = skill.get("trained_skill_level", 0)
+
+		# Check specifically for the trading skills we know you have
+		if skill_id == 3443:  # Trade
+			parsed_skills["trade"] = skill_level
+			print("FOUND Trade: Level %d" % skill_level)
+		elif skill_id == 3446:  # Broker Relations
+			parsed_skills["broker_relations"] = skill_level
+			print("FOUND Broker Relations: Level %d" % skill_level)
+		elif skill_id == 16622:  # Accounting
+			parsed_skills["accounting"] = skill_level
+			print("FOUND Accounting: Level %d" % skill_level)
+		elif skill_id == 16598:  # Retail
+			parsed_skills["retail"] = skill_level
+			print("FOUND Retail: Level %d" % skill_level)
+		elif skill_id == 3444:  # Marketing
+			parsed_skills["marketing"] = skill_level
+			print("FOUND Marketing: Level %d" % skill_level)
+
+	print("Final parsed_skills: ", parsed_skills)
+	character_data["skills"] = parsed_skills
+
+
+func _finalize_character_data():
+	print("=== FINAL CHARACTER DATA ===")
+	print("Name: ", character_data.get("name", "Unknown"))
+	print("Balance: ", character_data.get("balance", 0))
+	print("Location: ", character_data.get("location", "Unknown"))
+	print("Skills: ", character_data.get("skills", {}))
+
 	login_success.emit(character_data)
 
 

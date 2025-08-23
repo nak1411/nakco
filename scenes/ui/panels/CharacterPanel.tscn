@@ -9,54 +9,170 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("1")
 
-[node name="VBoxContainer" type="VBoxContainer" parent="."]
+[node name="MainHBoxContainer" type="HBoxContainer" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = -16.0
 
-[node name="HeaderContainer" type="HBoxContainer" parent="VBoxContainer"]
+[node name="LeftPortraitSection" type="VBoxContainer" parent="MainHBoxContainer"]
+layout_mode = 2
+custom_minimum_size = Vector2(120, 0)
+
+[node name="HeaderContainer" type="VBoxContainer" parent="MainHBoxContainer/LeftPortraitSection"]
 layout_mode = 2
 
-[node name="TitleLabel" type="Label" parent="VBoxContainer/HeaderContainer"]
+[node name="TitleLabel" type="Label" parent="MainHBoxContainer/LeftPortraitSection/HeaderContainer"]
 layout_mode = 2
 text = "Character Management"
 theme_type_variation = &"HeaderLarge"
+horizontal_alignment = 1
 
-[node name="LoginContainer" type="VBoxContainer" parent="VBoxContainer"]
+[node name="LoginContainer" type="VBoxContainer" parent="MainHBoxContainer/LeftPortraitSection"]
 layout_mode = 2
 
-[node name="LoginButton" type="Button" parent="VBoxContainer/LoginContainer"]
+[node name="LoginButtonContainer" type="HBoxContainer" parent="MainHBoxContainer/LeftPortraitSection/LoginContainer"]
+layout_mode = 2
+
+[node name="LoginButtonSpacer1" type="Control" parent="MainHBoxContainer/LeftPortraitSection/LoginContainer/LoginButtonContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="LoginButton" type="Button" parent="MainHBoxContainer/LeftPortraitSection/LoginContainer/LoginButtonContainer"]
 layout_mode = 2
 text = "Login with EVE SSO"
 
-[node name="StatusLabel" type="Label" parent="VBoxContainer/LoginContainer"]
+[node name="LoginButtonSpacer2" type="Control" parent="MainHBoxContainer/LeftPortraitSection/LoginContainer/LoginButtonContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="StatusLabel" type="Label" parent="MainHBoxContainer/LeftPortraitSection/LoginContainer"]
 layout_mode = 2
 text = "Not logged in"
+horizontal_alignment = 1
 
-[node name="CharacterInfo" type="VBoxContainer" parent="VBoxContainer"]
+[node name="CharacterPortraitSection" type="VBoxContainer" parent="MainHBoxContainer/LeftPortraitSection"]
 layout_mode = 2
 visible = false
 
-[node name="CharacterNameLabel" type="Label" parent="VBoxContainer/CharacterInfo"]
+[node name="PortraitFrame" type="Panel" parent="MainHBoxContainer/LeftPortraitSection/CharacterPortraitSection"]
 layout_mode = 2
-text = "Character: "
+custom_minimum_size = Vector2(96, 96)
+size_flags_horizontal = 4
 
-[node name="BalanceLabel" type="Label" parent="VBoxContainer/CharacterInfo"]
+[node name="PortraitIcon" type="TextureRect" parent="MainHBoxContainer/LeftPortraitSection/CharacterPortraitSection/PortraitFrame"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
+expand_mode = 1
+stretch_mode = 5
+
+[node name="CharacterNameLabel" type="Label" parent="MainHBoxContainer/LeftPortraitSection/CharacterPortraitSection"]
 layout_mode = 2
-text = "Balance: "
+text = "Character Name"
+horizontal_alignment = 1
+theme_type_variation = &"HeaderMedium"
 
-[node name="LocationLabel" type="Label" parent="VBoxContainer/CharacterInfo"]
-layout_mode = 2
-text = "Location: "
-
-[node name="SkillsContainer" type="VBoxContainer" parent="VBoxContainer/CharacterInfo"]
+[node name="LogoutContainer" type="HBoxContainer" parent="MainHBoxContainer/LeftPortraitSection"]
 layout_mode = 2
 
-[node name="SkillsLabel" type="Label" parent="VBoxContainer/CharacterInfo/SkillsContainer"]
+[node name="LogoutSpacer1" type="Control" parent="MainHBoxContainer/LeftPortraitSection/LogoutContainer"]
 layout_mode = 2
-text = "Trading Skills:"
+size_flags_horizontal = 3
 
-[node name="LogoutButton" type="Button" parent="VBoxContainer/CharacterInfo"]
+[node name="LogoutButton" type="Button" parent="MainHBoxContainer/LeftPortraitSection/LogoutContainer"]
 layout_mode = 2
 text = "Logout"
+
+[node name="LogoutSpacer2" type="Control" parent="MainHBoxContainer/LeftPortraitSection/LogoutContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="VSeparator" type="VSeparator" parent="MainHBoxContainer"]
+layout_mode = 2
+custom_minimum_size = Vector2(20, 0)
+
+[node name="RightDetailsSection" type="VBoxContainer" parent="MainHBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+offset_left = 12.0
+
+[node name="CharacterDetails" type="VBoxContainer" parent="MainHBoxContainer/RightDetailsSection"]
+layout_mode = 2
+visible = false
+
+[node name="WalletSection" type="VBoxContainer" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails"]
+layout_mode = 2
+
+[node name="WalletHeader" type="Label" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/WalletSection"]
+layout_mode = 2
+text = "WALLET"
+theme_type_variation = &"HeaderSmall"
+modulate = Color(0.7, 0.8, 1, 1)
+
+[node name="WalletDetails" type="VBoxContainer" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/WalletSection"]
+layout_mode = 2
+offset_left = 12.0
+
+[node name="BalanceLabel" type="Label" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/WalletSection/WalletDetails"]
+layout_mode = 2
+text = "Balance: 0 ISK"
+theme_type_variation = &"HeaderMedium"
+
+[node name="EscrowLabel" type="Label" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/WalletSection/WalletDetails"]
+layout_mode = 2
+text = "In Escrow: 0 ISK"
+
+[node name="NetWorthLabel" type="Label" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/WalletSection/WalletDetails"]
+layout_mode = 2
+text = "Net Worth: 0 ISK"
+
+[node name="SectionSpacer1" type="Control" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 16)
+
+[node name="LocationSection" type="VBoxContainer" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails"]
+layout_mode = 2
+
+[node name="LocationHeader" type="Label" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/LocationSection"]
+layout_mode = 2
+text = "LOCATION"
+theme_type_variation = &"HeaderSmall"
+modulate = Color(0.7, 0.8, 1, 1)
+
+[node name="LocationDetails" type="VBoxContainer" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/LocationSection"]
+layout_mode = 2
+offset_left = 12.0
+
+[node name="LocationLabel" type="Label" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/LocationSection/LocationDetails"]
+layout_mode = 2
+text = "Current Location"
+
+[node name="MainSectionSpacer" type="Control" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails"]
+layout_mode = 2
+custom_minimum_size = Vector2(0, 20)
+
+[node name="TradingSkillsContainer" type="VBoxContainer" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails"]
+layout_mode = 2
+
+[node name="SkillsHeader" type="Label" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/TradingSkillsContainer"]
+layout_mode = 2
+text = "TRADING SKILLS"
+theme_type_variation = &"HeaderSmall"
+modulate = Color(0.7, 0.8, 1, 1)
+
+[node name="SkillsDetails" type="VBoxContainer" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/TradingSkillsContainer"]
+layout_mode = 2
+offset_left = 12.0
+
+[node name="SkillsContainer" type="VBoxContainer" parent="MainHBoxContainer/RightDetailsSection/CharacterDetails/TradingSkillsContainer/SkillsDetails"]
+layout_mode = 2

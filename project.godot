@@ -20,11 +20,9 @@ config/icon="res://nakco_titlebar_logo.png"
 
 window/size/viewport_width=1920
 window/size/viewport_height=1080
-window/size/resizable=true
 window/size/always_on_top=true
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/stretch/scale_mode="fractional"
 
 [editor]
 
@@ -39,4 +37,3 @@ enabled=PackedStringArray("res://addons/godot-sqlite/plugin.cfg")
 theme/custom_font="uid://bls5mqj14qvpk"
 theme/default_font_antialiasing=2
 theme/default_font_hinting=2
-theme/default_font_subpixel_positioning=1
