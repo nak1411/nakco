@@ -881,7 +881,7 @@ func _draw_tooltip():
 
 
 func _draw_spread_hover_tooltip():
-	"""Draw spread analysis hover tooltip"""
+	"""Draw detailed spread analysis tooltip with skill breakdown"""
 	if not parent_chart.analysis_tools.is_hovering_spread_zone:
 		return
 
@@ -895,25 +895,82 @@ func _draw_spread_hover_tooltip():
 	# Get station trading data for detailed tooltip
 	var data = chart_data.current_station_trading_data
 	if data.has("profit_margin"):
+		var skill_benefits = data.get("skill_benefits", {})
+		var broker_level = skill_benefits.get("broker_relations_level", 0)
+		var accounting_level = skill_benefits.get("accounting_level", 0)
+		var total_savings = skill_benefits.get("fee_savings_pct", 0.0)
+
+		# Calculate detailed fee breakdowns
+		var base_broker_fee = 2.5
+		var base_sales_tax = 8.0
+		var base_transaction_tax = 2.0
+
+		var current_broker_fee = base_broker_fee - (broker_level * 0.3)  # 0.3% per level
+		var current_sales_tax = base_sales_tax - (accounting_level * 0.2)  # 0.2% per level
+
+		# Clamp to minimums
+		current_broker_fee = max(current_broker_fee, 1.0)  # Min 1.0%
+		current_sales_tax = max(current_sales_tax, 1.0)  # Min 1.0%
+
+		var broker_savings = base_broker_fee - current_broker_fee
+		var sales_tax_savings = base_sales_tax - current_sales_tax
+
 		lines = [
 			"STATION TRADING OPPORTUNITY",
 			"",
 			"Your Buy Order: %s ISK" % _format_price_label(data.get("your_buy_price", 0)),
 			"Your Sell Order: %s ISK" % _format_price_label(data.get("your_sell_price", 0)),
 			"",
-			"Cost (with fees): %s ISK" % _format_price_label(data.get("cost_with_fees", 0)),
-			"Income (after taxes): %s ISK" % _format_price_label(data.get("income_after_taxes", 0)),
+			"=== FEE BREAKDOWN ===",
+			"Broker Relations Lv%d:" % broker_level,
+			"  • Broker Fee: %.1f%% (saved %.1f%%)" % [current_broker_fee, broker_savings],
+			"  • Base: 2.5% → Your Rate: %.1f%%" % current_broker_fee,
 			"",
-			"Profit: %s ISK per unit" % _format_price_label(data.get("profit_per_unit", 0)),
-			"Margin: %.2f%%" % data.get("profit_margin", 0),
+			"Accounting Lv%d:" % accounting_level,
+			"  • Sales Tax: %.1f%% (saved %.1f%%)" % [current_sales_tax, sales_tax_savings],
+			"  • Base: 8.0% → Your Rate: %.1f%%" % current_sales_tax,
+			"",
+			"Transaction Tax: 2.0% (standings-based)",
+			"",
+			"=== COST CALCULATION ===",
+			(
+				"Buy Cost: %s × %.3f = %s ISK"
+				% [_format_price_label(data.get("your_buy_price", 0)), 1.0 + current_broker_fee / 100.0 + base_transaction_tax / 100.0, _format_price_label(data.get("cost_with_fees", 0))]
+			),
+			"",
+			(
+				"Sell Income: %s × %.3f = %s ISK"
+				% [_format_price_label(data.get("your_sell_price", 0)), 1.0 - current_sales_tax / 100.0 - current_broker_fee / 100.0, _format_price_label(data.get("income_after_taxes", 0))]
+			),
+			"",
+			"=== PROFIT ANALYSIS ===",
+			"Profit per unit: %s ISK" % _format_price_label(data.get("profit_per_unit", 0)),
+			"Profit margin: %.2f%%" % data.get("profit_margin", 0),
+			"",
+			"💰 Total skill savings: %.2f%% in fees" % total_savings,
 			"",
 			_get_station_trading_quality_text(data.get("profit_margin", 0))
 		]
 	else:
-		# Fallback to basic spread info
+		# Fallback for basic spread analysis (when no character logged in)
 		var spread = parent_chart.analysis_tools.current_sell_price - parent_chart.analysis_tools.current_buy_price
 		var margin_pct = (spread / parent_chart.analysis_tools.current_sell_price) * 100.0 if parent_chart.analysis_tools.current_sell_price > 0 else 0.0
-		lines = ["SPREAD ANALYSIS", "Spread: %s ISK" % _format_price_label(spread), "Margin: %.2f%%" % margin_pct, _get_spread_quality_text(margin_pct)]
+
+		lines = [
+			"SPREAD ANALYSIS (DEFAULT RATES)",
+			"",
+			"Spread: %s ISK" % _format_price_label(spread),
+			"Raw margin: %.2f%%" % margin_pct,
+			"",
+			"=== DEFAULT FEE RATES ===",
+			"Broker Fee: 2.5% (no skills)",
+			"Sales Tax: 8.0% (no skills)",
+			"Transaction Tax: 2.0%",
+			"",
+			"📋 Log in to see your skill benefits!",
+			"",
+			_get_spread_quality_text(margin_pct)
+		]
 
 	var max_width = 0.0
 	var line_height = 14
@@ -946,26 +1003,67 @@ func _draw_spread_hover_tooltip():
 	parent_chart.draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), bg_color)
 	parent_chart.draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), border_color, false, 2.0)
 
-	# Draw text lines
+	# Draw text lines with enhanced color coding
 	for i in range(lines.size()):
 		var line = lines[i]
 		if line.length() == 0:
 			continue
 
 		var text_pos = tooltip_pos + Vector2(padding.x, padding.y + (i + 1) * line_height)
-		var text_color = Color.WHITE
-
-		# Color code different lines
-		if i == 0:  # Header
-			text_color = Color.CYAN
-		elif line.contains("Profit:") or line.contains("Margin:"):
-			text_color = Color.YELLOW
-		elif line.contains("Your Buy Order:"):
-			text_color = Color.GREEN
-		elif line.contains("Your Sell Order:"):
-			text_color = Color.RED
+		var text_color = _get_tooltip_line_color(line, i)
 
 		parent_chart.draw_string(font, text_pos, line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
+
+func _get_tooltip_line_color(line: String, line_index: int) -> Color:
+	"""Get appropriate color for each tooltip line based on content"""
+
+	# Headers
+	if line.contains("STATION TRADING OPPORTUNITY") or line.contains("SPREAD ANALYSIS"):
+		return Color.CYAN
+	elif line.contains("=== ") and line.contains(" ==="):
+		return Color.YELLOW
+
+	# Skill information
+	elif line.contains("Broker Relations Lv") or line.contains("Accounting Lv"):
+		return Color.LIGHT_GREEN
+	elif line.contains("saved ") and line.contains("%)"):
+		return Color.GREEN
+	elif line.contains("Base:") and line.contains("Your Rate:"):
+		return Color.LIGHT_BLUE
+
+	# Price information
+	elif line.contains("Your Buy Order:"):
+		return Color.GREEN
+	elif line.contains("Your Sell Order:"):
+		return Color.RED
+	elif line.contains("Buy Cost:") or line.contains("Sell Income:"):
+		return Color.WHITE
+
+	# Profit information
+	elif line.contains("Profit per unit:") or line.contains("Profit margin:"):
+		if line.contains("-"):
+			return Color.RED  # Negative profit
+		else:
+			return Color.GREEN  # Positive profit
+	elif line.contains("Total skill savings:"):
+		return Color.GOLD
+
+	# Quality indicators
+	elif line.contains("EXCELLENT") or line.contains("💰"):
+		return Color.GREEN
+	elif line.contains("GOOD"):
+		return Color.YELLOW
+	elif line.contains("MARGINAL"):
+		return Color.ORANGE
+	elif line.contains("POOR"):
+		return Color.RED
+	elif line.contains("📋"):
+		return Color.LIGHT_BLUE
+
+	# Default
+	else:
+		return Color.WHITE
 
 
 func _draw_zoom_indicator():

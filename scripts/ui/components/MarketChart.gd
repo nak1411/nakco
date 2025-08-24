@@ -123,32 +123,41 @@ func set_station_trading_data(data: Dictionary):
 
 
 func update_spread_data(buy_price: float, sell_price: float):
-	"""Update spread data for analysis"""
+	"""Update spread data for analysis - OPTIMIZED"""
+	# Skip if prices haven't changed significantly
+	if abs(analysis_tools.current_buy_price - buy_price) < 0.01 and abs(analysis_tools.current_sell_price - sell_price) < 0.01:
+		return
+
 	print("Updating spread data: buy=%.2f, sell=%.2f" % [buy_price, sell_price])
 
 	# Update current spread prices
 	analysis_tools.current_buy_price = buy_price
 	analysis_tools.current_sell_price = sell_price
 
-	# Calculate spread and margin
-	var spread = sell_price - buy_price
-	var margin_percentage = (spread / buy_price) * 100.0 if buy_price > 0 else 0.0
-
-	# Add to spread history
-	var timestamp = Time.get_unix_time_from_system()
-	var spread_data = {"timestamp": timestamp, "buy_price": buy_price, "sell_price": sell_price, "spread": spread, "margin_percentage": margin_percentage}
-
-	analysis_tools.spread_history.append(spread_data)
-
-	# Keep rolling window
-	if analysis_tools.spread_history.size() > analysis_tools.max_spread_history:
-		analysis_tools.spread_history.pop_front()
-
-	print("Updated spread: %.2f ISK (%.2f%% margin)" % [spread, margin_percentage])
-
-	# Redraw if spread analysis is enabled
+	# Only add to history if enabled and changed significantly
 	if show_spread_analysis:
-		queue_redraw()
+		var spread = sell_price - buy_price
+		var margin_percentage = (spread / buy_price) * 100.0 if buy_price > 0 else 0.0
+
+		# Only add to history if there's a meaningful change
+		var last_entry = analysis_tools.spread_history.back() if analysis_tools.spread_history.size() > 0 else null
+		if not last_entry or abs(last_entry.get("margin_percentage", 0) - margin_percentage) > 0.1:
+			var timestamp = Time.get_unix_time_from_system()
+			var spread_data = {"timestamp": timestamp, "buy_price": buy_price, "sell_price": sell_price, "spread": spread, "margin_percentage": margin_percentage}
+
+			analysis_tools.spread_history.append(spread_data)
+
+			# Keep rolling window
+			if analysis_tools.spread_history.size() > analysis_tools.max_spread_history:
+				analysis_tools.spread_history.pop_front()
+
+		print("Updated spread: %.2f ISK (%.2f%% margin)" % [spread, margin_percentage])
+
+		# Defer redraw to next frame to batch multiple updates
+		call_deferred("queue_redraw")
+	else:
+		# Just update prices without heavy processing
+		print("Updated spread: %.2f ISK" % (sell_price - buy_price))
 
 
 func update_spread_data_realistic(buy_orders: Array, sell_orders: Array):

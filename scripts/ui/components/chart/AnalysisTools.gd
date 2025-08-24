@@ -491,28 +491,119 @@ func _store_spread_zone_info(zone_rect: Rect2, spread: float, margin_pct: float)
 		parent_chart.chart_interaction.spread_margin = margin_pct
 
 
+# Replace the _draw_spread_hover_tooltip function in AnalysisTools.gd
 func _draw_spread_hover_tooltip(spread: float, margin_pct: float):
-	"""Draw station trading information tooltip when hovering spread zone"""
+	"""Draw detailed station trading tooltip with skill breakdown"""
 	var font = ThemeDB.fallback_font
 	var font_size = 12
-
 	var lines = []
 
-	# Always show the larger detailed tooltip format
-	lines = [
-		"STATION TRADING OPPORTUNITY",
-		"",
-		"Your Buy Order: %s ISK" % _format_price_label(current_buy_price),
-		"Your Sell Order: %s ISK" % _format_price_label(current_sell_price),
-		"",
-		"Cost (with fees): %s ISK" % _format_price_label(current_buy_price),
-		"Income (after taxes): %s ISK" % _format_price_label(current_sell_price),
-		"",
-		"Profit: %s ISK per unit" % _format_price_label(spread),
-		"Margin: %.2f%%" % margin_pct,
-		"",
-		_get_station_trading_quality_text(margin_pct)
-	]
+	# Check if we have detailed station trading data from the chart
+	var station_data = chart_data.current_station_trading_data if chart_data else {}
+
+	if station_data.has("profit_margin") and station_data.has("skill_benefits"):
+		# DETAILED TOOLTIP WITH SKILL BREAKDOWN
+		var skill_benefits = station_data.get("skill_benefits", {})
+		var broker_level = skill_benefits.get("broker_relations_level", 0)
+		var accounting_level = skill_benefits.get("accounting_level", 0)
+		var total_savings = skill_benefits.get("fee_savings_pct", 0.0)
+
+		# Calculate detailed fee breakdowns
+		var base_broker_fee = 2.5
+		var base_sales_tax = 8.0
+		var base_transaction_tax = 2.0
+
+		var current_broker_fee = skill_benefits.get("current_broker_fee", base_broker_fee)
+		var current_sales_tax = skill_benefits.get("current_sales_tax", base_sales_tax)
+		var broker_savings = skill_benefits.get("broker_savings", 0.0)
+		var sales_tax_savings = skill_benefits.get("sales_tax_savings", 0.0)
+
+		lines = [
+			"STATION TRADING OPPORTUNITY",
+			"",
+			"Your Buy Order: %s ISK" % _format_price_label(station_data.get("your_buy_price", 0)),
+			"Your Sell Order: %s ISK" % _format_price_label(station_data.get("your_sell_price", 0)),
+			"",
+			"=== CHARACTER SKILLS APPLIED ===",
+			"Broker Relations Lv%d:" % broker_level,
+			"  • Fee: %.1f%% (saved %.1f%%)" % [current_broker_fee, broker_savings],
+			"  • Default: 2.5% → Your Rate: %.1f%%" % current_broker_fee,
+			"",
+			"Accounting Lv%d:" % accounting_level,
+			"  • Tax: %.1f%% (saved %.1f%%)" % [current_sales_tax, sales_tax_savings],
+			"  • Default: 8.0% → Your Rate: %.1f%%" % current_sales_tax,
+			"",
+			"Transaction Tax: 2.0% (standings-based)",
+			"",
+			"=== COST BREAKDOWN ===",
+			(
+				"Buy Cost: %s × %.3f = %s ISK"
+				% [
+					_format_price_label(station_data.get("your_buy_price", 0)),
+					1.0 + current_broker_fee / 100.0 + base_transaction_tax / 100.0,
+					_format_price_label(station_data.get("cost_with_fees", 0))
+				]
+			),
+			"",
+			(
+				"Sell Income: %s × %.3f = %s ISK"
+				% [
+					_format_price_label(station_data.get("your_sell_price", 0)),
+					1.0 - current_sales_tax / 100.0 - current_broker_fee / 100.0,
+					_format_price_label(station_data.get("income_after_taxes", 0))
+				]
+			),
+			"",
+			"=== RESULT ===",
+			"Profit per unit: %s ISK" % _format_price_label(station_data.get("profit_per_unit", 0)),
+			"Profit margin: %.2f%%" % station_data.get("profit_margin", 0),
+			"",
+			"💰 Total skill savings: %.2f%% in fees" % total_savings,
+			"",
+			_get_station_trading_quality_text(station_data.get("profit_margin", 0))
+		]
+	elif current_buy_price > 0 and current_sell_price > 0:
+		# FALLBACK TOOLTIP (no character skills or no profitable opportunity)
+		var has_character_logged_in = station_data.has("skill_benefits") or not station_data.is_empty()
+
+		if has_character_logged_in:
+			lines = [
+				"SPREAD ANALYSIS (CHARACTER LOGGED IN)",
+				"",
+				"Market Buy: %s ISK" % _format_price_label(current_buy_price),
+				"Market Sell: %s ISK" % _format_price_label(current_sell_price),
+				"Raw Spread: %s ISK" % _format_price_label(spread),
+				"Raw Margin: %.2f%%" % margin_pct,
+				"",
+				"=== WITH YOUR SKILLS ===",
+				"No profitable opportunity found",
+				"Spread too small after fees",
+				"",
+				"💡 Try smaller, more liquid items",
+				"",
+				_get_spread_quality_text(margin_pct)
+			]
+		else:
+			lines = [
+				"SPREAD ANALYSIS (DEFAULT RATES)",
+				"",
+				"Market Buy: %s ISK" % _format_price_label(current_buy_price),
+				"Market Sell: %s ISK" % _format_price_label(current_sell_price),
+				"Raw Spread: %s ISK" % _format_price_label(spread),
+				"Raw Margin: %.2f%%" % margin_pct,
+				"",
+				"=== DEFAULT FEE RATES ===",
+				"Broker Fee: 2.5% (no skills)",
+				"Sales Tax: 8.0% (no skills)",
+				"Transaction Tax: 2.0%",
+				"",
+				"📋 Log in to see your skill benefits!",
+				"",
+				_get_spread_quality_text(margin_pct)
+			]
+	else:
+		# MINIMAL FALLBACK
+		lines = ["SPREAD ANALYSIS", "", "No valid price data available"]
 
 	var max_width = 0.0
 	var line_height = 16
@@ -540,37 +631,91 @@ func _draw_spread_hover_tooltip(spread: float, margin_pct: float):
 
 	# Background with profit quality color border
 	var bg_color = Color(0.05, 0.08, 0.12, 0.95)
-	var border_color = _get_station_trading_color(margin_pct)
+	var border_color = _get_tooltip_border_color(station_data)
 
 	parent_chart.draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), bg_color)
 	parent_chart.draw_rect(Rect2(tooltip_pos, Vector2(tooltip_width, tooltip_height)), border_color, false, 2.0)
 
-	# Draw text lines
+	# Draw text lines with enhanced color coding
 	for i in range(lines.size()):
 		var line = lines[i]
 		if line.length() == 0:
 			continue
 
 		var text_pos = tooltip_pos + Vector2(padding.x, padding.y + (i + 1) * line_height)
-		var text_color = Color.WHITE
-
-		# Color code different lines
-		if i == 0:  # Header
-			text_color = Color.CYAN
-		elif line.contains("Profit:") or line.contains("Margin:"):
-			text_color = _get_station_trading_color(margin_pct)
-		elif line.contains("EXCELLENT") or line.contains("GOOD") or line.contains("MARGINAL") or line.contains("POOR"):
-			text_color = _get_station_trading_color(margin_pct)
-		elif line.contains("Your Buy Order:"):
-			text_color = Color.GREEN
-		elif line.contains("Your Sell Order:"):
-			text_color = Color.RED
-		elif line.contains("Cost"):
-			text_color = Color.ORANGE
-		elif line.contains("Income"):
-			text_color = Color.LIGHT_GREEN
+		var text_color = _get_tooltip_line_color(line, i)
 
 		parent_chart.draw_string(font, text_pos, line, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, text_color)
+
+
+# Add these helper functions to AnalysisTools.gd
+func _get_tooltip_border_color(station_data: Dictionary) -> Color:
+	"""Get border color based on opportunity quality"""
+	if station_data.has("profit_margin"):
+		return _get_station_trading_color(station_data.get("profit_margin", 0))
+	else:
+		return Color.CYAN
+
+
+func _get_tooltip_line_color(line: String, line_index: int) -> Color:
+	"""Get appropriate color for each tooltip line based on content"""
+
+	# Headers and sections
+	if line.contains("STATION TRADING OPPORTUNITY") or line.contains("SPREAD ANALYSIS"):
+		return Color.CYAN
+	elif line.contains("=== ") and line.contains(" ==="):
+		return Color.YELLOW
+
+	# Skill information
+	elif line.contains("Broker Relations Lv") or line.contains("Accounting Lv"):
+		return Color.LIGHT_GREEN
+	elif line.contains("saved ") and line.contains("%)"):
+		return Color.GREEN
+	elif line.contains("Default:") and line.contains("Your Rate:"):
+		return Color.LIGHT_BLUE
+	elif line.contains("Fee:") or line.contains("Tax:"):
+		return Color.WHITE
+
+	# Price information
+	elif line.contains("Your Buy Order:") or line.contains("Market Buy:"):
+		return Color.GREEN
+	elif line.contains("Your Sell Order:") or line.contains("Market Sell:"):
+		return Color.RED
+	elif line.contains("Buy Cost:") or line.contains("Sell Income:"):
+		return Color.WHITE
+	elif line.contains("Raw Spread:") or line.contains("Raw Margin:"):
+		return Color.GRAY
+
+	# Profit information
+	elif line.contains("Profit per unit:") or line.contains("Profit margin:"):
+		if line.contains("-"):
+			return Color.RED  # Negative profit
+		else:
+			return Color.GREEN  # Positive profit
+	elif line.contains("Total skill savings:") or line.contains("💰"):
+		return Color.GOLD
+
+	# Status messages
+	elif line.contains("No profitable opportunity") or line.contains("Spread too small"):
+		return Color.ORANGE
+	elif line.contains("Try smaller") or line.contains("💡"):
+		return Color.LIGHT_BLUE
+	elif line.contains("Log in") or line.contains("📋"):
+		return Color.LIGHT_BLUE
+
+	# Quality indicators
+	elif line.contains("EXCELLENT"):
+		return Color.GREEN
+	elif line.contains("GOOD"):
+		return Color.YELLOW
+	elif line.contains("MARGINAL"):
+		return Color.ORANGE
+	elif line.contains("POOR"):
+		return Color.RED
+
+	# Default
+	else:
+		return Color.WHITE
 
 
 func _draw_spread_info(buy_price: float, sell_price: float):
@@ -856,37 +1001,42 @@ func _format_price_compact(price: float) -> String:
 func _format_price_label(price: float) -> String:
 	"""Format price with appropriate scale (K, M, B)"""
 	if price >= 1000000000:
-		return "%.1fB" % (price / 1000000000.0)
+		return "%.3fB" % (price / 1000000000.0)
 	if price >= 1000000:
-		return "%.1fM" % (price / 1000000.0)
+		return "%.3fM" % (price / 1000000.0)
 	if price >= 1000:
-		return "%.1fK" % (price / 1000.0)
+		return "%.3fK" % (price / 1000.0)
 
-	return "%.2f" % price
-
-
-func _get_station_trading_color(margin_pct: float) -> Color:
-	"""Get color based on station trading profit quality"""
-	if margin_pct >= 10.0:
-		return Color.GREEN  # Excellent - 10%+ profit
-	if margin_pct >= 5.0:
-		return Color.YELLOW  # Good - 5-10% profit
-	if margin_pct >= 2.0:
-		return Color.ORANGE  # Marginal - 2-5% profit
-
-	return Color.RED  # Poor - <2% profit
+	return "%.3f" % price
 
 
 func _get_station_trading_quality_text(margin_pct: float) -> String:
 	"""Get text description of station trading opportunity quality"""
-	if margin_pct >= 10.0:
-		return "EXCELLENT OPPORTUNITY"
 	if margin_pct >= 5.0:
+		return "EXCELLENT OPPORTUNITY"
+	elif margin_pct >= 2.0:
 		return "GOOD OPPORTUNITY"
-	if margin_pct >= 2.0:
-		return "MARGINAL OPPORTUNITY"
+	elif margin_pct >= 0.5:
+		return "DECENT OPPORTUNITY"  # 🔥 NEW: Lower threshold
+	elif margin_pct > 0.0:
+		return "SMALL PROFIT"  # 🔥 NEW: Any positive profit
+	else:
+		return "POOR OPPORTUNITY"
 
-	return "POOR OPPORTUNITY"
+
+# Update the _get_station_trading_color function in AnalysisTools.gd
+func _get_station_trading_color(margin_pct: float) -> Color:
+	"""Get color based on station trading profit quality"""
+	if margin_pct >= 5.0:
+		return Color.GREEN  # Excellent - 5%+ profit
+	elif margin_pct >= 2.0:
+		return Color.YELLOW  # Good - 2-5% profit
+	elif margin_pct >= 0.5:
+		return Color.LIGHT_BLUE  # Decent - 0.5-2% profit
+	elif margin_pct > 0.0:
+		return Color.CYAN  # Small profit - any positive
+	else:
+		return Color.RED  # Poor - negative profit
 
 
 func _get_spread_quality_text(margin_pct: float) -> String:

@@ -7,6 +7,7 @@ signal alert_created(alert_data: Dictionary)
 
 var selected_item_data: Dictionary = {}
 var current_market_data: Dictionary = {}
+var current_character_data: Dictionary = {}
 var market_chart: MarketChart
 var order_book_list: VBoxContainer
 var quick_trade_panel: VBoxContainer
@@ -25,12 +26,16 @@ var pending_chart_request_timer: Timer
 var queued_item_id: int = -1
 var cache_status_label: Label
 var cache_status_timer: Timer
+var pending_chart_update: bool = false
+var chart_update_timer: Timer
 
 @onready var data_manager: DataManager
 
 
 func _ready():
 	setup_panels()
+	setup_chart_update_optimization()
+	call_deferred("debug_profit_calculations")
 
 
 func setup_panels():
@@ -48,6 +53,29 @@ func setup_panels():
 
 	# 2. Real-time Price Chart (expandable)
 	create_market_chart()
+
+
+func setup_chart_update_optimization():
+	"""Setup optimized chart updating"""
+	chart_update_timer = Timer.new()
+	chart_update_timer.wait_time = 0.1  # Batch updates every 100ms
+	chart_update_timer.one_shot = true
+	chart_update_timer.timeout.connect(_process_pending_chart_update)
+	add_child(chart_update_timer)
+
+
+func _process_pending_chart_update():
+	"""Process batched chart update"""
+	if pending_chart_update and market_chart:
+		market_chart.queue_redraw()
+		pending_chart_update = false
+
+
+func batch_chart_update():
+	"""Request a batched chart update instead of immediate"""
+	if not pending_chart_update:
+		pending_chart_update = true
+		chart_update_timer.start()
 
 
 func create_order_book():
@@ -507,6 +535,251 @@ func update_cache_status_display():
 			cache_status_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.6, 0.9))  # Light yellow
 
 
+func set_character_data(character_data: Dictionary):
+	"""Update character data and refresh spread calculations"""
+	print("TradingRightPanel: Setting character data: ", character_data.keys())
+	var previous_character_data = current_character_data.duplicate()
+	current_character_data = character_data
+
+	var skills_changed = _skills_have_changed(previous_character_data.get("skills", {}), character_data.get("skills", {}))
+
+	if skills_changed:
+		print("Character skills changed - refreshing all spread calculations")
+
+		# Show visual feedback
+		var has_skills_now = not character_data.get("skills", {}).is_empty()
+		_show_skill_change_feedback(has_skills_now)
+
+		_refresh_all_spread_calculations()
+	else:
+		print("Character data updated but skills unchanged")
+
+
+func _skills_have_changed(old_skills: Dictionary, new_skills: Dictionary) -> bool:
+	"""Check if trading-relevant skills have changed"""
+	var trading_skills = ["broker_relations", "accounting", "trade", "retail", "marketing"]
+
+	for skill in trading_skills:
+		var old_level = old_skills.get(skill, 0)
+		var new_level = new_skills.get(skill, 0)
+		if old_level != new_level:
+			print("Skill change detected: %s %d -> %d" % [skill, old_level, new_level])
+			return true
+
+	# Also check if we went from no skills to having skills (login) or vice versa (logout)
+	var had_skills = not old_skills.is_empty()
+	var has_skills = not new_skills.is_empty()
+
+	if had_skills != has_skills:
+		print("Character login state changed: had_skills=%s, has_skills=%s" % [had_skills, has_skills])
+		return true
+
+	return false
+
+
+func _refresh_all_spread_calculations():
+	"""Refresh all spread and profit calculations with current character skills"""
+	print("=== REFRESHING SPREAD CALCULATIONS ===")
+
+	# Only refresh if we have current market data to work with
+	if selected_item_data.is_empty():
+		print("No current item data to refresh")
+		return
+
+	var buy_orders = selected_item_data.get("buy_orders", [])
+	var sell_orders = selected_item_data.get("sell_orders", [])
+
+	if buy_orders.is_empty() or sell_orders.is_empty():
+		print("No order data to refresh")
+		return
+
+	print("Refreshing calculations for item: %s" % selected_item_data.get("item_name", "Unknown"))
+
+	# Immediately update spread analysis with new character skills
+	update_realistic_spread_data(buy_orders, sell_orders)
+
+	# Update the item header to show new profit calculations
+	_refresh_item_header_calculations()
+
+	# Force chart redraw to show updated spread analysis
+	if market_chart:
+		market_chart.queue_redraw()
+
+	print("=== SPREAD CALCULATIONS REFRESHED ===")
+
+
+func _refresh_item_header_calculations():
+	"""Refresh the profit calculations shown in the item header"""
+	if selected_item_data.is_empty():
+		return
+
+	# Recalculate spread and margin with current character skills
+	var max_buy = selected_item_data.get("max_buy", 0.0)
+	var min_sell = selected_item_data.get("min_sell", 0.0)
+
+	if max_buy > 0 and min_sell > 0:
+		# Use ProfitCalculator to get skill-adjusted calculations
+		var character_skills = current_character_data.get("skills", {})
+		var basic_spread = min_sell - max_buy
+
+		# Calculate what the actual trading profit would be with current skills
+		var mock_buy_orders = [{"price": max_buy, "volume": 1}]
+		var mock_sell_orders = [{"price": min_sell, "volume": 1}]
+		var trading_analysis = ProfitCalculator.calculate_optimal_trading_prices(mock_buy_orders, mock_sell_orders, character_skills)
+
+		var updated_item_data = selected_item_data.duplicate()
+		updated_item_data["spread"] = basic_spread
+
+		if not trading_analysis.is_empty():
+			# Show the realistic margin accounting for fees and skills
+			var realistic_margin = trading_analysis.get("profit_margin", 0.0)
+			updated_item_data["margin"] = realistic_margin
+			updated_item_data["skill_adjusted"] = true
+		else:
+			# Fallback to basic calculation
+			updated_item_data["margin"] = (basic_spread / max_buy) * 100.0 if max_buy > 0 else 0.0
+			updated_item_data["skill_adjusted"] = false
+
+		updated_item_data["is_realtime"] = true  # Trigger flash animation
+
+		# Update the header display
+		update_item_header(updated_item_data)
+
+
+func analyze_station_trading(buy_orders: Array, sell_orders: Array, character_data: Dictionary):
+	if buy_orders.is_empty() or sell_orders.is_empty():
+		print("Cannot analyze station trading - missing order data")
+		market_chart.set_station_trading_data({})
+		return
+
+	print("=== SKILL-BASED STATION TRADING ANALYSIS ===")
+
+	# Get character skills (fallback to empty dict if not available)
+	var character_skills = character_data.get("skills", {})
+	print("Using character skills: ", character_skills)
+
+	# Use ProfitCalculator with character skills
+	var trading_analysis = ProfitCalculator.calculate_optimal_trading_prices(buy_orders, sell_orders, character_skills)
+
+	if trading_analysis.is_empty():
+		print("  No trading analysis available")
+		market_chart.set_station_trading_data({})
+		return
+
+	if not trading_analysis.get("has_opportunity", false):
+		print("  ", trading_analysis.get("reason", "No opportunity found"))
+		# Show market spread but clear trading opportunity
+		market_chart.update_spread_data(trading_analysis.get("current_highest_buy", 0), trading_analysis.get("current_lowest_sell", 0))
+		market_chart.set_station_trading_data({})
+		return
+
+	# Display detailed analysis with skill benefits
+	print("  Market Gap: %.2f ISK" % trading_analysis.get("market_gap", 0))
+	print("  Your Buy Order: %.2f ISK (total cost: %.2f ISK)" % [trading_analysis.get("your_buy_price", 0), trading_analysis.get("cost_per_unit", 0)])
+	print("  Your Sell Order: %.2f ISK (net income: %.2f ISK)" % [trading_analysis.get("your_sell_price", 0), trading_analysis.get("income_per_unit", 0)])
+	print("  Profit per unit: %.2f ISK" % trading_analysis.get("profit_per_unit", 0))
+	print("  Profit margin: %.2f%%" % trading_analysis.get("profit_margin", 0))
+
+	# Show skill benefits
+	var skill_savings = trading_analysis.get("skill_savings", {})
+	var fees = trading_analysis.get("fees", {})
+
+	print("  === SKILL BENEFITS ===")
+	print("  Broker Relations Lv%d: %.1f%% broker fee (saved %.2f%%)" % [fees.get("broker_relations_level", 0), fees.get("broker_fee_rate", 0) * 100, skill_savings.get("broker_fee_savings_pct", 0)])
+	print("  Accounting Lv%d: %.1f%% sales tax (saved %.2f%%)" % [fees.get("accounting_level", 0), fees.get("sales_tax_rate", 0) * 100, skill_savings.get("sales_tax_savings_pct", 0)])
+	print("  Total skill savings: %.2f%% in fees" % skill_savings.get("total_fee_savings_pct", 0))
+
+	# Update chart with skill-calculated data
+	market_chart.update_spread_data(trading_analysis.get("current_highest_buy", 0), trading_analysis.get("current_lowest_sell", 0))
+
+	if trading_analysis.get("profit_margin", 0) > 2.0:
+		print("  ✅ PROFITABLE station trading opportunity!")
+
+		# Prepare station trading data for the chart
+		var station_trading_data = {
+			"your_buy_price": trading_analysis.get("your_buy_price", 0),
+			"your_sell_price": trading_analysis.get("your_sell_price", 0),
+			"cost_with_fees": trading_analysis.get("cost_per_unit", 0),
+			"income_after_taxes": trading_analysis.get("income_per_unit", 0),
+			"profit_per_unit": trading_analysis.get("profit_per_unit", 0),
+			"profit_margin": trading_analysis.get("profit_margin", 0),
+			"skill_benefits":
+			{"broker_relations_level": fees.get("broker_relations_level", 0), "accounting_level": fees.get("accounting_level", 0), "fee_savings_pct": skill_savings.get("total_fee_savings_pct", 0)}
+		}
+
+		market_chart.set_station_trading_data(station_trading_data)
+	else:
+		print("  ❌ Profit margin too low (%.2f%% < 2.0%%)" % trading_analysis.get("profit_margin", 0))
+		market_chart.set_station_trading_data({})
+
+
+func analyze_station_trading_optimized(buy_orders: Array, sell_orders: Array, character_data: Dictionary):
+	"""Optimized skill-based station trading analysis"""
+	if buy_orders.is_empty() or sell_orders.is_empty():
+		if market_chart:
+			market_chart.set_station_trading_data({})
+		return
+
+	# Defer heavy calculation to next frame to avoid blocking
+	call_deferred("_perform_trading_analysis", buy_orders, sell_orders, character_data)
+
+
+func _perform_trading_analysis(buy_orders: Array, sell_orders: Array, character_data: Dictionary):
+	"""Perform the actual analysis on deferred frame"""
+	print("=== SKILL-BASED STATION TRADING ANALYSIS (OPTIMIZED) ===")
+
+	var character_skills = character_data.get("skills", {})
+	var trading_analysis = ProfitCalculator.calculate_optimal_trading_prices(buy_orders, sell_orders, character_skills)
+
+	if trading_analysis.is_empty() or not trading_analysis.get("has_opportunity", false):
+		print("  ", trading_analysis.get("reason", "No opportunity found"))
+		if market_chart:
+			var buy_price = buy_orders[0].get("price", 0.0) if buy_orders.size() > 0 else 0.0
+			var sell_price = sell_orders[0].get("price", 0.0) if sell_orders.size() > 0 else 0.0
+			market_chart.update_spread_data(buy_price, sell_price)
+
+			# Pass character info even for non-profitable opportunities
+			var basic_data = {}
+			if not character_data.is_empty():
+				basic_data["skill_benefits"] = {
+					"broker_relations_level": character_skills.get("broker_relations", 0), "accounting_level": character_skills.get("accounting", 0), "fee_savings_pct": 0.0
+				}
+			market_chart.set_station_trading_data(basic_data)
+		return
+
+	# Update UI with results - Show ALL profitable opportunities (even small ones)
+	if market_chart:
+		market_chart.update_spread_data(trading_analysis.get("current_highest_buy", 0), trading_analysis.get("current_lowest_sell", 0))
+
+		var fees = trading_analysis.get("fees", {})
+		var skill_savings = trading_analysis.get("skill_savings", {})
+		var profit_margin = trading_analysis.get("profit_margin", 0)
+
+		# 🔥 FIX: Show ALL positive profit opportunities, regardless of margin size
+		print("  ✅ PROFITABLE station trading opportunity! Margin: %.2f%%" % profit_margin)
+
+		# Enhanced station trading data with detailed skill breakdown
+		var station_trading_data = {
+			"your_buy_price": trading_analysis.get("your_buy_price", 0),
+			"your_sell_price": trading_analysis.get("your_sell_price", 0),
+			"cost_with_fees": trading_analysis.get("cost_per_unit", 0),
+			"income_after_taxes": trading_analysis.get("income_per_unit", 0),
+			"profit_per_unit": trading_analysis.get("profit_per_unit", 0),
+			"profit_margin": profit_margin,
+			"skill_benefits":
+			{
+				"broker_relations_level": fees.get("broker_relations_level", 0),
+				"accounting_level": fees.get("accounting_level", 0),
+				"fee_savings_pct": skill_savings.get("total_fee_savings_pct", 0),
+				"current_broker_fee": fees.get("broker_fee_rate", 0.025) * 100,
+				"current_sales_tax": fees.get("sales_tax_rate", 0.08) * 100,
+				"broker_savings": skill_savings.get("broker_fee_savings_pct", 0),
+				"sales_tax_savings": skill_savings.get("sales_tax_savings_pct", 0)
+			}
+		}
+		market_chart.set_station_trading_data(station_trading_data)
+
+
 # Remove the old _update_cache_status_display function and replace it
 func _update_cache_status_display():
 	"""Timer callback - just calls the main function"""
@@ -779,6 +1052,34 @@ func _update_menu_states():
 		display_popup.set_item_checked(0, market_chart.show_candlesticks)
 		display_popup.set_item_checked(1, market_chart.show_data_points)
 		display_popup.set_item_checked(2, market_chart.show_ma_lines)
+
+
+func _show_skill_change_feedback(skills_improved: bool):
+	"""Show visual feedback when character skills change calculations"""
+	if not market_chart:
+		return
+
+	# Create a temporary notification overlay
+	var notification = Label.new()
+	if skills_improved:
+		notification.text = "✅ Trading calculations updated with character skills!"
+		notification.add_theme_color_override("font_color", Color.GREEN)
+	else:
+		notification.text = "⚠️ Trading calculations reverted to default rates"
+		notification.add_theme_color_override("font_color", Color.YELLOW)
+
+	notification.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	notification.add_theme_font_size_override("font_size", 16)
+
+	# Position at top of chart
+	notification.position = Vector2(market_chart.size.x / 2 - 200, 20)
+	notification.size = Vector2(400, 30)
+	market_chart.add_child(notification)
+
+	# Animate and remove
+	var tween = create_tween()
+	tween.tween_property(notification, "modulate:a", 0.0, 2.0)
+	tween.tween_callback(notification.queue_free)
 
 
 func _on_chart_panel_resized():
@@ -1272,94 +1573,14 @@ func update_realtime_chart_data(data: Dictionary):
 		print("No valid market price for real-time update")
 
 
+# Replace in TradingRightPanel.gd
 func update_realistic_spread_data(buy_orders: Array, sell_orders: Array):
-	"""Calculate realistic station trading opportunities in the same region"""
-	if not market_chart:
+	"""Calculate realistic station trading opportunities - OPTIMIZED"""
+	if not market_chart or buy_orders.is_empty() or sell_orders.is_empty():
 		return
 
-	# Sort orders to ensure we have best prices first
-	var sorted_buy_orders = buy_orders.duplicate()
-	var sorted_sell_orders = sell_orders.duplicate()
-	sorted_buy_orders.sort_custom(func(a, b): return a.get("price", 0) > b.get("price", 0))  # Highest first
-	sorted_sell_orders.sort_custom(func(a, b): return a.get("price", 0) < b.get("price", 0))  # Lowest first
-
-	if sorted_buy_orders.size() == 0 or sorted_sell_orders.size() == 0:
-		print("Insufficient orders for station trading analysis")
-		return
-
-	# STATION TRADING STRATEGY:
-	# 1. You place a BUY order slightly higher than current best buy order
-	# 2. You place a SELL order slightly lower than current best sell order
-	# 3. You profit from the difference (minus taxes/broker fees)
-
-	var current_highest_buy = sorted_buy_orders[0].get("price", 0.0)  # What others are bidding
-	var current_lowest_sell = sorted_sell_orders[0].get("price", 0.0)  # What others are asking
-
-	print("Station Trading Analysis:")
-	print("  Current highest buy order: %.2f ISK" % current_highest_buy)
-	print("  Current lowest sell order: %.2f ISK" % current_lowest_sell)
-
-	# ALWAYS show the actual market spread in the chart (matches market overview)
-	market_chart.update_spread_data(current_highest_buy, current_lowest_sell)
-
-	# Check if there's a gap to exploit
-	var market_gap = current_lowest_sell - current_highest_buy
-	if market_gap <= 0:
-		print("  No market gap - orders overlap, no station trading opportunity")
-		# Clear trading opportunity data but keep the market spread visible
-		market_chart.set_station_trading_data({})
-		return
-
-	# Calculate your competitive prices
-	var price_increment = market_gap * 0.01  # 1% of the gap, or minimum 0.01 ISK
-	price_increment = max(price_increment, 0.01)
-
-	var your_buy_order_price = current_highest_buy + price_increment  # Bid slightly higher
-	var your_sell_order_price = current_lowest_sell - price_increment  # Ask slightly lower
-
-	# EVE Online trading fees and taxes (can be reduced with skills/standings)
-	var broker_fee_rate = 0.025  # 2.5% broker fee (default, reducible to ~1% with skills)
-	var sales_tax_rate = 0.08  # 8% sales tax (reducible to ~1% with skills)
-	var transaction_tax_rate = 0.02  # 2% transaction tax (reducible with standings)
-
-	# Calculate total costs and income
-	var cost_per_unit = your_buy_order_price * (1 + broker_fee_rate + transaction_tax_rate)
-	var income_per_unit = your_sell_order_price * (1 - sales_tax_rate - broker_fee_rate)
-
-	var profit_per_unit = income_per_unit - cost_per_unit
-	var profit_margin = (profit_per_unit / cost_per_unit) * 100.0
-
-	print("  Your buy order: %.2f ISK (total cost with fees: %.2f ISK)" % [your_buy_order_price, cost_per_unit])
-	print("  Your sell order: %.2f ISK (net income after taxes: %.2f ISK)" % [your_sell_order_price, income_per_unit])
-	print("  Profit per unit: %.2f ISK" % profit_per_unit)
-	print("  Profit margin: %.2f%%" % profit_margin)
-
-	# Store the station trading opportunity data for tooltips
-	if profit_margin > 2.0:  # At least 2% profit to be worth the effort
-		print("  ✅ PROFITABLE station trading opportunity!")
-		(
-			market_chart
-			. set_station_trading_data(
-				{
-					"your_buy_price": your_buy_order_price,
-					"your_sell_price": your_sell_order_price,
-					"cost_with_fees": cost_per_unit,
-					"income_after_taxes": income_per_unit,
-					"profit_per_unit": profit_per_unit,
-					"profit_margin": profit_margin,
-					"market_gap": market_gap,
-					"actual_best_buy": current_highest_buy,
-					"actual_best_sell": current_lowest_sell,
-					# ADD THE ORDER BOOK DATA:
-					"buy_orders": sorted_buy_orders,
-					"sell_orders": sorted_sell_orders
-				}
-			)
-		)
-	else:
-		print("  ❌ Not profitable after fees (%.2f%% margin too low)" % profit_margin)
-		# Even for unprofitable trades, include order book for volume analysis
-		market_chart.set_station_trading_data({"buy_orders": sorted_buy_orders, "sell_orders": sorted_sell_orders})
+	# Use optimized analysis
+	analyze_station_trading_optimized(buy_orders, sell_orders, current_character_data)
 
 
 func update_order_book_realtime(data: Dictionary):
@@ -1392,85 +1613,58 @@ func update_order_book_realtime(data: Dictionary):
 
 func update_item_header(item_data: Dictionary):
 	print("=== UPDATING ITEM HEADER ===")
-	print("Item data keys: ", item_data.keys())
 	print("Item name: ", item_data.get("item_name", "N/A"))
 	print("Max buy: ", item_data.get("max_buy", "N/A"))
 	print("Min sell: ", item_data.get("min_sell", "N/A"))
+	print("Skill adjusted: ", item_data.get("skill_adjusted", false))
 
-	# Find the item info panel - try different paths
-	var item_info_panel = get_node_or_null("ItemInfoPanel")
-	if not item_info_panel:
-		print("ItemInfoPanel not found, searching children...")
-		for child in get_children():
-			print("  Child: ", child.name, " (", child.get_class(), ")")
-			if child.name == "ItemInfoPanel":
-				item_info_panel = child
-				break
-
-	if not item_info_panel:
-		print("ERROR: ItemInfoPanel still not found!")
-		return
-
-	print("Found ItemInfoPanel: ", item_info_panel.name)
-
-	# Navigate to the VBoxContainer inside the PanelContainer
-	var vbox = item_info_panel.get_child(0)  # Should be VBoxContainer
-	if not vbox:
-		print("ERROR: No VBoxContainer found in ItemInfoPanel")
-		return
-
-	print("Found VBoxContainer with ", vbox.get_child_count(), " children")
-
-	# Update item name label (first child)
-	var item_name_label = vbox.get_child(0)
-	if item_name_label and item_name_label.has_method("set_text"):
+	# Update item name
+	var item_name_label = get_node("ItemInfoPanel").get_child(0).get_child(0)
+	if item_name_label:
 		var item_name = item_data.get("item_name", "Unknown Item")
 		var item_id = item_data.get("item_id", 0)
-		var new_text = "%s (ID: %d)" % [item_name, item_id]
-		item_name_label.text = new_text
-		print("✓ Updated item name to: ", new_text)
-	else:
-		print("ERROR: Item name label not found or invalid")
+		item_name_label.text = "✓ Updated item name to: %s (ID: %d)" % [item_name, item_id]
+		print("✓ Updated item name to: %s (ID: %d)" % [item_name, item_id])
 
-	# Update price container (second child should be HBoxContainer)
-	if vbox.get_child_count() > 1:
-		var price_container = vbox.get_child(1)
-		print("Price container has ", price_container.get_child_count(), " children")
+	# Update prices with skill benefit indicator
+	var price_container = get_node("ItemInfoPanel").get_child(0).get_child(1)
+	if price_container:
+		print("Price container has %d children" % price_container.get_child_count())
 
-		# Buy price (first child)
-		if price_container.get_child_count() > 0:
-			var buy_price_label = price_container.get_child(0)
-			if buy_price_label and buy_price_label.has_method("set_text"):
-				var max_buy = item_data.get("max_buy", 0.0)
-				buy_price_label.text = "Buy: %s" % format_isk(max_buy)
-				buy_price_label.add_theme_color_override("font_color", Color.GREEN if max_buy > 0 else Color.GRAY)
-				print("✓ Updated buy price to: ", buy_price_label.text)
+		var buy_price_label = price_container.get_node_or_null("BuyPriceLabel")
+		if buy_price_label:
+			var max_buy = item_data.get("max_buy", 0)
+			var new_text = "Buy: %s ISK" % format_isk(max_buy)
+			buy_price_label.text = new_text
+			print("✓ Updated buy price to: %s" % new_text)
 
-		# Sell price (third child, skipping spacer)
-		if price_container.get_child_count() > 2:
-			var sell_price_label = price_container.get_child(2)
-			if sell_price_label and sell_price_label.has_method("set_text"):
-				var min_sell = item_data.get("min_sell", 0.0)
-				sell_price_label.text = "Sell: %s" % format_isk(min_sell)
-				sell_price_label.add_theme_color_override("font_color", Color.RED if min_sell > 0 else Color.GRAY)
-				print("✓ Updated sell price to: ", sell_price_label.text)
+		var sell_price_label = price_container.get_node_or_null("SellPriceLabel")
+		if sell_price_label:
+			var min_sell = item_data.get("min_sell", 0)
+			var new_text = "Sell: %s ISK" % format_isk(min_sell)
+			sell_price_label.text = new_text
+			print("✓ Updated sell price to: %s" % new_text)
 
-		# Spread (fifth child, skipping spacers)
-		if price_container.get_child_count() > 4:
-			var spread_label = price_container.get_child(4)
-			if spread_label and spread_label.has_method("set_text"):
-				var spread = item_data.get("spread", 0.0)
-				var margin = item_data.get("margin", 0.0)
-				spread_label.text = "Spread: %s (%.1f%%)" % [format_isk(spread), margin]
+		var spread_label = price_container.get_node_or_null("SpreadLabel")
+		if spread_label:
+			var spread = item_data.get("spread", 0)
+			var margin = item_data.get("margin", 0)
+			var is_skill_adjusted = item_data.get("skill_adjusted", false)
+			var has_character = not current_character_data.is_empty()
 
-				# Color code based on margin
-				if margin > 10:
-					spread_label.add_theme_color_override("font_color", Color.GREEN)
-				elif margin > 5:
-					spread_label.add_theme_color_override("font_color", Color.YELLOW)
-				else:
-					spread_label.add_theme_color_override("font_color", Color.WHITE)
-				print("✓ Updated spread to: ", spread_label.text)
+			# Show different text based on character login state
+			if has_character and is_skill_adjusted:
+				var character_name = current_character_data.get("name", "Character")
+				spread_label.text = "Spread: %s ISK (%.1f%% with %s's skills)" % [format_isk(spread), margin, character_name]
+				spread_label.add_theme_color_override("font_color", Color.GREEN)  # Green for skill-adjusted
+			elif has_character and not is_skill_adjusted:
+				spread_label.text = "Spread: %s ISK (%.1f%% - no profitable opportunity)" % [format_isk(spread), margin]
+				spread_label.add_theme_color_override("font_color", Color.YELLOW)  # Yellow for logged in but no opportunity
+			else:
+				spread_label.text = "Spread: %s ISK (%.1f%% - default rates)" % [format_isk(spread), margin]
+				spread_label.add_theme_color_override("font_color", Color.GRAY)  # Gray for not logged in
+
+			print("✓ Updated spread to: %s" % spread_label.text)
 
 	print("=== HEADER UPDATE COMPLETE ===")
 
@@ -2034,3 +2228,29 @@ func force_cleanup_all_loading_panels():
 		market_chart.finish_historical_data_load()
 
 	print("Force cleanup complete")
+
+
+func debug_profit_calculations():
+	"""Debug function to test profit calculations with various margins"""
+	print("=== DEBUGGING PROFIT CALCULATIONS ===")
+
+	var test_cases = [
+		{"buy": 1000.0, "sell": 1050.0, "expected_margin": 5.0},  # 5% raw margin
+		{"buy": 1000.0, "sell": 1020.0, "expected_margin": 2.0},  # 2% raw margin
+		{"buy": 1000.0, "sell": 1010.0, "expected_margin": 1.0},  # 1% raw margin
+		{"buy": 1000.0, "sell": 1005.0, "expected_margin": 0.5}  # 0.5% raw margin
+	]
+
+	for test_case in test_cases:
+		var buy_orders = [{"price": test_case.buy, "volume": 100}]
+		var sell_orders = [{"price": test_case.sell, "volume": 100}]
+		var skills = {"broker_relations": 3, "accounting": 4}
+
+		var result = ProfitCalculator.calculate_optimal_trading_prices(buy_orders, sell_orders, skills)
+
+		print("Buy: %.0f, Sell: %.0f" % [test_case.buy, test_case.sell])
+		print("  Expected margin: %.1f%%" % test_case.expected_margin)
+		print("  Actual margin: %.2f%%" % result.get("profit_margin", 0))
+		print("  Has opportunity: %s" % result.get("has_opportunity", false))
+		print("  Reason: %s" % result.get("reason", "N/A"))
+		print("")

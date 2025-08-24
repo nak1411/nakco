@@ -99,12 +99,23 @@ func _on_character_button_pressed():
 
 func _on_character_login(character_data: Dictionary):
 	print("Character logged in: ", character_data.get("name", "Unknown"))
-	# You can now use character data in your trading calculations
-	# Update any UI that should show character-specific information
+
+	# Pass character data to TradingRightPanel for skill-based calculations
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel and trading_panel.has_method("set_character_data"):
+		trading_panel.set_character_data(character_data)
+		print("Character data passed to TradingRightPanel - spread calculations will refresh")
 
 
+# Update the existing _on_character_logout function in Main.gd
 func _on_character_logout():
 	print("Character logged out")
+
+	# Clear character data from TradingRightPanel (triggers refresh with default rates)
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel and trading_panel.has_method("set_character_data"):
+		trading_panel.set_character_data({})  # Empty dict = no skills = default rates
+		print("Character data cleared from TradingRightPanel - reverted to default rates")
 
 
 func show_initial_loading_state():
