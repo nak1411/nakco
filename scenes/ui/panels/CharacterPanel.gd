@@ -3,10 +3,14 @@ extends Control
 signal character_login_success(character_data: Dictionary)
 signal character_logout
 
+var character_api: CharacterAPI
+var current_character: Dictionary = {}
+
 @onready var login_button = $MainHBoxContainer/LeftPortraitSection/LoginContainer/LoginButtonContainer/LoginButton
 @onready var logout_button = $MainHBoxContainer/LeftPortraitSection/LogoutContainer/LogoutButton
 @onready var status_label = $MainHBoxContainer/LeftPortraitSection/LoginContainer/StatusLabel
 @onready var login_container = $MainHBoxContainer/LeftPortraitSection/LoginContainer
+@onready var logout_container = $MainHBoxContainer/LeftPortraitSection/LogoutContainer
 @onready var character_portrait_section = $MainHBoxContainer/LeftPortraitSection/CharacterPortraitSection
 @onready var character_details = $MainHBoxContainer/RightDetailsSection/CharacterDetails
 
@@ -18,9 +22,6 @@ signal character_logout
 @onready var net_worth_label = $MainHBoxContainer/RightDetailsSection/CharacterDetails/WalletSection/WalletDetails/NetWorthLabel
 @onready var location_label = $MainHBoxContainer/RightDetailsSection/CharacterDetails/LocationSection/LocationDetails/LocationLabel
 @onready var skills_container = $MainHBoxContainer/RightDetailsSection/CharacterDetails/TradingSkillsContainer/SkillsDetails/SkillsContainer
-
-var character_api: CharacterAPI
-var current_character: Dictionary = {}
 
 
 func _ready():
@@ -46,6 +47,9 @@ func _ready():
 	character_api.character_data_updated.connect(_on_character_data_updated)
 
 	print("CharacterPanel setup complete")
+
+	# Initially show login UI (this hides logout button)
+	_show_login_ui()
 
 	# Try auto-login first
 	_try_auto_login()
@@ -103,7 +107,7 @@ func _show_login_ui():
 	character_portrait_section.visible = false
 	character_details.visible = false
 	# Hide logout container when not logged in
-	logout_button.get_parent().visible = false
+	logout_container.visible = false
 	status_label.text = "Click Login to authenticate with EVE"
 
 
@@ -112,7 +116,7 @@ func _show_character_ui():
 	character_portrait_section.visible = true
 	character_details.visible = true
 	# Show logout container when logged in
-	logout_button.get_parent().visible = true
+	logout_container.visible = true
 	_update_character_display(current_character)
 
 
@@ -161,7 +165,7 @@ func _load_character_portrait():
 		_create_portrait_placeholder()
 
 
-func _on_portrait_loaded(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+func _on_portrait_loaded(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
 	# Clean up HTTP request
 	var http_requests = get_children().filter(func(child): return child is HTTPRequest)
 	for request in http_requests:
@@ -228,12 +232,12 @@ func _create_portrait_placeholder():
 func _format_isk(amount: float) -> String:
 	if amount >= 1000000000:
 		return "%.2f B ISK" % (amount / 1000000000.0)
-	elif amount >= 1000000:
+	if amount >= 1000000:
 		return "%.2f M ISK" % (amount / 1000000.0)
-	elif amount >= 1000:
+	if amount >= 1000:
 		return "%.2f K ISK" % (amount / 1000.0)
-	else:
-		return "%.2f ISK" % amount
+
+	return "%.2f ISK" % amount
 
 
 func _update_skills_display(skills: Dictionary):

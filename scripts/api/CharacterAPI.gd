@@ -99,7 +99,7 @@ func _start_local_server() -> bool:
 	return true
 
 
-func _process(delta):
+func _process(_delta):
 	if is_listening and tcp_server.is_connection_available():
 		var client = tcp_server.take_connection()
 		var request = client.get_string(client.get_available_bytes())
@@ -200,7 +200,7 @@ func _exchange_code_for_token(auth_code: String):
 		http_request.queue_free()
 
 
-func _on_token_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+func _on_token_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
 	print("Token response received - Code: ", response_code)
 
 	# Clean up HTTP request
@@ -294,6 +294,9 @@ func _fetch_character_data():
 	var http_request = HTTPRequest.new()
 	add_child(http_request)
 
+	# Store reference to this specific request
+	set_meta("current_http_request", http_request)
+
 	var headers = ["Authorization: Bearer " + access_token, "User-Agent: EVE-Trader-Godot/1.0"]
 
 	http_request.request_completed.connect(_on_character_info_received)
@@ -307,13 +310,13 @@ func _fetch_character_data():
 		http_request.queue_free()
 
 
-func _on_character_info_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+func _on_character_info_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
 	print("Character info response - Code: ", response_code)
 
-	# Clean up HTTP request
-	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
-	for node in http_request_nodes:
-		node.queue_free()
+	# Clean up THIS specific HTTP request (sender)
+	var sender = get_meta("current_http_request", null)
+	if sender and is_instance_valid(sender):
+		sender.queue_free()
 
 	var response_text = body.get_string_from_utf8()
 	print("Character info response: ", response_text)
@@ -350,6 +353,9 @@ func _fetch_location_data():
 	var http_request = HTTPRequest.new()
 	add_child(http_request)
 
+	# Store reference to this specific request
+	set_meta("location_http_request", http_request)
+
 	var headers = ["Authorization: Bearer " + access_token, "User-Agent: EVE-Trader-Godot/1.0"]
 
 	http_request.request_completed.connect(_on_location_received)
@@ -362,13 +368,14 @@ func _fetch_location_data():
 		http_request.queue_free()
 
 
-func _on_location_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+func _on_location_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
 	print("Location response - Code: ", response_code)
 
-	# Clean up HTTP request
-	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
-	for node in http_request_nodes:
-		node.queue_free()
+	# Clean up THIS specific HTTP request
+	var sender = get_meta("location_http_request", null)
+	if sender and is_instance_valid(sender):
+		sender.queue_free()
+		remove_meta("location_http_request")
 
 	var response_text = body.get_string_from_utf8()
 	print("Location response: ", response_text)
@@ -378,11 +385,16 @@ func _on_location_received(result: int, response_code: int, headers: PackedStrin
 		if json.parse(response_text) == OK:
 			var location_data = json.data
 			var system_id = location_data.get("solar_system_id", 0)
+			var station_id = location_data.get("station_id", 0)
 
-			if system_id > 0:
+			if station_id > 0:
+				# Character is docked at a station - get station name
+				_fetch_station_name(station_id)
+			elif system_id > 0:
+				# Character is in space - get system name
 				_fetch_system_name(system_id)
 			else:
-				character_data["location"] = "Unknown System"
+				character_data["location"] = "Unknown Location"
 				character_data_updated.emit(character_data)
 		else:
 			character_data["location"] = "Parse Error"
@@ -392,11 +404,63 @@ func _on_location_received(result: int, response_code: int, headers: PackedStrin
 		character_data_updated.emit(character_data)
 
 
+func _fetch_station_name(station_id: int):
+	print("Fetching station name for ID: ", station_id)
+
+	var http_request = HTTPRequest.new()
+	add_child(http_request)
+
+	# Store reference to this specific request
+	set_meta("station_http_request", http_request)
+
+	var headers = ["User-Agent: EVE-Trader-Godot/1.0"]
+	http_request.request_completed.connect(_on_station_name_received)
+
+	var url = ESI_BASE_URL + "/universe/stations/%d/" % station_id
+	print("Fetching station name from: ", url)
+
+	var request_error = http_request.request(url, headers)
+	if request_error != OK:
+		print("Failed to make station name request: ", request_error)
+		character_data["location"] = "Station ID: %d" % station_id
+		character_data_updated.emit(character_data)
+		http_request.queue_free()
+
+
+func _on_station_name_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
+	print("Station name response - Code: ", response_code)
+
+	# Clean up THIS specific HTTP request
+	var sender = get_meta("station_http_request", null)
+	if sender and is_instance_valid(sender):
+		sender.queue_free()
+		remove_meta("station_http_request")
+
+	var response_text = body.get_string_from_utf8()
+	print("Station name response: ", response_text)
+
+	if response_code == 200:
+		var json = JSON.new()
+		if json.parse(response_text) == OK:
+			var station_data = json.data
+			character_data["location"] = station_data.get("name", "Unknown Station")
+		else:
+			character_data["location"] = "Station Parse Error"
+	else:
+		print("Station name request failed with code: ", response_code)
+		character_data["location"] = "Station API Error"
+
+	character_data_updated.emit(character_data)
+
+
 func _fetch_system_name(system_id: int):
 	print("Fetching system name for ID: ", system_id)
 
 	var http_request = HTTPRequest.new()
 	add_child(http_request)
+
+	# Store reference to this specific request
+	set_meta("system_http_request", http_request)
 
 	var headers = ["User-Agent: EVE-Trader-Godot/1.0"]
 	http_request.request_completed.connect(_on_system_name_received)
@@ -412,13 +476,14 @@ func _fetch_system_name(system_id: int):
 		http_request.queue_free()
 
 
-func _on_system_name_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+func _on_system_name_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
 	print("System name response - Code: ", response_code)
 
-	# Clean up HTTP request
-	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
-	for node in http_request_nodes:
-		node.queue_free()
+	# Clean up THIS specific HTTP request
+	var sender = get_meta("system_http_request", null)
+	if sender and is_instance_valid(sender):
+		sender.queue_free()
+		remove_meta("system_http_request")
 
 	var response_text = body.get_string_from_utf8()
 	print("System name response: ", response_text)
@@ -443,6 +508,9 @@ func _fetch_wallet_balance():
 	var http_request = HTTPRequest.new()
 	add_child(http_request)
 
+	# Store reference to this specific request
+	set_meta("wallet_http_request", http_request)
+
 	var headers = ["Authorization: Bearer " + access_token, "User-Agent: EVE-Trader-Godot/1.0"]
 
 	http_request.request_completed.connect(_on_wallet_balance_received)
@@ -455,13 +523,14 @@ func _fetch_wallet_balance():
 		http_request.queue_free()
 
 
-func _on_wallet_balance_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+func _on_wallet_balance_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
 	print("Wallet balance response - Code: ", response_code)
 
-	# Clean up HTTP request
-	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
-	for node in http_request_nodes:
-		node.queue_free()
+	# Clean up THIS specific HTTP request
+	var sender = get_meta("wallet_http_request", null)
+	if sender and is_instance_valid(sender):
+		sender.queue_free()
+		remove_meta("wallet_http_request")
 
 	var response_text = body.get_string_from_utf8()
 	print("Wallet balance response: ", response_text)
@@ -483,6 +552,9 @@ func _fetch_skills_data():
 	var http_request = HTTPRequest.new()
 	add_child(http_request)
 
+	# Store reference to this specific request
+	set_meta("skills_http_request", http_request)
+
 	var headers = ["Authorization: Bearer " + access_token, "User-Agent: EVE-Trader-Godot/1.0"]
 
 	http_request.request_completed.connect(_on_skills_received)
@@ -497,13 +569,14 @@ func _fetch_skills_data():
 		http_request.queue_free()
 
 
-func _on_skills_received(result: int, response_code: int, headers: PackedStringArray, body: PackedByteArray):
+func _on_skills_received(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray):
 	print("Skills response - Code: ", response_code)
 
-	# Clean up HTTP request
-	var http_request_nodes = get_children().filter(func(child): return child is HTTPRequest)
-	for node in http_request_nodes:
-		node.queue_free()
+	# Clean up THIS specific HTTP request
+	var sender = get_meta("skills_http_request", null)
+	if sender and is_instance_valid(sender):
+		sender.queue_free()
+		remove_meta("skills_http_request")
 
 	var response_text = body.get_string_from_utf8()
 	print("Skills response: ", response_text)
