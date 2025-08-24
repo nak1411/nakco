@@ -31,7 +31,7 @@ var market_grid: SpreadsheetGrid
 @onready var main_content: HSplitContainer = $UIManager/MainContent
 @onready var status_bar: HBoxContainer = $UIManager/StatusBar
 @onready var character_button = $UIManager/Toolbar/CharacterButton
-@onready var character_panel = $UIManager/CharacterPanel
+@onready var character_panel = $UIManager/MainContent/CenterRightPanel/CenterPanel/Character
 
 # Toolbar controls
 @onready var refresh_button: Button = $UIManager/Toolbar/RefreshButton
