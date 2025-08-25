@@ -16,6 +16,7 @@ var is_loading: bool = false
 var market_data_loaded: bool = false
 var chart_data_loaded: bool = false
 var preserve_tab_index: int = 0
+var calculation_controls_created = false
 
 # Core managers
 var data_manager: DataManager
@@ -66,6 +67,7 @@ func _ready():
 
 	setup_managers()
 	setup_ui()
+	debug_market_overview_children()
 	setup_signals()
 	populate_region_selector()
 
@@ -106,8 +108,12 @@ func _on_character_login(character_data: Dictionary):
 		trading_panel.set_character_data(character_data)
 		print("Character data passed to TradingRightPanel - spread calculations will refresh")
 
+	# Pass character data to market grid for skill-adjusted calculations
+	if market_grid and market_grid.has_method("set_character_data"):
+		market_grid.set_character_data(character_data)
+		print("Character data passed to market grid")
 
-# Update the existing _on_character_logout function in Main.gd
+
 func _on_character_logout():
 	print("Character logged out")
 
@@ -116,6 +122,11 @@ func _on_character_logout():
 	if trading_panel and trading_panel.has_method("set_character_data"):
 		trading_panel.set_character_data({})  # Empty dict = no skills = default rates
 		print("Character data cleared from TradingRightPanel - reverted to default rates")
+
+	# Clear character data from market grid
+	if market_grid and market_grid.has_method("set_character_data"):
+		market_grid.set_character_data({})
+		print("Character data cleared from market grid")
 
 
 func show_initial_loading_state():
@@ -321,7 +332,7 @@ func force_remove_loading_panel():
 
 	print("force_remove_loading_panel called")
 
-	# Remove ALL children that might be loading-related
+	# Remove ALL children that might be loading-related (but preserve calculation controls)
 	var children_to_remove = []
 	for child in market_overview.get_children():
 		if child.name.begins_with("LoadingContainer"):
@@ -335,14 +346,18 @@ func force_remove_loading_panel():
 	# Ensure the ExcelLikeGrid is properly positioned and sized
 	var excel_grid = market_overview.get_node_or_null("ExcelLikeGrid")
 	if excel_grid:
-		print("Ensuring ExcelLikeGrid covers full area")
+		print("Ensuring ExcelLikeGrid is positioned below controls")
 		excel_grid.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		excel_grid.offset_top = 40  # Leave space for controls!
 		excel_grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		excel_grid.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		excel_grid.visible = true
 
-		# Move it to front to ensure it's on top
-		market_overview.move_child(excel_grid, -1)
+	# Ensure calculation controls stay on top
+	for child in market_overview.get_children():
+		if child.name.begins_with("CalculationControls_"):
+			market_overview.move_child(child, -1)  # Move to front
+			break
 
 
 func setup_ui():
@@ -394,6 +409,8 @@ func setup_ui():
 
 	# Create market grid
 	setup_market_grid()
+
+	setup_calculation_mode_selector()
 
 	setup_status_bar_with_progress()
 
@@ -501,6 +518,26 @@ func create_order_book_panel():
 	order_scroll.add_child(order_book_list)
 
 	print("Order book panel created in left panel")
+
+
+func setup_calculation_mode_selector():
+	var market_overview = center_panel.get_node_or_null("MarketOverview")
+	if not market_overview:
+		return
+
+	var controls_panel = market_overview.get_node_or_null("ControlsPanel")
+	if not controls_panel:
+		return
+
+	var mode_selector = controls_panel.get_node_or_null("CalculationModeSelector")
+	var info_label = controls_panel.get_node_or_null("InfoLabel")
+
+	if mode_selector:
+		mode_selector.item_selected.connect(_on_calculation_mode_changed)
+
+	# Set initial info text
+	if info_label:
+		info_label.text = "Raw: (sell - buy) / buy × 100"
 
 
 func _on_refresh_orders_pressed():
@@ -675,10 +712,25 @@ func setup_market_grid():
 		existing_grid.queue_free()
 		await existing_grid.tree_exited
 
-	# Create new Excel-like market grid
+	# Remove existing ExcelLikeGrid
+	var existing_excel_grid = market_overview.get_node_or_null("ExcelLikeGrid")
+	if existing_excel_grid:
+		existing_excel_grid.queue_free()
+		await existing_excel_grid.tree_exited
+
+	# 🔥 FIRST: Create calculation mode controls
+	create_calculation_mode_controls(market_overview)
+
+	# Wait a frame to ensure controls are added
+	await get_tree().process_frame
+
+	# 🔥 THEN: Create the Excel-like market grid positioned BELOW the controls
 	market_grid = SpreadsheetGrid.new()
 	market_grid.name = "ExcelLikeGrid"
+
+	# 🔥 KEY FIX: Position it below the controls instead of full rect
 	market_grid.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	market_grid.offset_top = 40  # Leave 40px space for controls at the top
 
 	# Pass reference to data manager
 	market_grid.data_manager = data_manager
@@ -694,6 +746,154 @@ func setup_market_grid():
 	market_grid.column_resized.connect(_on_column_resized)
 
 	print("Excel-like market grid setup complete")
+
+
+func create_calculation_mode_controls(market_overview: Control):
+	print("create_calculation_mode_controls called")
+
+	# 🔥 BULLETPROOF: Check if controls already exist by looking for the actual node
+	var existing_controls = market_overview.get_node_or_null("CalculationControls")
+	if existing_controls and is_instance_valid(existing_controls):
+		print("Calculation controls already exist and are valid, skipping creation")
+		return
+
+	# 🔥 EMERGENCY CLEANUP: Remove ANY control that might be calculation-related
+	var children_to_remove = []
+	for child in market_overview.get_children():
+		var child_name = child.name.to_lower()
+		if child_name.begins_with("calculation") or child_name.contains("margin") or child_name.contains("mode") or child.name == "CalculationControls":
+			children_to_remove.append(child)
+			print("Found potential duplicate control: ", child.name)
+
+	# Remove all potential duplicates
+	for child in children_to_remove:
+		print("Emergency removing control: ", child.name)
+		market_overview.remove_child(child)
+		child.queue_free()
+
+	# Force a frame wait to ensure cleanup
+	if children_to_remove.size() > 0:
+		await get_tree().process_frame
+		await get_tree().process_frame  # Extra frame for safety
+
+	print("Creating calculation controls - clean slate confirmed")
+
+	# Create the controls with a very specific name
+	var controls_container = HBoxContainer.new()
+	controls_container.name = "CalculationControls"  # Fixed name, no timestamp
+	controls_container.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+	controls_container.custom_minimum_size.y = 35
+	controls_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	controls_container.z_index = 100
+
+	# Add a unique metadata to identify our controls
+	controls_container.set_meta("nakco_calculation_controls", true)
+
+	# Background
+	var background = PanelContainer.new()
+	background.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var bg_style = StyleBoxFlat.new()
+	bg_style.bg_color = Color(0.1, 0.1, 0.15, 0.9)
+	bg_style.border_width_bottom = 1
+	bg_style.border_color = Color(0.3, 0.3, 0.4, 1)
+	background.add_theme_stylebox_override("panel", bg_style)
+	controls_container.add_child(background)
+
+	# Content
+	var content_container = HBoxContainer.new()
+	content_container.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	content_container.add_theme_constant_override("separation", 8)
+	controls_container.add_child(content_container)
+
+	# Padding
+	var left_spacer = Control.new()
+	left_spacer.custom_minimum_size.x = 10
+	content_container.add_child(left_spacer)
+
+	# Label
+	var calc_label = Label.new()
+	calc_label.text = "Margin Calculation:"
+	calc_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	calc_label.add_theme_color_override("font_color", Color.WHITE)
+	content_container.add_child(calc_label)
+
+	# Dropdown
+	var mode_selector = OptionButton.new()
+	mode_selector.name = "CalculationModeSelector"
+	mode_selector.add_item("Raw Spread")
+	mode_selector.add_item("Skill-Adjusted")
+	mode_selector.selected = 0
+	mode_selector.custom_minimum_size.x = 120
+	content_container.add_child(mode_selector)
+
+	# Info label
+	var info_label = Label.new()
+	info_label.name = "InfoLabel"
+	info_label.text = "Raw: (sell - buy) / buy × 100%"
+	info_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	info_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+	content_container.add_child(info_label)
+
+	# Spacer
+	var expand_spacer = Control.new()
+	expand_spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_container.add_child(expand_spacer)
+
+	# Add to scene - this is the critical moment
+	market_overview.add_child(controls_container)
+	print("Controls added to scene successfully")
+
+	# Connect signal
+	mode_selector.item_selected.connect(_on_calculation_mode_changed)
+
+	# Final verification
+	var verification = market_overview.get_node_or_null("CalculationControls")
+	if verification:
+		print("✅ Controls creation verified successful")
+	else:
+		print("❌ Controls creation failed verification!")
+
+
+# 🔥 NEW: Add this function to handle mode changes
+func _on_calculation_mode_changed(index: int):
+	print("Calculation mode changed to: ", "Raw Spread" if index == 0 else "Skill-Adjusted")
+
+	var market_overview = center_panel.get_node_or_null("MarketOverview")
+	if not market_overview:
+		return
+
+	# Find the controls (now they have a fixed name)
+	var controls = market_overview.get_node_or_null("CalculationControls")
+	if not controls:
+		print("Could not find calculation controls")
+		return
+
+	# Find the info label within the controls
+	var content_container = null
+	for child in controls.get_children():
+		if child is HBoxContainer:
+			content_container = child
+			break
+
+	var info_label = content_container.get_node_or_null("InfoLabel") if content_container else null
+
+	# Update info label
+	if info_label:
+		if index == 0:  # Raw
+			info_label.text = "Raw: (sell - buy) / buy × 100%"
+			info_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.7, 1))
+		else:  # Skill-Adjusted
+			info_label.text = "Skill-Adjusted: accounts for broker fees, sales tax & skills"
+			info_label.add_theme_color_override("font_color", Color(0.7, 0.9, 0.7, 1))  # Slightly green tint
+
+	# Update market grid calculation mode
+	if market_grid and market_grid.has_method("set_calculation_mode"):
+		market_grid.set_calculation_mode(index)  # 0 = RAW, 1 = SKILL_ADJUSTED
+
+	# Update TradingRightPanel to match
+	var trading_panel = right_panel.get_node_or_null("TradingRightPanel")
+	if trading_panel and trading_panel.has_method("set_calculation_mode"):
+		trading_panel.set_calculation_mode(index)
 
 
 func setup_status_bar_with_progress():
@@ -995,6 +1195,17 @@ func _on_api_error(error_message: String):
 	# Update status
 	api_status.text = "API: Error"
 	connection_status.text = "Connection issues"
+
+
+func debug_market_overview_children():
+	var market_overview = center_panel.get_node_or_null("MarketOverview")
+	if market_overview:
+		print("=== MARKET OVERVIEW CHILDREN DEBUG ===")
+		for child in market_overview.get_children():
+			print("Child: ", child.name, " (", child.get_class(), ") - Valid: ", is_instance_valid(child))
+		print("=== END DEBUG ===")
+	else:
+		print("MarketOverview not found!")
 
 
 func _on_notification(notification: Dictionary):

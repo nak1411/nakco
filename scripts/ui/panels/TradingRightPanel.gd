@@ -646,73 +646,6 @@ func _refresh_item_header_calculations():
 		update_item_header(updated_item_data)
 
 
-func analyze_station_trading(buy_orders: Array, sell_orders: Array, character_data: Dictionary):
-	if buy_orders.is_empty() or sell_orders.is_empty():
-		print("Cannot analyze station trading - missing order data")
-		market_chart.set_station_trading_data({})
-		return
-
-	print("=== SKILL-BASED STATION TRADING ANALYSIS ===")
-
-	# Get character skills (fallback to empty dict if not available)
-	var character_skills = character_data.get("skills", {})
-	print("Using character skills: ", character_skills)
-
-	# Use ProfitCalculator with character skills
-	var trading_analysis = ProfitCalculator.calculate_optimal_trading_prices(buy_orders, sell_orders, character_skills)
-
-	if trading_analysis.is_empty():
-		print("  No trading analysis available")
-		market_chart.set_station_trading_data({})
-		return
-
-	if not trading_analysis.get("has_opportunity", false):
-		print("  ", trading_analysis.get("reason", "No opportunity found"))
-		# Show market spread but clear trading opportunity
-		market_chart.update_spread_data(trading_analysis.get("current_highest_buy", 0), trading_analysis.get("current_lowest_sell", 0))
-		market_chart.set_station_trading_data({})
-		return
-
-	# Display detailed analysis with skill benefits
-	print("  Market Gap: %.2f ISK" % trading_analysis.get("market_gap", 0))
-	print("  Your Buy Order: %.2f ISK (total cost: %.2f ISK)" % [trading_analysis.get("your_buy_price", 0), trading_analysis.get("cost_per_unit", 0)])
-	print("  Your Sell Order: %.2f ISK (net income: %.2f ISK)" % [trading_analysis.get("your_sell_price", 0), trading_analysis.get("income_per_unit", 0)])
-	print("  Profit per unit: %.2f ISK" % trading_analysis.get("profit_per_unit", 0))
-	print("  Profit margin: %.2f%%" % trading_analysis.get("profit_margin", 0))
-
-	# Show skill benefits
-	var skill_savings = trading_analysis.get("skill_savings", {})
-	var fees = trading_analysis.get("fees", {})
-
-	print("  === SKILL BENEFITS ===")
-	print("  Broker Relations Lv%d: %.1f%% broker fee (saved %.2f%%)" % [fees.get("broker_relations_level", 0), fees.get("broker_fee_rate", 0) * 100, skill_savings.get("broker_fee_savings_pct", 0)])
-	print("  Accounting Lv%d: %.1f%% sales tax (saved %.2f%%)" % [fees.get("accounting_level", 0), fees.get("sales_tax_rate", 0) * 100, skill_savings.get("sales_tax_savings_pct", 0)])
-	print("  Total skill savings: %.2f%% in fees" % skill_savings.get("total_fee_savings_pct", 0))
-
-	# Update chart with skill-calculated data
-	market_chart.update_spread_data(trading_analysis.get("current_highest_buy", 0), trading_analysis.get("current_lowest_sell", 0))
-
-	if trading_analysis.get("profit_margin", 0) > 2.0:
-		print("  ✅ PROFITABLE station trading opportunity!")
-
-		# Prepare station trading data for the chart
-		var station_trading_data = {
-			"your_buy_price": trading_analysis.get("your_buy_price", 0),
-			"your_sell_price": trading_analysis.get("your_sell_price", 0),
-			"cost_with_fees": trading_analysis.get("cost_per_unit", 0),
-			"income_after_taxes": trading_analysis.get("income_per_unit", 0),
-			"profit_per_unit": trading_analysis.get("profit_per_unit", 0),
-			"profit_margin": trading_analysis.get("profit_margin", 0),
-			"skill_benefits":
-			{"broker_relations_level": fees.get("broker_relations_level", 0), "accounting_level": fees.get("accounting_level", 0), "fee_savings_pct": skill_savings.get("total_fee_savings_pct", 0)}
-		}
-
-		market_chart.set_station_trading_data(station_trading_data)
-	else:
-		print("  ❌ Profit margin too low (%.2f%% < 2.0%%)" % trading_analysis.get("profit_margin", 0))
-		market_chart.set_station_trading_data({})
-
-
 func analyze_station_trading_optimized(buy_orders: Array, sell_orders: Array, character_data: Dictionary):
 	"""Optimized skill-based station trading analysis"""
 	if buy_orders.is_empty() or sell_orders.is_empty():
@@ -756,7 +689,8 @@ func _perform_trading_analysis(buy_orders: Array, sell_orders: Array, character_
 		var profit_margin = trading_analysis.get("profit_margin", 0)
 
 		# 🔥 FIX: Show ALL positive profit opportunities, regardless of margin size
-		print("  ✅ PROFITABLE station trading opportunity! Margin: %.2f%%" % profit_margin)
+		print("  ✅ PROFITABLE station trading opportunity!")
+		print("  Margin: %.2f%%" % profit_margin)
 
 		# Enhanced station trading data with detailed skill breakdown
 		var station_trading_data = {
@@ -778,6 +712,14 @@ func _perform_trading_analysis(buy_orders: Array, sell_orders: Array, character_
 			}
 		}
 		market_chart.set_station_trading_data(station_trading_data)
+
+		# 🔥 NEW: Update the item header to show skill-adjusted results
+		if not selected_item_data.is_empty():
+			var updated_item_data = selected_item_data.duplicate()
+			updated_item_data["margin"] = profit_margin
+			updated_item_data["skill_adjusted"] = true  # Mark as skill-adjusted
+			updated_item_data["spread"] = trading_analysis.get("profit_per_unit", 0)  # Use actual profit as spread
+			update_item_header(updated_item_data)
 
 
 # Remove the old _update_cache_status_display function and replace it
@@ -1657,12 +1599,18 @@ func update_item_header(item_data: Dictionary):
 				var character_name = current_character_data.get("name", "Character")
 				spread_label.text = "Spread: %s ISK (%.1f%% with %s's skills)" % [format_isk(spread), margin, character_name]
 				spread_label.add_theme_color_override("font_color", Color.GREEN)  # Green for skill-adjusted
-			elif has_character and not is_skill_adjusted:
-				spread_label.text = "Spread: %s ISK (%.1f%% - no profitable opportunity)" % [format_isk(spread), margin]
-				spread_label.add_theme_color_override("font_color", Color.YELLOW)  # Yellow for logged in but no opportunity
+			elif has_character:
+				# Character logged in - check if margin is actually profitable
+				if margin > 0.0:
+					var character_name = current_character_data.get("name", "Character")
+					spread_label.text = "Spread: %s ISK (%.1f%% - analyzing with %s's skills)" % [format_isk(spread), margin, character_name]
+					spread_label.add_theme_color_override("font_color", Color.YELLOW)  # Yellow for analyzing
+				else:
+					spread_label.text = "Spread: %s ISK (%.1f%% - no profitable opportunity)" % [format_isk(spread), margin]
+					spread_label.add_theme_color_override("font_color", Color.ORANGE)  # Orange for no opportunity
 			else:
 				spread_label.text = "Spread: %s ISK (%.1f%% - default rates)" % [format_isk(spread), margin]
-				spread_label.add_theme_color_override("font_color", Color.GRAY)  # Gray for not logged in
+				spread_label.add_theme_color_override("font_color", Color.GRAY)
 
 			print("✓ Updated spread to: %s" % spread_label.text)
 

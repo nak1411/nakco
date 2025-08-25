@@ -5,6 +5,11 @@ extends Control
 signal item_selected(item_id: int, item_data: Dictionary)
 signal progress_updated(named_items: int, total_items: int, total_available: int)
 
+# Calculation mode functionality
+enum CalculationMode { RAW, SKILL_ADJUSTED }
+var calculation_mode = CalculationMode.RAW
+var current_character_data = {}
+
 var data_manager: DataManager
 
 var grid_data: Array = []
@@ -215,10 +220,24 @@ func update_market_data(data_dict: Dictionary):
 		# Calculate total volume
 		item.volume = item.total_buy_volume + item.total_sell_volume
 
-		# Calculate spread and margin only if we have both buy and sell
+		# Calculate spread and margin using current calculation mode
 		if item.has_buy and item.has_sell and item.max_buy > 0 and item.min_sell < 999999999.0:
 			item.spread = item.min_sell - item.max_buy
-			item.margin = (item.spread / item.max_buy) * 100.0 if item.max_buy > 0 else 0.0
+
+			# Use current calculation mode for margin
+			if calculation_mode == CalculationMode.RAW:
+				item.margin = (item.spread / item.max_buy) * 100.0 if item.max_buy > 0 else 0.0
+			else:
+				# Skill-adjusted calculation
+				var character_skills = current_character_data.get("skills", {})
+				var mock_buy_orders = [{"price": item.max_buy, "volume": 1}]
+				var mock_sell_orders = [{"price": item.min_sell, "volume": 1}]
+				var trading_analysis = ProfitCalculator.calculate_optimal_trading_prices(mock_buy_orders, mock_sell_orders, character_skills)
+
+				if not trading_analysis.is_empty() and trading_analysis.get("has_opportunity", false):
+					item.margin = trading_analysis.get("profit_margin", 0.0)
+				else:
+					item.margin = 0.0
 		else:
 			if not item.has_sell:
 				item.min_sell = 0.0
@@ -456,69 +475,77 @@ func _on_item_selected(item: Dictionary):
 	emit_signal("item_selected", item_id, enhanced_item_data)
 
 
+# 🔥 NEW: Calculation mode methods
+func set_calculation_mode(mode: int):
+	calculation_mode = mode
+	print("MarketDataGrid: Calculation mode set to: ", "RAW" if mode == 0 else "SKILL_ADJUSTED")
+	# Trigger a refresh of margins if we have data
+	if grid_data.size() > 0:
+		refresh_margin_calculations()
+
+
+func set_character_data(character_data: Dictionary):
+	current_character_data = character_data
+	print("MarketDataGrid: Character data updated")
+	# Only refresh if we're in skill-adjusted mode
+	if calculation_mode == CalculationMode.SKILL_ADJUSTED:
+		refresh_margin_calculations()
+
+
+func refresh_margin_calculations():
+	print("MarketDataGrid: Refreshing margin calculations with mode: ", calculation_mode)
+
+	for item in grid_data:
+		if calculation_mode == CalculationMode.RAW:
+			# Raw calculation: (sell - buy) / buy * 100
+			if item.get("has_buy", false) and item.get("has_sell", false) and item.get("max_buy", 0) > 0:
+				var spread = item.get("min_sell", 0) - item.get("max_buy", 0)
+				item["margin"] = (spread / item.get("max_buy", 0)) * 100.0
+			else:
+				item["margin"] = 0.0
+		else:
+			# Skill-adjusted calculation using ProfitCalculator
+			if item.get("has_buy", false) and item.get("has_sell", false):
+				var character_skills = current_character_data.get("skills", {})
+				var mock_buy_orders = [{"price": item.get("max_buy", 0), "volume": 1}]
+				var mock_sell_orders = [{"price": item.get("min_sell", 0), "volume": 1}]
+				var trading_analysis = ProfitCalculator.calculate_optimal_trading_prices(mock_buy_orders, mock_sell_orders, character_skills)
+
+				if not trading_analysis.is_empty() and trading_analysis.get("has_opportunity", false):
+					item["margin"] = trading_analysis.get("profit_margin", 0.0)
+				else:
+					item["margin"] = 0.0
+			else:
+				item["margin"] = 0.0
+
+	# Rebuild the visual grid using the existing method
+	refresh_display()
+
+
+# Utility functions
 func format_isk(value: float) -> String:
+	if value >= 1000000000000:
+		return "%.2fT ISK" % (value / 1000000000000.0)
 	if value >= 1000000000:
-		return "%.2fB" % (value / 1000000000.0)
+		return "%.2fB ISK" % (value / 1000000000.0)
 	if value >= 1000000:
-		return "%.2fM" % (value / 1000000.0)
+		return "%.2fM ISK" % (value / 1000000.0)
 	if value >= 1000:
-		return "%.2fK" % (value / 1000.0)
-	return "%.2f" % value
+		return "%.2fK ISK" % (value / 1000.0)
+	return "%.2f ISK" % value
 
 
-func format_number(value: float) -> String:
+func format_number(value: int) -> String:
+	if value >= 1000000000:
+		return "%.1fB" % (value / 1000000000.0)
 	if value >= 1000000:
-		return "%.2fM" % (value / 1000000.0)
+		return "%.1fM" % (value / 1000000.0)
 	if value >= 1000:
-		return "%.2fK" % (value / 1000.0)
-	return "%.2f" % value
-
-
-func refresh_all_item_names():
-	if data_manager:
-		for item in grid_data:
-			var type_id = item.get("item_id", 0)
-			var new_name = data_manager.get_item_name(type_id)
-			if new_name != item.get("item_name", "") and not new_name.begins_with("Item "):
-				item.item_name = new_name
-
-		# Don't refresh immediately - batch the updates
-		pending_name_updates = true
+		return "%.1fK" % (value / 1000.0)
+	return str(value)
 
 
 func set_region_info(region_id: int, region_name: String):
 	current_region_id = region_id
 	current_region_name = region_name
-	print("MarketDataGrid: Set region to ", region_name, " (", region_id, ")")
-
-
-func get_current_region_name() -> String:
-	# You'll need to pass this from Main or store it
-	return "Current Region"  # Placeholder for now
-
-
-func get_item_data(item_id: int) -> Dictionary:
-	# Find the item data in our existing grid_data
-	for item in grid_data:
-		if item.get("item_id", 0) == item_id:
-			print("MarketDataGrid: Found existing data for item ", item_id)
-			return item.duplicate()  # Return a copy to avoid reference issues
-
-	print("MarketDataGrid: No existing data found for item ", item_id)
-	return {}
-
-
-func get_trading_hub_info(region_name: String) -> String:
-	match region_name:
-		"The Forge (Jita)":
-			return " - Caldari Trade Hub"
-		"Domain (Amarr)":
-			return " - Amarr Trade Hub"
-		"Sinq Laison (Dodixie)":
-			return " - Gallente Trade Hub"
-		"Metropolis (Rens)":
-			return " - Minmatar Trade Hub"
-		"Heimatar (Hek)":
-			return " - Secondary Minmatar Hub"
-		_:
-			return ""
+	print("MarketDataGrid: Region set to ", region_name, " (", region_id, ")")

@@ -246,11 +246,40 @@ current_tab = 0
 layout_mode = 2
 metadata/_tab_index = 0
 
+[node name="CalculationLabel" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/ControlsPanel"]
+layout_mode = 2
+text = "Margin Calculation:"
+vertical_alignment = 1
+
+[node name="CalculationModeSelector" type="OptionButton" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/ControlsPanel"]
+layout_mode = 2
+selected = 0
+item_count = 2
+popup/item_0/text = "Raw Spread"
+popup/item_0/id = 0
+popup/item_1/text = "Skill-Adjusted"
+popup/item_1/id = 1
+
+[node name="HSeparator" type="HSeparator" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/ControlsPanel"]
+custom_minimum_size = Vector2(20, 0)
+layout_mode = 2
+
+[node name="InfoLabel" type="Label" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/ControlsPanel"]
+modulate = Color(0.7, 0.7, 0.7, 1)
+layout_mode = 2
+text = "Raw: (sell - buy) / buy × 100"
+vertical_alignment = 1
+
+[node name="Spacer" type="Control" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview/ControlsPanel"]
+layout_mode = 2
+size_flags_horizontal = 3
+
 [node name="MarketGrid" type="ScrollContainer" parent="UIManager/MainContent/CenterRightPanel/CenterPanel/MarketOverview"]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+offset_top = 40.0
 grow_horizontal = 2
 grow_vertical = 2
 
